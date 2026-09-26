@@ -201,7 +201,8 @@ public final class HomeTweaks {
 
     /** 首页顶部运营横幅 / 运营卡（无开关强制清除）：十一出行补贴横幅、AI叫车卡。 */
     private static final String[] ANCHOR_JUNK_TOP = {
-            "十一出行补贴", "限时开领", "赢好礼", "AI叫车", "一句话定制"};
+            "十一出行补贴", "限时开领", "赢好礼", "AI叫车", "一句话定制",
+            "打车惊喜优惠券", "领券下单享立减", "惊喜特惠"};
     /** 悬浮推广球文案（窗口级 overlay，由 floatBallSweep 结构定位整球摘除） */
     private static final String[] FLOAT_BALL_WORDS = {"扫街榜", "赢好礼"};
 
@@ -425,10 +426,10 @@ public final class HomeTweaks {
                                 try {
                                     Object n0 = chain.getArg(0);
                                     Object v1 = chain.getArg(1);
-                                    // v1.1.9：不再只认 "text" 属性 —— 目的地页板块标题
-                                    //（发现好去处）实测不走 setText 也不走 setAttribute("text")，
-                                    //  任何属性名只要是 CharSequence 文本都进锚点表。
-                                    if (n0 instanceof String && v1 instanceof CharSequence) {
+                                    // v1.2.3：收回全属性钩子 —— 垃圾文本大量涌入锚点表
+                                    // 成了误命中源；板块标题走结构识别（boardSweep）。
+                                    if (n0 instanceof String && v1 instanceof CharSequence
+                                            && "text".equals(n0)) {
                                         onTextSet((View) chain.getThisObject(),
                                                 ((CharSequence) v1).toString());
                                     }
@@ -689,16 +690,20 @@ public final class HomeTweaks {
                 View root = listRootOf(v);
                 if (root == null) continue;
                 int[] s = stat.get(root);
-                if (s == null) { s = new int[3]; stat.put(root, s); }
+                if (s == null) { s = new int[4]; stat.put(root, s); }
                 if (slot == 0) {
                     if (isToolGridCell(v)) s[0]++;
                 } else {
                     s[slot]++;
+                    // v1.2.4：「我的页」独有词（资质/协议/猜你喜欢/达人）只在「我的」页出现；
+                    // 工具管理页只有宽泛词（收藏夹→收藏、打车），靠它排除误认领
+                    //（白屏实证：工具管理页被认领成 homeList 后整页 item 被 COLLAPSE）。
+                    if (MY_QUALITY_WORDS.contains(t) || MY_TASK.contains(t)) s[3] = 1;
                 }
             }
             for (Map.Entry<View, int[]> e : stat.entrySet()) {
                 int[] s = e.getValue();
-                if (s[0] >= 1 || s[1] >= 2 || s[2] >= 3) {
+                if (s[0] >= 1 || s[1] >= 2 || (s[2] >= 3 && s[3] >= 1)) {
                     homeLists.put(e.getKey(), Boolean.TRUE);
                 }
             }
