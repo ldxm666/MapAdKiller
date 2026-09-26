@@ -110,7 +110,7 @@ public final class Config {
     }
 
     /** 临时取证开关：真机测树期间强制开日志。交付版必须为 false（设置页有独立开关）。 */
-    public static final boolean FORCE_DEBUG = true;
+    public static final boolean FORCE_DEBUG = false;
 
     private static volatile long dbgAt;
     private static volatile boolean dbgVal;

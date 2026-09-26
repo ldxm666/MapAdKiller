@@ -85,6 +85,6 @@ Write-Host "[6/6] dist"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 New-Item -ItemType Directory -Force -Path $Rel | Out-Null
 Copy-Item "$src\build\out\MapAdKiller.apk" "$Out\MapAdKiller.apk" -Force
-Copy-Item "$src\build\out\MapAdKiller.apk" "$Rel\MapAdKiller-v1.2.2.apk" -Force
-Get-Item "$Rel\MapAdKiller-v1.2.2.apk" | Select-Object FullName,Length
+Copy-Item "$src\build\out\MapAdKiller.apk" "$Rel\MapAdKiller-v1.0.9.apk" -Force
+Get-Item "$Rel\MapAdKiller-v1.0.9.apk" | Select-Object FullName,Length
 Write-Host "BUILD OK src=$src"

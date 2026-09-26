@@ -492,19 +492,9 @@ public final class HomeTweaks {
             schedule();
             return;
         }
-        // ★ 快捷入口整排：文案一到就当场把 pager 整块摘掉（首帧绘制之前）★
-        //   它不依赖 homeLists 认领（那排实测在搜索页），也不等 applyPass，
-        //   所以页面第一次画出来时这一排就已经不在了 —— 没有「先显示再消失」。
-        if (QUICK_ROW_LABELS.contains(t) && !cfgOn(Config.K_HOME_QUICK_ROW)) {
-            try {
-                View qcell = toolCellOf(v);
-                if (qcell != null) {
-                    View blk = quickBlockOf(qcell);
-                    if (blk == null && qcell.getParent() instanceof View) blk = (View) qcell.getParent();
-                    if (blk != null) hideRow(blk, Config.K_HOME_QUICK_ROW);
-                }
-            } catch (Throwable ignored) {}
-        }
+        // v1.0.9-fix：快捷入口的即时路径已删除 —— 单命中无 ≥2 同块保护，
+        // 更多工具管理页的「打车」tab 文本误触发，quickBlockOf 爬到 2177 高的
+        // 整页容器被 ROW-HIDE → 白屏。统一走 quickRowSweep 的 ≥2 同块判据。
 
         // 归属未定（还没认领到首页 /「我的」页的列表根）→ 只登记，等 applyPass 认领后再动。
         if (!inHomeScope(v)) { schedule(); return; }
@@ -936,6 +926,9 @@ public final class HomeTweaks {
             cur = p;
         }
         if (pager == null) return null;
+        // v1.0.9-fix：整块高度必须 ≤900 —— 超过说明爬到了页面级容器，
+        // 收掉就是白屏（更多工具管理页 2177 高内容区被 ROW-HIDE 的实证）。
+        if (pager.getHeight() > 900) return null;
         ViewParent pp = pager.getParent();
         if (pp instanceof View && !isList((View) pp)) {
             View par = (View) pp;

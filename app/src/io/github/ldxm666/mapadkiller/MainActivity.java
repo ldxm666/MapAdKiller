@@ -382,7 +382,7 @@ public final class MainActivity extends Activity {
         tip.setPadding(dp(4), dp(16), 0, dp(2));
         root.addView(tip);
 
-        TextView ver = text("MapAdKiller v1.1.7 · Liquid Glass UI", 11, Typeface.NORMAL, cTxS());
+        TextView ver = text("MapAdKiller v1.0.9 · Liquid Glass UI", 11, Typeface.NORMAL, cTxS());
         ver.setAlpha(0.7f);
         ver.setGravity(Gravity.CENTER);
         ver.setPadding(0, dp(10), 0, 0);
