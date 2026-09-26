@@ -1,0 +1,17 @@
+# build artifacts
+build/
+dist/
+*.log
+gen/
+
+# local db pulls / device captures (privacy)
+lsposed/mc.db*
+shots/
+work/
+
+# keystore exception: debug key is intentionally committed for reproducible module updates
+!app/debug.keystore
+
+# editor
+.vscode/
+.idea/

@@ -1,0 +1,11 @@
+minApiVersion=101
+targetApiVersion=102
+staticScope=true
+exceptionMode=protective
+autoHotReload=false
+id=io.github.ldxm666.mapadkiller
+name=MapAdKiller
+version=1.2.2
+versionCode=33
+author=ldxm666
+description=高德/百度/腾讯地图 去广告 + 高德首页/我的页 UI 自定义（标签栏、工具宫格、推荐内容），可隐藏桌面图标

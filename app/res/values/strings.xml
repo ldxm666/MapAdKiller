@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="description">高德/百度/腾讯地图去广告：开屏 / 横幅 / 推送 / 信息流广告卡拦截，广告 SDK 自动学习拦截；高德首页与「我的」页 UI 自定义；桌面图标可隐藏且 LSPosed 管理器入口常驻。</string>
+    <string-array name="scope">
+        <item>com.autonavi.minimap</item>
+        <item>com.baidu.BaiduMap</item>
+        <item>com.tencent.map</item>
+    </string-array>
+</resources>

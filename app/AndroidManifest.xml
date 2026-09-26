@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.ldxm666.mapadkiller"
+    android:versionCode="33"
+    android:versionName="1.2.2">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+
+    <application
+        android:name=".App"
+        android:label="MapAdKiller"
+        android:description="@string/description"
+        android:icon="@drawable/ic_launcher"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!--
+            设置页本体。两个入口通道：
+            1) CATEGORY_INFO —— 隐藏桌面图标后 LSPosed 管理器的「打开」仍然可用。
+               LSPosed 管理器（继承自 XposedInstaller）解析模块设置入口用的是
+               PackageManager#getLaunchIntentForPackage：它优先查 MAIN+CATEGORY_INFO，
+               查不到才回退 MAIN+CATEGORY_LAUNCHER。桌面启动器只认 CATEGORY_LAUNCHER、
+               永不展示 INFO 入口 —— 于是 INFO 通道专供管理器，与「桌面隐藏」完全正交。
+            2) 显式组件名 —— exported=true，adb / 磁贴随时可拉起：
+                adb shell am start -n io.github.ldxm666.mapadkiller/.MainActivity
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.INFO" />
+                <!-- DEFAULT：让 am start 等 AMS 侧 MATCH_DEFAULT_ONLY 的隐式解析也命中 -->
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            桌面入口。开/关由 App.setHideIcon() 通过
+            PackageManager#setComponentEnabledSetting 切换 —— 这就是「隐藏桌面图标」开关。
+            隐藏它不影响上面的 INFO 通道，LSPosed 管理器入口因此常驻。
+        -->
+        <activity-alias
+            android:name=".DesktopAlias"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="MapAdKiller"
+            android:icon="@drawable/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!--
+            快捷设置磁贴：不进启动器、不依赖 LAUNCHER 解析，天然不受图标开关影响。
+        -->
+        <service
+            android:name=".SettingsTile"
+            android:exported="true"
+            android:icon="@drawable/ic_launcher"
+            android:label="MapAdKiller"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".LearnedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="io.github.ldxm666.mapadkiller.LEARNED" />
+            </intent-filter>
+        </receiver>
+
+        <provider
+            android:name=".LearnedProvider"
+            android:authorities="io.github.ldxm666.mapadkiller.learned"
+            android:exported="true" />
+
+        <provider
+            android:name="io.github.libxposed.service.XposedProvider"
+            android:authorities="io.github.ldxm666.mapadkiller.XposedService"
+            android:exported="true" />
+    </application>
+</manifest>
