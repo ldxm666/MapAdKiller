@@ -52,7 +52,10 @@ public final class ViewKiller {
                 String name = resName(res, v.getId());
                 if (name != null && name.length() > 0 && resPat.matcher(name).find()) gone = true;
             }
-            // 无障碍标签识别：广告卡通常自带 "广告"/"Ad" contentDescription
+            // 无障碍标签识别：广告角标通常自带 "广告"/"Ad" contentDescription。
+            // v1.1.0 收紧：①只认**全文等于**「广告」的节点（子串会命中
+            // 「广告过滤」「拦截广告」等正常文案）；②节点必须是小尺寸角标
+            // （宽 ≤ 45% 屏宽），整宽的「广告」栏是页面自有元素不是角标。
             if (!gone) {
                 CharSequence cd = v.getContentDescription();
                 if (cd == null && v instanceof android.widget.TextView) {
@@ -60,8 +63,9 @@ public final class ViewKiller {
                 }
                 if (cd != null) {
                     String s = cd.toString();
-                    if (s.length() <= 6 && (s.contains("广告")
-                            || s.equalsIgnoreCase("Ad") || s.equalsIgnoreCase("AD"))) {
+                    boolean label = s.equals("广告")
+                            || s.equalsIgnoreCase("ad") || s.equalsIgnoreCase("AD");
+                    if (label && v.getWidth() <= v.getRootView().getWidth() * 45 / 100) {
                         v = bubbleToAdContainer(v);
                         gone = true;
                     }

@@ -94,7 +94,7 @@ public final class App extends Application implements XposedServiceHelper.OnServ
      */
     public static final String UI_PREFS = "mak_ui";
     /**
-     * v1.0.8 换过键名与组件名（hide_launcher_icon / .LauncherAlias → hide_icon_v2 / .DesktopAlias）。
+     * v1.1.0 换过键名与组件名（hide_launcher_icon / .LauncherAlias → hide_icon_v2 / .DesktopAlias）。
      *
      * 原因：旧版把桌面入口禁掉之后，LSPosed 管理器解析模块设置入口用的是同一个
      * MAIN + LAUNCHER 查询，于是入口一起消失 —— 用户被锁在设置页外面。

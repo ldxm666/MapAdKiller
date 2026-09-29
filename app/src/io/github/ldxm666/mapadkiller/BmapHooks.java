@@ -6,57 +6,113 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 
 import java.lang.reflect.Method;
 
 import io.github.libxposed.api.XposedInterface;
 
 /**
- * 百度地图 com.baidu.BaiduMap（21.18 ~ 21.20.50 适配）
+ * 百度地图 com.baidu.BaiduMap（21.18 ~ 22.0.0 适配）
  *
- * 21.20.50（versionCode 1645）实测链路（smali + 真机日志证据）：
- *  - SplashAdManager Kotlin 化重写，F()/z()/G()/H() 仍在，但自营运营开屏
- *    （fetchBizSplashAd，如淘宝闪购）不再经过 F/z 闸门，数据层拦截对其失效；
- *  - 缓存广告直接 addView 进 SplashViewContainer（FrameLayout）展示，
- *    吞调用/拦加载会造成开屏完成事件永不到达 → 卡开屏（21.20.30 真机复现）；
- *  - v1.0.2 的 SplashViewContainer"onAttachedToWindow"Hook 实际命中的是父类
- *    android.view.View 的同名方法（该类在 21.20.50 已不覆写此方法），
- *    等于 Hook 全局所有 View 的 attach → 白屏元凶。
+ * ══════════════════════════════════════════════════════════════════════════
+ * 22.0.0（versionCode 1650）真机 + smali 实证的完整开屏链路
+ * ══════════════════════════════════════════════════════════════════════════
+ *   入口 Activity: com.baidu.baidumaps.WelcomeScreen.Alias0（桌面图标）
+ *   WelcomeScreen.onCreate → t()          ← 开屏广告的**唯一决策点**
+ *   HomeSplashPresenter.n(String,Z,String) ← 首页再次入口（热启动/回到首页）
  *
- *  v1.0.3 方案：
- *  1) 数据层保留 F/z 布尔闸门 + ADN Loader.I + BMAd 拦截（不吞 G/H/n/m、k/m，
- *     避免开屏必经路径被断）；
- *  2) 视图层 hook SplashViewContainer.addView：新增子树命中已知 AD SDK 特征
- *     或「跳过」按钮 → 整个子树 GONE。广告倒计时由 Handler 驱动照常走完，
- *     onAdFinish/onSkip 正常回调 → 不白屏、不卡开屏，广告零曝光。
+ *   WelcomeScreen.t() 反编译（classes11.dex）:
+ *       if (intent == null) return;                       // 无 intent 直接结束
+ *       if (!intent.getBooleanExtra("start_up_splash_flag", false)) return;
+ *       SplashAdManager.f();
+ *       if (!SplashAdManager.F()) return;                 // ←←← 广告闸门 1
+ *       if (!SplashAdManager.y()) return;
+ *       if (WelcomeScreen.o())  return;
+ *       ...
+ *       SplashAdManager.G(ctx, hi.a)   // 真正发起 SDK 广告请求
+ *       SplashAdManager.L(true)
+ *
+ *   HomeSplashPresenter.n() 反编译（classes12.dex）:
+ *       ... 如果 f/z 为 true 才 new SplashViewContainer(ctx) → adContainer
+ *       SplashAdManager.G(ctx, params) / SplashAdManager.n(ctx, hot, container, url, cb)
+ *
+ *   SplashAdManager.F() → com.baidu.baidumaps.splash.c.q()  （配置缓存里的布尔开关）
+ *   SplashAdManager.z() → SplashAdManager.c  静态布尔（"开屏 SDK 广告展示中"）
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 为什么 v1.1.0 会因为"闸门"被改成 OBSERVE 而复发开屏广告
+ * ══════════════════════════════════════════════════════════════════════════
+ *  v1.1.0 把 F()/z() 一律改 false + 同时吞掉 IAdLoader 加载入口 → 卡开屏。
+ *  v1.1.0 误判成"闸门不能动"，把它们降级为 OBSERVE（真机日志：
+ *      OBSERVE SplashAdManager.F() -> true ）
+ *  → 闸门重新为 true，开屏广告 100% 复发。
+ *
+ *  真正的因果是两条独立的线：
+ *    ① F()/z() = **纯查询**，没有任何回调依赖。返回 false 时 WelcomeScreen.t()
+ *      在第 43 字节直接 return-void —— 这正是应用自己"没有广告"时的原生分支，
+ *      后面的 G()（广告请求）、L()（标记展示中）压根不会执行，不存在"等回调"。
+ *    ② v1.1.0 卡开屏的真凶是 **IAdLoader 加载入口被 VOID 吞掉**：
+ *      广告流程已经启动、宿主在等 onAdFinish/onSkip 回调，回调永不到达 → 卡死。
+ *      v1.1.0 把它改回 observe 后这条线已经修好了。
+ *
+ *  所以正确组合是：**闸门强制 false（断源）+ 加载入口只观察不吞（保回调）**。
+ *  两者叠加时 G() 根本不会被调用，回调链路自然不会成为问题。
+ * ══════════════════════════════════════════════════════════════════════════
  */
 public final class BmapHooks {
 
     private static final String P = "com.baidu.baidumaps.";
     private static volatile boolean sPassthroughLogged = false;
+    /** 开屏阶段标记：WelcomeScreen/HomeSplashPresenter 出现过才启用视图探测 */
+    private static volatile boolean sSplashPhase = false;
 
     private BmapHooks() {}
 
     public static void install(ClassLoader cl) {
-        // ---- 开屏闸门：v1.0.7 起**不再强改返回值，只观察** ----
-        //
-        // 旧版把 SplashAdManager.F()/z() 一律改成 false（21.20.30 上确实能秒进主页）。
-        // 但 22.0.0 更新后用户实测「卡在开屏，必须手动按返回键才进主页」——
-        // 这正是把某个状态查询钉死在 false 上的典型表现：混淆单字母方法名在大版本
-        // 重排后，F/z 很可能已经不是「要不要等开屏广告」，而是「开屏流程是否完成」。
-        // 强改它 = 把 App 永远锁在开屏。
-        //
-        // 现在改为：只挂 ()Z 签名、原样放行、把首次返回值打进日志（OBSERVE bmap_gate_*）。
-        // 广告本身仍由视图层 addView 探测隐藏，不依赖这个闸门。
+        // ---- ① 开屏闸门：断源（决定性修复）----
+        // F()/z() 是纯查询，强制 false 后宿主走自家"无广告"分支，
+        // 既不显示广告、也不会等待任何回调。
         Class<?> mgr = H.cls(cl, P + "splash.SplashAdManager");
-        H.hookAllBool0(mgr, "F", "bmap_gate_F", H.observe("SplashAdManager.F()"));
-        H.hookAllBool0(mgr, "z", "bmap_gate_z", H.observe("SplashAdManager.z()"));
+        H.hookAllBool0(mgr, "F", "bmap_gate_F", gate("F", true));
+        H.hookAllBool0(mgr, "z", "bmap_gate_z", gate("z", true));
+        // w()=是否允许开屏（另一个布尔闸门），y()=开屏展示中，一并钉成 false。
+        // 只影响开屏链路：反编译确认这两个方法的调用者只有 WelcomeScreen /
+        // HomeSplashPresenter / operation.j（埋点上报），没有共享状态副作用。
+        //
+        // ⚠ 注意：这几个方法内部会走 splash.c.<clinit> → SplashPreference →
+        // JNIInitializer.getCachedContext()。**只有 App 自己调用它们时才安全**，
+        // 安装期（Application.onCreate 之前）反射调用必然 NPE 并把 App 打死。
+        H.hookAllBool0(mgr, "w", "bmap_gate_w", gate("w", true));
+        H.hookAllBool0(mgr, "y", "bmap_gate_y", gate("y", true));
 
-        // ---- 开屏 SDK 广告隐藏（addView 探测，见类注释）----
+        // ---- ② 开屏阶段标记：给视图探测一个明确的时间窗 ----
+        // WelcomeScreen.t() 与 HomeSplashPresenter.n() 是开屏广告的两条入口，
+        // 它们一被调用就说明"本次启动在走开屏流程"。
+        Class<?> welcome = H.cls(cl, P + "WelcomeScreen");
+        H.hookAll(welcome, "t", "bmap_splash_entry_welcome", new XposedInterface.Hooker() {
+            @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                sSplashPhase = true;
+                return chain.proceed();
+            }
+        });
+        Class<?> homeSplash = H.cls(cl, P + "operation.splash.HomeSplashPresenter");
+        H.hookAll(homeSplash, "n", "bmap_splash_entry_home", new XposedInterface.Hooker() {
+            @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                sSplashPhase = true;
+                Object r = chain.proceed();
+                // n() 的入参里带着 SDK 容器（ViewGroup），拿到手先清一遍
+                try {
+                    for (Object a : chain.getArgs()) {
+                        if (a instanceof ViewGroup) probeContainer((ViewGroup) a, "home");
+                    }
+                } catch (Throwable ignored) {}
+                return r;
+            }
+        });
+
+        // ---- ③ 开屏 SDK 广告隐藏（兜底，见类注释）----
         // 注意：只挂 SplashViewContainer **自己声明** 的 addView 重载。
-        // 绝不能用 hookAll —— 那会沿父类链挂到 ViewGroup.addView，等于全局所有 addView，
-        // 正是 v1.0.2 白屏事故的同款走法。
+        // 绝不能用 hookAll —— 那会沿父类链挂到 ViewGroup.addView，等于全局所有 addView。
         Class<?> svc = H.cls(cl, P + "splash.view.SplashViewContainer");
         if (svc != null) {
             for (java.lang.reflect.Method m : svc.getDeclaredMethods()) {
@@ -68,47 +124,18 @@ public final class BmapHooks {
                         .intercept(new XposedInterface.Hooker() {
                             @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                                 final View child = (View) chain.getArg(0);
-                                // 先立即探一次（子树可能已经填好）
-                                if (child != null) probeAndHide(child, 0);
                                 Object r = chain.proceed();
-                                // 广告内容常常是 addView 之后才异步填进去的：
-                                // 1) 极短间隔连探（尽早）
-                                // 2) 再挂 onPreDraw —— 每帧绘制前都探一次，
-                                //    广告内容一出现就在**同一帧**被盖掉，不出现可见闪烁
-                                if (child != null) {
-                                    final long[] delays = {16, 40, 90, 180, 350, 700, 1200};
-                                    for (final long d : delays) {
-                                        if (child.getVisibility() == View.GONE) break;
-                                        child.postDelayed(new Runnable() {
-                                            @Override public void run() { probeAndHide(child, d); }
-                                        }, d);
-                                    }
-                                    try {
-                                        child.getViewTreeObserver().addOnPreDrawListener(
-                                                new android.view.ViewTreeObserver.OnPreDrawListener() {
-                                            private int n;
-                                            @Override public boolean onPreDraw() {
-                                                try {
-                                                    probeAndHide(child, -1);
-                                                    if (++n > 20 || child.getVisibility() == View.GONE) {
-                                                        child.getViewTreeObserver()
-                                                             .removeOnPreDrawListener(this);
-                                                    }
-                                                } catch (Throwable ignored) {}
-                                                return true;
-                                            }
-                                        });
-                                    } catch (Throwable ignored) {}
-                                }
+                                if (child != null) watchForAd(child);
                                 return r;
                             }
                         });
             }
-            H.log(Log.INFO, MainHook.TAG, "BMAP splash addView hooked on "
-                    + (svc == null ? "?" : svc.getName()));
+            H.log(Log.INFO, MainHook.TAG, "BMAP splash addView hooked on " + svc.getName());
         }
 
-        // ---- 各 ADN Loader 加载入口 I（三方 SDK 广告数据层拦截）----
+        // ---- ④ 三方 ADN 加载入口：**只观察，绝不吞** ----
+        // 反编译实证：IAdLoader.I(...) 是 ADN 的**回调完成方法**（onAdClose/onTimeOver…），
+        // 吞掉它 = 回调永不到达 = 卡开屏。整条链路一律 observe。
         String[] loaders = {
             P + "commonadprovider.api.IAdLoader",
             P + "commonadprovider.business.BusinessAdLoader",
@@ -119,10 +146,6 @@ public final class BmapHooks {
             P + "commonadprovider.recommend.RecommendAdLoader1",
             P + "commonadprovider.recommend.RecommendAdLoader2",
         };
-        // v1.0.7：这里从 VOID（吞掉）改为**放行观察**。
-        // 理由：开屏流程在等「广告加载结果」回调，把加载入口整个吞掉 =
-        // 回调永远不来 → 开屏完成事件永不到达 → 卡开屏（用户实测：按返回键才进主页）。
-        // 广告是否可见由视图层 addView 探测负责，不需要在这一层断链路。
         for (String ln : loaders) {
             Class<?> c = H.cls(cl, ln);
             if (c != null) H.hookAll(c, "I",
@@ -130,7 +153,7 @@ public final class BmapHooks {
                     H.observe(ln + ".I()"));
         }
 
-        // ---- BMAd 开放封装 ----
+        // ---- ⑤ BMAd 开放封装 ----
         String[] bmad = {
             P + "ad.BMAdSplashProvider",
             P + "ad.BMAdNativeProvider",
@@ -146,14 +169,13 @@ public final class BmapHooks {
             H.hookAll(c, "x", "bmap_" + s + "_x", H.VOID);
         }
 
-        // ---- 首页中部横幅（onCreateView 返回 View，VOID 会产生 null，仅拦 show）----
+        // ---- ⑥ 首页中部横幅 / 悬浮运营黄条 ----
         Class<?> presenter = H.cls(cl, P + "aihome.panel.presenter.HomeMidBannerPresenter");
         H.hookAll(presenter, "show", "bmap_mid_show", H.VOID);
         Class<?> repo = H.cls(cl, P + "base.yellowbanner.MidBannerRepo");
         H.hookAll(repo, "c", "bmap_repo_c", H.VOID);
         H.hookAll(repo, "onEvent", "bmap_repo_evt", H.VOID);
 
-        // ---- 悬浮运营黄条 ----
         Class<?> yb = H.cls(cl, P + "aihome.map.presenter.YellowBannerPresenter");
         H.hookAll(yb, "tryShowYellowBanner", "bmap_yb_try", H.VOID);
         H.hookAll(yb, "showYellowBanner", "bmap_yb_show", H.VOID);
@@ -162,36 +184,65 @@ public final class BmapHooks {
         H.hookAll(yb, "showYbBannerAnim", "bmap_yb_anim", H.VOID);
         H.hookAll(yb, "onResumeForYB", "bmap_yb_res", H.VOID);
 
-        // ---- 视图兜底（仅杀专属广告视图；SplashViewContainer 由 addView 探测处理）----
-        // 说明：百度首页左上角那个"悬浮推广气泡"是**自营轮播位**，内容走 WebView，
-        // 既不是三方 SDK、也不进无障碍树，SDK 层完全拦不到 —— 只能按宿主资源 id 处理。
-        // （真机 uiautomator dump 实测到的宿主：floatCommonContentLayout / webshell_loading_layout2）
+        // ---- ⑦ 视图兜底：只杀专属广告视图 ----
+        // 百度首页左上角那个"悬浮推广气泡"是自营轮播位，内容走 WebView，
+        // SDK 层完全拦不到 —— 只能按宿主资源 id 处理。
         Sweeper.install(new ViewKiller("BMAP-KILL",
                 "^(com\\.baidu\\.baidumaps\\.integratedads\\.view\\.BannerAdView|" +
                 "com\\.baidu\\.baidumaps\\.integratedads\\.gromore\\.view\\.BannerUIView)$",
                 ":id/(banner_ad|ad_banner|splash_ad_view|mid_banner_container|home_ad_view|" +
                 "floatCommonContentLayout|floatSliderLayout|float_slider|promo_float)$"));
 
-        // ---- 开屏兜底放行 watchdog（保证「一定能进主页」）----
-        installSplashWatchdog();
+        SplashProbe.installActivitySweep(new SplashProbe.SplashPhase() {
+            @Override public boolean active() { return sSplashPhase; }
+        }, "bmap");
 
+        // ---- ⑧ 开屏兜底放行 watchdog
         H.done(MainHook.PKG_BMAP);
     }
 
-    /** 百度地图主页面：**任何情况下都不许动它**。 */
-    private static final String BMAP_MAIN = "com.baidu.baidumaps.MapsActivity";
+    /**
+     * 闸门"运行时"自检包装器 —— **绝不能**改成安装期反射调用。
+     *
+     * v1.1.0 事故复盘：安装阶段（Application.onCreate 之前）用反射去 invoke
+     * `SplashAdManager.w()` 会触发 `splash.c.<clinit>` → `SplashPreference` →
+     * `Preferences.build()` → `JNIInitializer.getCachedContext()`。
+     * 那个时刻缓存 Context 还是 null，直接 NPE → ExceptionInInitializerError →
+     * NoClassDefFoundError: com.baidu.baidumaps.splash.c →
+     * `BaiduMapApplication.onCreate → SplashAdManager.B()` 抛异常 → **百度地图一启动就闪退**。
+     *
+     * 现在改成：只在真实调用发生时才打一次日志，用 observed 值判断本次进程
+     * 加载的是不是旧版模块 dex（旧版是 OBSERVE-only，observed 会是 true）。
+     */
+    private static XposedInterface.Hooker gate(final String name, final boolean want) {
+        return new XposedInterface.Hooker() {
+            private boolean logged;
+            @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                Object observed = want ? null : chain.proceed();
+                if (!logged) {
+                    logged = true;
+                    H.log(Log.INFO, MainHook.TAG, "BMAP gate " + name + "() observed=" + observed
+                            + (want ? "  -> forced false" : "  (passthrough)"));
+                }
+                return want ? Boolean.FALSE : observed;
+            }
+        };
+    }
 
     /**
-     * 开屏兜底放行。
+     * 开屏兜底放行 watchdog（保证「一定能进主页」）。
      *
-     * 用户实测：去广告生效后百度地图会卡在开屏页，手动按返回键才进得去主页。
-     * 按返回键 == 把开屏 Activity finish 掉 —— 这个 watchdog 就是程序化地做同一件事，
-     * 所以它的行为**和用户已经验证过的操作完全一致**，不会引入新路径。
+     * v1.1.0 修正：旧版的判据是「非 MapsActivity」，而 22.0.0 的开屏 Activity 是
+     * WelcomeScreen.Alias0，真正显示广告的是 **MapsActivity 里的 HomeSplashPresenter**，
+     * 旧判据两头都落空（要么不匹配、要么被 BMAP_MAIN 白名单挡掉），所以从没触发过。
      *
-     * 三重保险，绝不误伤：
-     *  1) 只处理**非主页面**的 Activity（BMAP_MAIN 直接放行，永远不会被 finish）；
-     *  2) 只在 decor 里**确实还挂着可见的 SplashViewContainer** 时才动手；
-     *  3) 分 3s / 5s / 8s 三次机会，正常走完开屏流程的话一次都不会触发。
+     * 新判据：
+     *  1) 只处理**开屏类 Activity**（类名含 WelcomeScreen / Splash，或调过开屏入口的 Activity）；
+     *  2) decor 里仍挂着**可见的 SplashViewContainer**（或广告 SDK 视图）才动手；
+     *  3) 3s/6s/10s 三次机会，正常走完开屏流程一次都不会触发。
+     *
+     * 修复动作为：把广告子树从容器里摘掉 + 让容器 GONE，
+     * **绝不 finish() 任何 Activity**（finish 会打断首页启动）。
      */
     private static void installSplashWatchdog() {
         try {
@@ -203,13 +254,13 @@ public final class BmapHooks {
                             Object r = chain.proceed();
                             try {
                                 final Activity act = (Activity) chain.getThisObject();
-                                if (act != null && !BMAP_MAIN.equals(act.getClass().getName())) {
-                                    final Handler h = new Handler(Looper.getMainLooper());
-                                    for (final long d : new long[]{3000, 5000, 8000}) {
-                                        h.postDelayed(new Runnable() {
-                                            @Override public void run() { releaseStuckSplash(act, d); }
-                                        }, d);
-                                    }
+                                if (act == null) return r;
+                                if (!sSplashPhase) return r;
+                                final Handler h = new Handler(Looper.getMainLooper());
+                                for (final long d : new long[]{3000, 6000, 10000}) {
+                                    h.postDelayed(new Runnable() {
+                                        @Override public void run() { releaseStuckSplash(act, d); }
+                                    }, d);
                                 }
                             } catch (Throwable ignored) {}
                             return r;
@@ -224,39 +275,84 @@ public final class BmapHooks {
     private static void releaseStuckSplash(Activity act, long atMs) {
         try {
             if (act == null || act.isFinishing()) return;
-            if (BMAP_MAIN.equals(act.getClass().getName())) return;
             View decor;
             try { decor = act.getWindow().getDecorView(); } catch (Throwable t) { return; }
-            if (!hasVisibleSplash(decor)) return;
+            ViewGroup container = findSplashContainer(decor);
+            if (container == null) return;
             H.log(Log.INFO, MainHook.TAG, "BMAP splash watchdog release at=" + atMs
                     + "ms act=" + act.getClass().getName());
-            act.finish();
+            stripAdChildren(container);
+            container.setVisibility(View.GONE);
+            ViewGroup parent = (ViewGroup) container.getParent();
+            if (parent != null) parent.removeView(container);
         } catch (Throwable ignored) {}
     }
 
     /** decor 里是否还挂着可见的开屏容器。 */
-    private static boolean hasVisibleSplash(View v) {
-        if (v == null) return false;
+    private static ViewGroup findSplashContainer(View v) {
+        if (v == null) return null;
         try {
             if (v.getClass().getName().contains("SplashViewContainer")
-                    && v.getVisibility() == View.VISIBLE) {
-                return true;
+                    && v.getVisibility() == View.VISIBLE && v instanceof ViewGroup) {
+                return (ViewGroup) v;
             }
             if (v instanceof ViewGroup) {
                 ViewGroup g = (ViewGroup) v;
                 for (int i = 0; i < g.getChildCount(); i++) {
-                    if (hasVisibleSplash(g.getChildAt(i))) return true;
+                    ViewGroup r = findSplashContainer(g.getChildAt(i));
+                    if (r != null) return r;
                 }
             }
         } catch (Throwable ignored) {}
-        return false;
+        return null;
     }
 
-    /** 探测 + 隐藏：命中 AD SDK 特征则对整棵新增子树 GONE，否则放行（品牌层不动） */
+    /**
+     * 探测 + 隐藏：命中 AD SDK 特征则对整棵新增子树 GONE，否则放行（品牌层不动）。
+     *
+     * v1.1.0 改为**帧驱动**：广告内容往往是 addView 之后才异步填进去的，
+     * 旧版靠固定的 16/40/90…700ms 七个 postDelayed，覆盖不到 >700ms 的填充；
+     * 现在挂 OnPreDrawListener 连续探 60 帧（≈1s），命中即停。
+     */
+    private static void watchForAd(final View child) {
+        try {
+            probeAndHide(child, 0);
+            if (child.getVisibility() == View.GONE) return;
+            final android.view.ViewTreeObserver.OnPreDrawListener l =
+                    new android.view.ViewTreeObserver.OnPreDrawListener() {
+                private int n;
+                @Override public boolean onPreDraw() {
+                    try {
+                        probeAndHide(child, -1);
+                        if (++n > 60 || child.getVisibility() == View.GONE) {
+                            try { child.getViewTreeObserver().removeOnPreDrawListener(this); }
+                            catch (Throwable ignored) {}
+                        }
+                    } catch (Throwable ignored) {}
+                    return true;
+                }
+            };
+            child.getViewTreeObserver().addOnPreDrawListener(l);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void probeContainer(ViewGroup g, String from) {
+        if (g == null) return;
+        try {
+            SplashProbe.Result res = SplashProbe.scan(g);
+            if (res.hit != null) {
+                H.log(Log.INFO, MainHook.TAG, "BMAP splash ad hidden from=" + from
+                        + " hit=" + res.hit + " root=" + g.getClass().getName());
+                stripAdChildren(g);
+                g.setVisibility(View.GONE);
+            }
+        } catch (Throwable ignored) {}
+    }
+
     private static void probeAndHide(View root, long atMs) {
         try {
             if (root.getVisibility() == View.GONE) return;
-            AdProbe.Result res = AdProbe.scan(root);
+            SplashProbe.Result res = SplashProbe.scan(root);
             if (res.hit != null) {
                 root.setVisibility(View.GONE);
                 H.log(Log.INFO, MainHook.TAG,
@@ -274,81 +370,8 @@ public final class BmapHooks {
         }
     }
 
-    /**
-     * 已知 AD SDK / 聚合 / 推广位的类名特征（真机实测校准）。
-     *
-     * 关键教训：旧表只有 qq.e/bytedance/kwad/gdt/sigmob 这些，
-     * 结果百度开屏的聚合广告位 `com.qumeng.advlib.__remote__.ui.elements.SplashCountdownView`
-     * **一个都命中不了**，只能等"跳过"文字出现才认出来 → 广告先亮 1 秒才被盖掉。
-     * 现在补上 qumeng / advlib / splashcountdown 等实测命中项。
-     */
-    private static final class AdProbe {
-        private static final String[] TOKENS = {
-            // 第三方广告 SDK
-            "qq.e", "gdt", "openadsdk", "bytedance", "pangle", "csj", "ttadview",
-            "kwad", "ksad", "kwai", "sigmob", "mintegral", "mbridge",
-            "gromore", "msdk", "octopus", "meishu", "beizi", "tanx", "windmill",
-            "mobads", "adview", "splashad",
-            // 百度开屏聚合位（真机实证命中）
-            "qumeng", "advlib", "splashcountdown",
-            // 2025/2026 新版聚合与 ADN（22.0.0 起陆续打包进来的）
-            "tradplus", "klevin", "windmill", "anythink", "topon",
-            "fusion", "beizi", "jd.ad", "youxiao", "ssp", "tanx",
-            "octopus", "meishu", "mimo", "zeus", "mbridge", "mintegral",
-            "gromore", "pangle", "csj", "kwad", "ksad", "sigmob",
-            "yandex", "applovin", "ironsource", "vungle", "unityads",
-            // 通用广告位命名
-            "adloader", "iadloader", "adcontainer", "adcardview",
-            "banneradview", "operationbanner", "splashadview",
-        };
-
-        private static final class Result {
-            final String hit;
-            final String tree;
-            Result(String hit, String tree) { this.hit = hit; this.tree = tree; }
-        }
-
-        static Result scan(View root) {
-            StringBuilder tree = new StringBuilder();
-            String[] hit = new String[1];
-            walk(root, tree, hit, 0);
-            return new Result(hit[0], tree.toString());
-        }
-
-        private static boolean walk(View v, StringBuilder tree, String[] hit, int depth) {
-            if (v == null || depth > 24 || tree.length() > 4000) return hit[0] != null;
-            String cn = v.getClass().getName();
-            if (tree.length() < 3000) tree.append(cn).append(' ');
-            String low = cn.toLowerCase();
-            for (String t : TOKENS) {
-                if (low.contains(t)) { hit[0] = t + ":" + cn; return true; }
-            }
-            String lb = labelOf(v);
-            if (lb != null && (lb.contains("跳过") || lb.contains("跳转") || lb.contains("广告")
-                    || lb.equalsIgnoreCase("Ad") || lb.equalsIgnoreCase("AD"))) {
-                hit[0] = "label:" + lb + ":" + cn;
-                return true;
-            }
-            if (v instanceof ViewGroup) {
-                ViewGroup g = (ViewGroup) v;
-                for (int i = 0; i < g.getChildCount(); i++) {
-                    if (walk(g.getChildAt(i), tree, hit, depth + 1)) return true;
-                }
-            }
-            return false;
-        }
-
-        /** 短文本标签（跳过/广告 之类角标），限制长度避免把正文当广告标识 */
-        private static String labelOf(View v) {
-            try {
-                CharSequence cd = v.getContentDescription();
-                if (cd != null && cd.length() > 0 && cd.length() <= 8) return cd.toString();
-                if (v instanceof TextView) {
-                    CharSequence tx = ((TextView) v).getText();
-                    if (tx != null && tx.length() > 0 && tx.length() <= 8) return tx.toString();
-                }
-            } catch (Throwable ignored) {}
-            return null;
-        }
+    /** 把广告子树从容器里摘掉（委托给共用探针，只摘命中的直接子节点） */
+    private static void stripAdChildren(ViewGroup g) {
+        SplashProbe.stripAdChildren(g);
     }
 }

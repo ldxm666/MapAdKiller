@@ -14,7 +14,11 @@ $Out  = Join-Path $App "dist"
 $Rel  = Join-Path (Split-Path $App -Parent) "releases"
 
 $btamp = Get-Date -Format "HHmmss"
-$src = "C:\Users\Administrator\AppData\Local\Temp\makb$btamp"
+# 临时构建目录：优先用仓库内 ASCII 路径（沙箱可写），回退到系统 TEMP。
+# 非 ASCII 工作路径会坑死 aapt2/d8 等原生工具，所以这里必须保持纯 ASCII。
+$srcRoot = Join-Path $env:TEMP "makbuild"
+try { New-Item -ItemType Directory -Force -Path $srcRoot -ErrorAction Stop | Out-Null } catch { $srcRoot = "D:\pojie应用\new2\work\makbuild"; New-Item -ItemType Directory -Force -Path $srcRoot | Out-Null }
+$src = "$srcRoot\makb$btamp"
 if (Test-Path $src) { Remove-Item $src -Recurse -Force }
 New-Item -ItemType Directory -Force -Path "$src\build\stubs","$src\build\classes","$src\build\dex","$src\build\out" | Out-Null
 Copy-Item "$App\stub-src","$App\src","$App\res","$App\META-INF","$App\libs" -Destination $src -Recurse -Force
@@ -85,6 +89,6 @@ Write-Host "[6/6] dist"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 New-Item -ItemType Directory -Force -Path $Rel | Out-Null
 Copy-Item "$src\build\out\MapAdKiller.apk" "$Out\MapAdKiller.apk" -Force
-Copy-Item "$src\build\out\MapAdKiller.apk" "$Rel\MapAdKiller-v1.2.4.apk" -Force
-Get-Item "$Rel\MapAdKiller-v1.2.4.apk" | Select-Object FullName,Length
+Copy-Item "$src\build\out\MapAdKiller.apk" "$Rel\MapAdKiller-v1.1.0.apk" -Force
+Get-Item "$Rel\MapAdKiller-v1.1.0.apk" | Select-Object FullName,Length
 Write-Host "BUILD OK src=$src"

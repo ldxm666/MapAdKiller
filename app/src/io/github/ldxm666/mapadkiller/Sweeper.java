@@ -23,7 +23,7 @@ public final class Sweeper {
                       Object r = chain.proceed();
                       final Activity act = (Activity) chain.getThisObject();
                       Handler h = new Handler(Looper.getMainLooper());
-                      // v1.0.13：三轮全树扫砍到两轮。资源名已经按 id 缓存，
+                      // v1.1.0：三轮全树扫砍到两轮。资源名已经按 id 缓存，
                       // 单轮成本大幅下降，再少一轮进一步降负载。
                       h.postDelayed(new Runnable() {
                           @Override public void run() { killer.sweep(act); }

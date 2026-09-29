@@ -343,12 +343,12 @@ public final class MainActivity extends Activity {
         for (String tab : Config.TABS) addSwitch(sec.card, "显示标签「" + tab + "」", Config.K_TAB_PREFIX + tab);
 
         sec = newDrawer("高德 · 首页工具宫格");
+        // v1.1.0：宫格 15 格全量独立开关（截图实证的完整 3×5 宫格）
         for (String tool : Config.TOOLS) addSwitch(sec.card, "显示「" + tool + "」", Config.K_TOOL_PREFIX + tool);
-        addSwitch(sec.card, "显示扩展工具页（景点游玩 / 离线地图 / 通行费助手 / 收藏夹 / 旅游度假）",
-                Config.K_TOOL_EXTRA);
 
         sec = newDrawer("高德 · 首页推荐内容");
         addSwitch(sec.card, "显示榜单/特色推荐卡（尝尝这里 / 特色场所，全页面统一）", Config.K_FEED_BOARD);
+        addSwitch(sec.card, "显示出行节/会场活动卡（库迪咖啡 4选1 / 车主服务入口等）", Config.K_FEED_FESTIVAL);
         addSwitch(sec.card, "天气卡片", Config.K_FEED_WEATHER);
         addSwitch(sec.card, "周边景区 / 景点推荐", Config.K_FEED_SCENIC);
         addSwitch(sec.card, "榜单帖子卡（景区榜 / 美食榜 / 打卡地…）", Config.K_FEED_POSTS);
@@ -360,6 +360,16 @@ public final class MainActivity extends Activity {
         addSwitch(sec.card, "设置家 / 设置单位 / 常去地点", Config.K_HOME_CHIPS);
         addSwitch(sec.card, "搜索栏下方快捷入口整排（美食 / 酒店 / 景点门票 / 加油充电 / 出行节 / 扫街榜）",
                 Config.K_HOME_QUICK_ROW);
+        addSwitch(sec.card, "关闭首页搜索框热词轮播（文字流动 / 运营广告词）",
+                Config.K_HOTWORD_OFF);
+        addNoteRow(sec.card, "首页那支搜索框里的文字会自己流动（预置词/运营词，有时是广告）。"
+                + "打开本开关后文字被钉死成系统默认提示词「查找地点、公交、地铁」，"
+                + "热词品牌图标一并摘掉；关掉开关即可恢复原样。");
+        addSwitch(sec.card, "关闭首页「去XXX 打车」打车浮窗（打车运营卡）",
+                Config.K_RIDE_CARD_OFF);
+        addNoteRow(sec.card, "首页信息流底部那张「去幸福路步行街 / 有座不拥挤 · 行程有保障 / 打车」"
+                + "的运营浮窗卡会整张摘除（含卡片高度，不留空洞）。"
+                + "识别用「卡内文案 + AJX 列表 item 结构」双判据，正常地点卡、路线卡不受影响。");
 
         sec = newDrawer("高德 · 「我的」页");
         addSwitch(sec.card, "订单 / 收藏 / 待评价 一栏", Config.K_MY_ORDER_ROW);
@@ -369,20 +379,28 @@ public final class MainActivity extends Activity {
         addSwitch(sec.card, "猜你喜欢", Config.K_MY_GUESS);
         addSwitch(sec.card, "资质信息 / 协议中心", Config.K_MY_QUALITY);
 
+        sec = newDrawer("高德 · 搜索框内页");
+        // v1.1.0：搜索页整页是 AJX3 画布（无资源 id），这一层用「结构指纹 + 文案锚点」判页判广告，
+        // 命中即 GONE 单卡；总开关默认开（命中面全是券包/红包/会场类运营卡）。
+        addSwitch(sec.card, "搜索页去广告（券包 / 红包 / 满减 / 会场 / 运营卡）", Config.K_SEARCH_AD);
+        addNoteRow(sec.card, "搜索输入页、联想页、搜索结果页里的运营推广卡会被就地隐藏（含「高德邀你畅玩十一」"
+                + "这类会场流）。搜到的真实地点、路线、攻略不受影响。");
+
         sec = newDrawer("其他 · 入口与调试");
         addLocalSwitch(sec.card, "隐藏桌面图标", App.K_HIDE_ICON);
-        addNoteRow(sec.card, "隐藏后桌面图标消失；LSPosed 管理器里的「打开」入口不受影响（v1.0.9 新增），"
+        addNoteRow(sec.card, "隐藏后桌面图标消失；LSPosed 管理器里的「打开」入口不受影响（v1.1.0 新增），"
                 + "快捷设置磁贴与 adb 命令也始终可用。");
         addSwitch(sec.card, "工具宫格自动排序（实验性：可能与地图动画冲突）", Config.K_TOOL_SORT);
         addSwitch(sec.card, "调试日志（logcat 输出首页文本锚点）", Config.K_DEBUG_LOG);
+        // v1.1.0：「工具宫格自动排序」开关行已删 —— 跨行补位无条件执行，不留空洞
     }
 
     private void buildFooter(LinearLayout root) {
-        TextView tip = text("改动后请强停对应地图 App 并重新打开以生效", 12, Typeface.NORMAL, cTxS());
+        TextView tip = text("改动后请强停对应地图 App 并重新打开以生效；开关可随时单独开/关，无需全部统一调整", 12, Typeface.NORMAL, cTxS());
         tip.setPadding(dp(4), dp(16), 0, dp(2));
         root.addView(tip);
 
-        TextView ver = text("MapAdKiller v1.2.3 · Liquid Glass UI", 11, Typeface.NORMAL, cTxS());
+        TextView ver = text("MapAdKiller v1.1.0 · Liquid Glass UI", 11, Typeface.NORMAL, cTxS());
         ver.setAlpha(0.7f);
         ver.setGravity(Gravity.CENTER);
         ver.setPadding(0, dp(10), 0, 0);

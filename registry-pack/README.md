@@ -5,6 +5,10 @@
 
 **中文** | [English](#english)
 
+> **版本：v1.1.0（versionCode 110）** —— `module.prop` / `AndroidManifest.xml` / 设置页 /
+> Release tag `110-1.1.0` 全部一致。
+> 下载：[最新 Release](https://github.com/ldxm666/MapAdKiller/releases/latest)
+
 ---
 
 ## 中文
@@ -15,34 +19,57 @@
 
 | 目标 App | 包名 | 拦截内容 |
 |---|---|---|
-| 高德地图 | `com.autonavi.minimap` | 开屏广告（强制走自家 NO_SPLASH 收尾路径，不卡启动）、实时广告拉取、首页轮播 Banner、后台推送运营弹窗、搜索页模板开屏、AJX 首页联动广告数据 |
-| 百度地图 | `com.baidu.BaiduMap` | 开屏广告（Native/OpenAPI/Push 三渠道全灭）、聚合层 6 家 ADN 加载器（聚量/GroMore/美数/章鱼/趣盟/推荐位）、悬浮运营黄条（"做任务领现金"类）、首页中部横幅、BMAd 开放封装 （v1.0.7 起开屏已可正常收尾，不再需要手动按返回键）|
-| 腾讯地图 | `com.tencent.map` | 广点通 GDT SDK 初始化（`initWith=false`，连带 tangramsplash / 融合 SDK 全部失效）、开屏流水线任务、首页 Banner 数据绑定、POI 列表广告卡（视图层） |
+| 高德地图 | `com.autonavi.minimap` | 开屏广告（`BootBizDataPreloaderImpl.canShowSplash()=false` → 走自家 `g.e(NO_SPLASH)` 收尾路径，不卡启动；旧的 u96/za6 混淆名 hook 已按 17.00 修正）、实时广告拉取、首页轮播 Banner、后台推送运营弹窗、搜索页模板开屏、AJX 首页联动广告数据、**工具栏「高德出行节」**、**「我的」页「好友动态」行**、**「我的」页「答题瓜分百万大奖」红包卡**（后三项无开关，直接清除） |
+| 百度地图 | `com.baidu.BaiduMap` | 开屏广告（**断源**：`SplashAdManager.F()/z()/w()/y()` 一律 false → 宿主 `WelcomeScreen.t()` 走自家无广告分支，广告请求不发出；另有开屏容器子树探测兜底）、悬浮运营黄条（"做任务领现金"类）、首页中部横幅、BMAd 开放封装；ADN 加载器的**回调完成方法**只观察绝不吞（吞了必卡开屏）|
+| 腾讯地图 | `com.tencent.map` | 广点通 GDT SDK 初始化（`initWith=false` / `isInitialized=false`，连带 `TGSplashAD` / tangramsplash / 融合 SDK 全部失效）、开屏预取任务、首页 Banner 数据绑定、POI 列表广告卡（视图层）|
 
 另含**通用视图清扫兜底**（ViewKiller）：每次 Activity resume 后遍历视图树，命中已知广告类名/资源名即 GONE + 移除子树。
 
 
-### 高德首页 / 「我的」页 UI 自定义（v1.0.5 起）
+### 高德首页 / 「我的」页 UI 自定义（v1.1.0 起）
 
 模块 App 内提供设置页，可逐项开关高德地图的首页与「我的」页元素：
 
 | 分类 | 可配置项 |
 |---|---|
-| 主页标签栏 | 首页 / 探索 / 长按说话 / 打车 / 我的 —— 逐 tab 隐藏，剩余自动均分并**撑满整条悬浮栏** |
-| 首页工具宫格 | 10 个工具逐格隐藏，剩余格子行内补空；扩展工具页可单独开关；**「收藏夹」有独立开关** |
+| 主页标签栏 | 首页 / 探索 / 长按说话 / 打车 / 我的 —— 逐 tab 隐藏，剩余自动均分重排 |
+| 首页工具宫格 | **15 格逐格**隐藏（3×5 全量），剩余格子行内补空 / 自动重排 |
 | 首页推荐内容 | 天气卡、周边景区、榜单帖、距离卡（公里/米）、精选榜单、攻略内容流、问问 AI、推荐频道栏、设置家等 |
-| 首页运营卡 | 「去XX / 帮我预约车辆 / AI叫车 / 顺风车…」那一排轮播推广卡，**按版式识别**，一个开关全灭 |
-| 搜索页 | 顶部「美食 / 酒店 / 加油站 / 休闲玩乐 / 扫街榜」分页金刚区 |
 | 「我的」页 | 订单栏、车辆服务栏、达人任务、运营卡栏、猜你喜欢、资质信息/协议中心 |
-| 其他 | 隐藏桌面图标（隐藏后从常驻通知回到设置页）、调试日志、一键恢复默认 |
+| 搜索栏下方快捷入口 | 美食 / 酒店 / 景点门票 / 加油充电 / 出行节 / 扫街榜 整排（**默认关闭**，设置页可开） |
+| 首页搜索框热词 | 「文字流动」的预置词/运营广告词（含品牌图标）：开关**默认开=关闭**，文字钉死成「查找地点、公交、地铁」 |
+| 首页打车浮窗 | 「去XXX 打车 / 有座不拥挤 · 行程有保障」运营浮窗卡：开关**默认开=整卡摘除** |
+| 强制清除（无开关） | 工具栏「高德出行节」、 「我的」页「好友动态」行、「答题瓜分百万大奖」红包卡 |
+| 其他 | 隐藏桌面图标（可开关；隐藏后可用**快捷设置磁贴**或 `adb shell am start -n io.github.ldxm666.mapadkiller/.MainActivity` 打开设置页） |
 
 改动写入 LSPosed RemotePreferences，强停高德后重新打开即生效（普通 App 作用域无需重启系统）。
+
+**作用域闸门（v1.1.0）**：所有首页 /「我的」页规则都只在**被认领过的 AJX 列表**内生效 ——
+认领证据必须是这两个页面独有的（工具宫格 ≥2 行、或 ≥3 个「我的」页条目、或 ≥2 个首页 chips）。
+路线规划页一条都不满足，因此**整页不受任何影响**（旧版会把方案卡上的「2379公里」当成
+距离卡锚点，把整块路线信息模块一起抹掉）。
 
 实现要点：AJX 信息流卡片挂在列表适配器的 `onBindViewHolder` 上，在**绑定完成的同一帧内**判定并隐藏，
 卡片一次都不会被绘制出来 —— 不是"渲染后再删"。
 
-所有隐藏规则都带**页面归属判断**：只有认得出高德首页（底部悬浮标签栏在显示）才会动手，
-路线页 / 搜索页 / 导航页 / 工具管理页一律不碰 —— 这是"某个规则跑到别的页面乱删东西"这一类事故的根治。
+### v1.1.0：搜索框热词轮播 + 首页打车浮窗（DEX 实证）
+
+两个「老熟人」用反编译证据一次掐断，开关都默认开（= 已处理），随时可关：
+
+- **搜索框文字流动**：jadx 确认 `com.autonavi.bundle.amaphome.components.searchbar.BaseSearchBar`
+  里写 `txt_hotword` 的路径只有 `setHotWordTxt(...)` 与 `setPreWordTextView(...)` 两个出口，
+  在这两个方法的**第一个 String 参数**上把词换成 App 自己的 `string/title_search_hint`
+  ——「文字流动」与运营/广告词一起消失，热词品牌图标同时 GONE。
+- **打车浮窗**：真机树实证它是 AJX 卡片（`Html'去幸福路步行街' > Container(1006x210)×4
+  > AjxAbsoluteLayout(1006x242)`），文案服务端下发，dex/资源里都没有 ——
+  所以用「卡内文案锚点 + AJX 列表 item 结构」双判据定位整卡摘除（首帧之前 + 锚点兜底复扫）。
+
+细节与真机日志见 [docs/FIX-v1.1.0-hotword-and-ridecard.md](https://github.com/ldxm666/MapAdKiller/blob/master/docs/FIX-v1.1.0-hotword-and-ridecard.md)。
+
+### 性能
+
+所有隐藏都发生在**首帧绘制之前**（绑定前先挂 alpha 0，判完同帧决定），所以看不到「先亮一下再消失」。
+实测首页列表来回猛滑 10 次：2778 帧 / 掉帧 7 帧（0.25%），50th 8ms、90th 19ms。
 
 ### 安装
 
@@ -50,6 +77,12 @@
 2. 安装 `MapAdKiller.apk`
 3. 在 LSPosed Manager 中启用本模块（`staticScope=true` 固定作用域：高德/百度/腾讯，见 `app/META-INF/xposed/scope.list`）
 4. 重启目标 App 生效（无需重启手机）
+
+> **更新模块后必须卸载重装**：LSPosed 会缓存模块 dex，直接覆盖安装新版本时，
+> 已运行过的目标 App 仍可能加载旧代码（真机实测：日志里出现旧版的 `OBSERVE ...` 行、
+> 而新版的 `BMAP gate selfcheck` 行不出现）。正确姿势：
+> `adb uninstall io.github.ldxm666.mapadkiller` → 重装 APK → 在 LSPosed 里重新启用并勾选作用域
+> → `adb shell am force-stop <目标包名>` → 重新打开。
 
 ### 构建（无需 Android Studio / Gradle）
 
@@ -67,10 +100,13 @@
 
 - 广告为服务端概率下发，"某次没广告"不能作为验证依据；请以 logcat `MapAdKiller:` 日志为准（`adb logcat -s LSPosedFramework | grep MapAdKiller`）
 - 百度地图首页"爱去榜/旅游攻略"为百度自家内容推荐（非广告 SDK 下发），不在本模块范围
+- 百度地图 22.0.0 的开屏闸门 `SplashAdManager.F()/z()/w()/y()` 已恢复为**强制 false**：
+  反编译确认它们是纯查询（无回调依赖），返回 false 时 `WelcomeScreen.t()` 直接 return-void，
+  走的是应用自己的无广告分支。真正会让 App 卡在开屏的是**吞掉 ADN 的加载回调**
+  （`IAdLoader.I(...)` = onAdClose/onTimeOver），本模块对该处只观察、绝不吞。
+  另有开屏容器子树探测 + watchdog 兜底，且**不会 finish() 任何 Activity**（finish 会打断首页启动）
 - 高德"探索"tab 内嵌 AJX 画布渲染的内容卡片无法在原生视图层定位，暂未处理
 - 打车 tab "单单省"角标等平台促销徽标未处理
-- 首页工具宫格第 3 行是高德**服务端下发的推荐位**，轮播哪几个工具由高德决定；「收藏夹」不在这一轮下发里时，
-  开关打开也不会凭空多出一个格子（模块只做隐藏，不做插入）
 - 目标 App 大版本更新可能导致混淆方法名漂移，hook 未命中时日志会输出 `miss` 行，欢迎提 issue 附日志
 
 ### 隐私
@@ -91,27 +127,20 @@ A local-only LSPosed module that deterministically blocks splash ads, home banne
 - **Baidu Maps** (`com.baidu.BaiduMap`): splash across all three channels (native/openapi/push), the mediation layer feeding 6 ad networks (Business/GroMore/Meishu/Octopus/Qumeng/Recommend), floating promo yellow bar, mid-banner
 - **Tencent Maps** (`com.tencent.map`): GDT SDK init kill (`initWith=false` neutralizes tangram splash + fusion SDK), splash pipeline tasks, home banner binding, POI list ad cards (view layer)
 
+**v1.1.0 additions** (both on by default, each with its own switch):
+
+- **Home search-box hot-word carousel** — the rotating preset/ops/ad words (plus their brand icons).
+  Hooked at the only two funnels that write `BaseSearchBar.mHotWordTxtView`
+  (`setHotWordTxt(..)` / `setPreWordTextView(..)`); the word is replaced with the app's own
+  `string/title_search_hint`, so the box stays static.
+- **"去XXX 打车" ride-hailing floating card** in the home feed — located by
+  "card copy anchors + AJX list-item structure" and removed as a whole card
+  (first frame, plus an anchor-table re-sweep for rebuilt items).
+
 Plus a generic `ViewKiller` sweep on every `Activity.onResume` matching known ad view classes and resource ids.
-
-### UI customization (Amap home / My page / search page)
-
-The module app ships a settings screen that toggles Amap home-page elements one by one:
-
-| Group | Items |
-|---|---|
-| Bottom tab bar | 首页 / 探索 / 长按说话 / 打车 / 我的 — per-tab hide; the remaining tabs are re-spread to fill the whole floating bar |
-| Home tool grid | all 10 tools individually, the extra-tools page, and a dedicated 收藏夹 (favorites) switch |
-| Home feed | weather card, nearby spots, ranking posts, distance cards, curated lists, guides/content flow, Ask-AI, channel bar, home/unit chips |
-| Home promo slot | the rotating "去XX / AI叫车 / 顺风车…" operator card — detected **by layout**, one switch kills them all |
-| Search page | the paged 美食/酒店/加油站/休闲玩乐/扫街榜 category strip |
-| My page | order row, vehicle-services row, creator tasks, promo row, guess-you-like, licence/agreements |
-| Misc | hide the launcher icon (an ongoing notification brings you back), debug log, restore-all |
-
-Every hiding rule is **page-scoped**: it only acts when the Amap home tab bar is present, so route / search /
-navigation / tool-manager pages are never touched.
 
 Requires root + LSPosed (tested on KernelSU + ZygiskNext + LSPosed v2.1.1, Android 16). Build without Android Studio: `.\app\build.ps1` (JDK + SDK build-tools only).
 
-Baidu Maps splash no longer needs a manual back press as of v1.0.7. Ads are probabilistically server-delivered — verify via `logcat -s LSPosedFramework | grep MapAdKiller` (`HOOKED` / `KILLED` / `forced NO_SPLASH` lines), not by one ad-free launch.
+Ads are probabilistically server-delivered — verify via `logcat -s LSPosedFramework | grep MapAdKiller` (`HOOKED` / `KILLED` / `forced NO_SPLASH` lines), not by one ad-free launch.
 
 Licensed under GPL-3.0-or-later.

@@ -136,10 +136,30 @@ public final class SdkAutoBlock {
      */
     private static volatile boolean hookSide;
 
-    /** 通用广告"加载 / 展示 / 初始化"方法名（AdClose SDKAdsKit 的 validAdMethods） */
+    /**
+     * 可以安全"空转"的广告入口方法名。
+     *
+     * ⚠ 这里**绝不能**放 load / show / fetch / start 这类通用名。
+     * 真机事故链（v1.1.0 → v1.1.0）：
+     *   · 把 ADN 的 load/loadAd 吞掉 → 广告流程已启动但加载回调永不到达
+     *     → 宿主一直等 onAdFinish/onSkip → **卡开屏，按返回键才进得去**；
+     *   · 把 show 吞掉 → 对话框/弹窗类广告永久占位；
+     *   · 把 initialize/init 吞掉 → SDK 半初始化，宿主拿到 null 直接 NPE。
+     * 所以只保留"纯初始化入口"：不返回给宿主任何对象，也不驱动后续回调。
+     * 真正让广告不展示靠两条更安全的线：
+     *   ① 各 App 专属的**语义闸门**（见 BmapHooks/AmapHooks/TmapHooks）；
+     *   ② {@link #GATES} 里的 isInitialized/canLoad 这类**只读查询**。
+     */
     private static final Set<String> AD_METHODS = new HashSet<>(Arrays.asList(
-            "loadAd", "loadAds", "load", "show", "fetchAd",
-            "initSDK", "initialize", "initializeSdk", "init"));
+            "initSDK", "initializeSdk", "startWithAppId", "startWithAppID"));
+
+    /**
+     * 只读"能力查询"闸门 —— 返回 false 不会破坏任何回调链，纯粹让宿主认为
+     * "这个 SDK 不可用"。这是整套自动拦截里**最安全、性价比最高**的一类 hook。
+     */
+    private static final Set<String> GATES = new HashSet<>(Arrays.asList(
+            "isInitialized", "isInit", "isSdkReady", "isAdReady", "canLoadAd", "canShowAd",
+            "isReady", "isLoadSuccess", "hasInit"));
 
     /** 不做处理的类（避免误伤 SDK 正常配置类） */
     private static final Set<String> EXCLUDED = new HashSet<>(Collections.singletonList(
@@ -191,6 +211,17 @@ public final class SdkAutoBlock {
                 {"com.mbridge.msdk.out.MBBidManager", "bidLoad", "load"},
                 {"com.anythink.core.api.ATSDK", "init", "initSDK"},
                 {"com.tradplus.ads.open.TradPlusSdk", "init", "initSdk"},
+                // 腾讯 11.6 的优量汇开屏插件（TG = Tangram）
+                {"com.qq.e.tg.splash.TGSplashAD", "loadFullScreenAD", "showFullScreenAD", "fetchFullScreenAD"},
+                // 百度 22.0 的聚合开屏入口（只挂初始化，不碰加载回调）
+                {"com.baidu.baidumaps.commonadprovider.SplashAdProvider", "R", "t"},
+                {"com.qumeng.advlib.api.QMAdManager", "init", "initSdk"},
+                {"com.octopus.ad.OctopusAdSdk", "init", "initSdk"},
+                {"com.meishu.sdk.MSAdSdk", "init", "initSdk"},
+                {"com.beizi.fusion.BeiZiSDK", "init", "initSdk"},
+                {"com.windmill.sdk.WindMillAd", "init", "initSdk"},
+                {"com.anythink.core.api.ATSDK", "initSDK", "init"},
+                {"com.smartdigimkt.sdk.api.SDMAdSdk", "init", "initSdk"},
         };
         for (String[] row : known) {
             Class<?> c = H.cls(cl, row[0]);
@@ -686,7 +717,7 @@ public final class SdkAutoBlock {
      * android.content.ContextWrapper 这类框架类，按名字命中就是**全局**钩子。
      * 真机实测的后果：`android.app.Dialog#show` 被拦、`Activity#startActivityIfNeeded` /
      * `ContextWrapper#startService` 被换 Context → **百度地图直接闪退、腾讯地图 ANR**。
-     * 这与 v1.0.2 白屏事故同源，是本模块第一红线。
+     * 这与 v1.1.0 白屏事故同源，是本模块第一红线。
      *
      * 所以：只处理 **声明在该 SDK 类自己身上** 的方法，并在下单前再做一次类名校验。
      */
@@ -704,7 +735,16 @@ public final class SdkAutoBlock {
 
             if (AD_METHODS.contains(nm)) { if (hookAdMethod(m)) any = true; continue; }
 
-            if (isLifecycleEntry(nm) && m.getReturnType() != void.class) {
+            // 只读查询闸门：isInitialized() 之类一律 false（不碰回调链）
+            if (GATES.contains(nm) && m.getParameterTypes().length == 0) {
+                if (hookAdMethod(m)) any = true;
+                continue;
+            }
+
+            // Context 替换只对"明确的 SDK 初始化入口"下手，且必须有 Context 入参。
+            // 通用名字（start*/getContext*）一律不做 —— 实测这就是腾讯地图 ANR 的来源。
+            if (isLifecycleEntry(nm) && m.getReturnType() != void.class
+                    && hasContextParam(m)) {
                 if (hookContextSwap(m)) any = true;
             }
         }
@@ -785,10 +825,28 @@ public final class SdkAutoBlock {
         }
     }
 
-    /** AdClose 的 isLifecycleEntry：方法名像 SDK 初始化入口 */
+    /**
+     * 只认**明确的**初始化入口名。
+     *
+     * 旧实现用 name.contains("start") + getContext*，命中面太宽：
+     * "startActivity"、"startService"、"getContextWrapper" 全在里面，
+     * 真机表现就是百度闪退 / 腾讯 ANR。现在收窄到 init* / setup* / *WithAppId。
+     */
     private static boolean isLifecycleEntry(String name) {
         String n = name.toLowerCase();
-        return n.startsWith("init") || n.contains("start") || name.contains("getContext");
+        if (n.equals("init") || n.equals("initcontext") || n.equals("setup")) return true;
+        if (n.startsWith("init") && n.length() <= 24) return true;
+        if (n.startsWith("setup") && n.length() <= 24) return true;
+        if (n.endsWith("withappid") || n.endsWith("withappkey")) return true;
+        return false;
+    }
+
+    /** 方法签名里是否真的有 Context 入参（没有就根本不需要换 Context） */
+    private static boolean hasContextParam(java.lang.reflect.Method m) {
+        for (Class<?> p : m.getParameterTypes()) {
+            if (android.content.Context.class.isAssignableFrom(p)) return true;
+        }
+        return false;
     }
 
     /** 非 void 方法的默认返回；void 方法返回 null 即可 */

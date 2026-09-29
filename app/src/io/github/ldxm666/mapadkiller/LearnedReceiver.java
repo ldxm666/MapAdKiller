@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  *
  * 主通道是 LearnedProvider（ContentResolver#call，按需唤起本 App 进程，HyperOS 拦不住）。
  * 只有当 provider 那条路返回空时，hook 侧才会退回 sendBroadcast(ACTION_LEARNED)。
- * AndroidManifest 里一直声明着这个 receiver，但 v1.0.6 及以前**没有对应的类文件**，
+ * AndroidManifest 里一直声明着这个 receiver，但 v1.1.0 及以前**没有对应的类文件**，
  * 于是兜底一旦被用到就会静默失败（系统日志里是一条 Unable to instantiate receiver）。
  * 这里把它补齐。
  *

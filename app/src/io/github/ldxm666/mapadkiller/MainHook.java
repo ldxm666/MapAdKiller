@@ -77,7 +77,7 @@ public final class MainHook extends XposedModule {
                     break;
                 case PKG_BMAP:
                     H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg);
-                    BmapHooks.install(cl);
+                    BmapHooks.install(cl);   // 百度去广告基线
                     break;
                 case PKG_TMAP:
                     H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg);

@@ -85,7 +85,7 @@ public final class TreeDump {
             try { t = ((TextView) v).getText(); } catch (Throwable ignored) { t = null; }
             if (t != null) sb.append(" TV='").append(trim(t.toString())).append('\'');
         }
-        // v1.1.9 取证：AJX 文本控件（Label/Html…）不是 TextView，反射取 getText
+        // v1.1.0 取证：AJX 文本控件（Label/Html…）不是 TextView，反射取 getText
         String cn = v.getClass().getName();
         if (cn.contains("ajx3") && (cn.endsWith("Label") || cn.endsWith("Html")
                 || cn.endsWith("Text") || cn.endsWith("TitleView"))) {
