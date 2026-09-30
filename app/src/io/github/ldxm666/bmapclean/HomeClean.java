@@ -216,8 +216,10 @@ public final class HomeClean {
             n += applyWeather(decor);
             n += applyFeed(decor);
             n += applyMine(decor);
-            // n += applyMineCards(decor);   // 已停用：JS 层过滤生效后卡片根本不渲染（无留白）；
-            //                              视图层 removeView 在 AJX 列表上会留洞，故只在 JS 失效时才有意义 —— 宁可显示也不留洞
+            n += applyMineCards(decor);
+            hookLayout(decor);
+            sweepCards(decor);   // 视图层兜底：JS 层这条路实测没生效（见 REGISTRY 六·二）
+
             n += HomeAds.applyHomeActivity(decor);   // 左上角运营浮层（一键穿越/古今地图）
 
             if (Cfg.debug()) {
@@ -660,6 +662,80 @@ public final class HomeClean {
         } catch (Throwable ignored) {}
         return null;
     }
+
+    /**
+     * 高频复扫：进入「我的」页后每 200ms 摘一次卡，持续 ~15 秒。
+     *
+     * 为什么不能只靠 OnGlobalLayout：卡片是 JS 拿到 UGC 数据之后才渲染的，
+     * 而布局回调只在有布局时触发 —— 中间那几秒卡片就明晃晃挂在页面上（用户实测"刚进去一直在"）。
+     * 定时复扫让它"一出现就被摘"，用户最多看到一闪。只在前 75 次（≈15s）里跑，之后自动停，零常驻开销。
+     */
+    private static void sweepCards(final View decor) {
+        if (sSweeping) return;
+        if (Cfg.visible(Spec.K_MINE_SPORT, Spec.defaultVisible(Spec.K_MINE_SPORT))
+                && Cfg.visible(Spec.K_MINE_BUILD, Spec.defaultVisible(Spec.K_MINE_BUILD))
+                && Cfg.visible(Spec.K_MINE_GRID, Spec.defaultVisible(Spec.K_MINE_GRID))) {
+            return;                                    // 三项都开着 = 没有要摘的卡
+        }
+        sSweeping = true;
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        final int[] n = {0};
+        h.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (n[0]++ > 75) { sSweeping = false; return; }
+                    if (decor != null && decor.isAttachedToWindow()) {
+                        sInLayout = true;
+                        applyMineCards(decor);
+                        sInLayout = false;
+                    } else {
+                        sSweeping = false;
+                        return;
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    sInLayout = false;
+                }
+                h.postDelayed(this, 200);
+            }
+        });
+        Cfg.log("mine cards: 高频复扫已启动（200ms × 75）");
+    }
+
+    private static volatile boolean sSweeping;
+
+    /** 每次布局都立即复扫卡片（JS 会在数据到达后把卡片插回来，靠这个"当场再摘"，用户看不到延迟/空位） */
+    private static void hookLayout(final View decor) {
+        if (sLayoutHooked) return;
+        if (Cfg.visible(Spec.K_MINE_SPORT, Spec.defaultVisible(Spec.K_MINE_SPORT))
+                && Cfg.visible(Spec.K_MINE_BUILD, Spec.defaultVisible(Spec.K_MINE_BUILD))
+                && Cfg.visible(Spec.K_MINE_GRID, Spec.defaultVisible(Spec.K_MINE_GRID))) {
+            return;                                  // 三项都开着 = 没有要摘的卡，别挂
+        }
+        try {
+            decor.getViewTreeObserver().addOnGlobalLayoutListener(
+                    new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                        @Override public void onGlobalLayout() {
+                            try {
+                                if (sInLayout) return;   // 防递归
+                                sInLayout = true;
+                                applyMineCards(decor);
+                            } catch (Throwable ignored) {
+                            } finally {
+                                sInLayout = false;
+                            }
+                        }
+                    });
+            sLayoutHooked = true;
+            Cfg.log("mine cards: OnGlobalLayout 复扫已挂");
+        } catch (Throwable t) {
+            H.log(Log.WARN, MainHook.TAG, "mine cards hookLayout failed: " + t);
+        }
+    }
+
+    /** 布局回调重入保护 + 只挂一次 */
+    private static volatile boolean sLayoutHooked;
+    private static volatile boolean sInLayout;
 
     /**
      * 视图层兜底（v2.0.1）：JS 层注入被 App 的 bundle 加载机制挡住时，
