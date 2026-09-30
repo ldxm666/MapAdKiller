@@ -1,4 +1,11 @@
-package io.github.ldxm666.mapadkiller;
+package io.github.ldxm666.mapclean;
+
+import io.github.ldxm666.mapadkiller.App;
+import io.github.ldxm666.mapadkiller.Config;
+import io.github.ldxm666.mapadkiller.DiagPage;
+import io.github.ldxm666.mapadkiller.LearnedProvider;
+import io.github.ldxm666.mapadkiller.MainHook;
+import io.github.ldxm666.mapadkiller.SdkAutoBlock;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -54,6 +61,10 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
 
     private TextView statusView;
+    /** 版本行（绿/黄/灰）与最佳适配行 */
+    private TextView verLine;
+    private TextView adLine;
+    private boolean updateDialogShown;
     /** 「已捕获广告 SDK」那一行；服务绑定后要重刷文案，否则一直显示 onCreate 时的空快照 */
     private TextView sdkRow;
 
@@ -62,6 +73,14 @@ public final class MainActivity extends Activity {
     private FrameLayout page;
     private LinearLayout bottomBar;
     private FrameLayout.LayoutParams barLp;
+
+    // ── v2.0.0 分页：百度 / 高德 / 其他，左右滑动切换 ──────────────────────
+    private Pager pager;
+    private LinearLayout tabBar;
+    private final java.util.List<TextView> tabChips = new java.util.ArrayList<>();
+    private final java.util.List<android.widget.ScrollView> pages = new java.util.ArrayList<>();
+    /** 百度那一页的开关（配置 group 与高德不同，要单独同步） */
+    private final Map<String, Switch> bmapSwitches = new LinkedHashMap<>();
 
     private static final int GLASS_R = 22;   // 卡片圆角 dp
     private static final int HEAD_R = 18;    // 抽屉头/按钮圆角 dp
@@ -83,33 +102,60 @@ public final class MainActivity extends Activity {
         setContentView(page);
         addBlobs(page);
 
-        scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setClipToPadding(false);
-        page.addView(scroll, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
+        // ── 顶部固定区：状态卡 + 分页标签 ──────────────────────────────
+        final LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.VERTICAL);
         int p = dp(16);
-        root.setPadding(p, dp(10), p, dp(96));
-        scroll.addView(root);
+        top.setPadding(p, dp(10), p, dp(2));
+        buildHero(top);
 
-        buildHero(root);
+        tabBar = new LinearLayout(this);
+        tabBar.setOrientation(LinearLayout.HORIZONTAL);
+        tabBar.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = dp(10);
+        top.addView(tabBar, tlp);
 
-        // 抽屉挂载点：CHANGING 过渡让折叠/展开时后续卡片平滑上移/下移
-        list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        android.animation.LayoutTransition lt = new android.animation.LayoutTransition();
-        lt.enableTransitionType(android.animation.LayoutTransition.CHANGING);
-        lt.setDuration(190);
-        list.setLayoutTransition(lt);
-        root.addView(list);
+        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        topLp.gravity = Gravity.TOP;
+        page.addView(top, topLp);
 
-        buildForcedCard(root);          // 去广告（始终开启，不折叠）
-        buildDrawers();                 // 其余全部进抽屉
-        buildFooter(root);
+        // ── 分页容器 ──────────────────────────────────────────────────
+        pager = new Pager(this);
+        pager.setOnPageChanged(new Pager.OnPageChanged() {
+            @Override public void onPageChanged(int index) { selectTab(index); }
+        });
+        final FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        plp.topMargin = dp(180);        // 先给个近似值，量到顶部真实高度后再校正
+        page.addView(pager, plp);
+
+        pager.addView(buildBaiduPage());   // 页 0
+        pager.addView(buildAmapPage());    // 页 1
+        pager.addView(buildOtherPage());   // 页 2
+
+        addTab("百度地图");
+        addTab("高德地图");
+        addTab("其他");
+        selectTab(0);
+
         buildBottomBar();
+
+        // 顶部高度是动态的（状态文案可能换行）→ 布局完成后把分页区顶边校正一次
+        top.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) pager.getLayoutParams();
+                    int want = top.getHeight() + dp(2);
+                    if (lp.topMargin != want) {
+                        lp.topMargin = want;
+                        pager.setLayoutParams(lp);
+                    }
+                } catch (Throwable ignored) {}
+            }
+        });
 
         page.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
@@ -118,7 +164,9 @@ public final class MainActivity extends Activity {
                     barLp.setMargins(dp(14), 0, dp(14), nav + dp(14));
                     bottomBar.setLayoutParams(barLp);
                 }
-                scroll.setPadding(0, 0, 0, nav + dp(96));
+                for (int i = 0; i < pages.size(); i++) {
+                    pages.get(i).setPadding(0, 0, 0, nav + dp(96));
+                }
                 return insets;
             }
         });
@@ -132,6 +180,8 @@ public final class MainActivity extends Activity {
         try { LearnedProvider.flushToRemote(this); } catch (Throwable ignored) {}
         refreshSdkRow();
         statusRefresher.run();
+        // 每次打开设置页都检查一次版本（内部 6 小时节流；点版本行可强制刷新）
+        try { UpdateChecker.check(this, false, updateCb); } catch (Throwable ignored) {}
     }
 
     @Override
@@ -241,6 +291,150 @@ public final class MainActivity extends Activity {
         return sw;
     }
 
+    // ---------------------------------------------------------------- 版本 / 更新
+
+    private final UpdateChecker.Callback updateCb = new UpdateChecker.Callback() {
+        @Override public void onResult(String latest, boolean outdated, String source) {
+            renderVersionLines();
+            if (outdated && latest != null && !updateDialogShown) {
+                updateDialogShown = true;
+                showUpdateDialog(latest);
+            }
+        }
+    };
+
+    /** 版本行配色：已是最新=绿、有新版本=黄、未获取=灰（点一下强制刷新） */
+    private void renderVersionLines() {
+        if (verLine == null) return;
+        String latest = UpdateChecker.latest(this);
+        boolean out = UpdateChecker.isOutdated(this);
+        String txt;
+        if (latest == null) {
+            verLine.setTextColor(cTxS());
+            txt = "当前版本 v" + Version.NAME + " · 线上版本未获取（点此重试）";
+        } else if (out) {
+            verLine.setTextColor(0xFFE0A200);      // 黄：有新版本
+            txt = "当前版本 v" + Version.NAME + " · 有新版本 v" + latest + "（点此查看/刷新）";
+        } else {
+            verLine.setTextColor(cDotOk());        // 绿：已是最新
+            txt = "当前版本 v" + Version.NAME + " · 已是最新";
+        }
+        verLine.setText(txt);
+        if (adLine != null) adLine.setText(adaptSummary());
+    }
+
+    /** 最佳适配：模块 hook 点验证过的目标版本 vs 本机实际版本 */
+    private String adaptSummary() {
+        StringBuilder sb = new StringBuilder("最佳适配：");
+        for (int i = 0; i < Version.TARGETS.length; i++) {
+            String pkg = Version.TARGETS[i][0];
+            String label = Version.TARGETS[i][1];
+            String want = Version.TARGETS[i][2];
+            if (i > 0) sb.append("　");
+            sb.append(label).append(' ').append(want);
+            String inst = installedVersion(pkg);
+            if (inst == null) {
+                sb.append("（未安装）");
+            } else if (inst.equals(want) || inst.startsWith(want)) {
+                sb.append("（本机 ").append(inst).append(" ✔）");
+            } else {
+                sb.append("（本机 ").append(inst).append(" ✘）");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String installedVersion(String pkg) {
+        try {
+            android.content.pm.PackageManager pm = getPackageManager();
+            android.content.pm.PackageInfo pi = pm.getPackageInfo(pkg, 0);
+            return pi == null ? null : pi.versionName;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 发现新版本：四个出口 —— **镜像下载**（给没代理的用户）/ GitHub 下载 / Telegram / 稍后更新。
+     * 用两行按钮，避免三个按钮塞不下第四个选项。
+     */
+    private void showUpdateDialog(final String latest) {
+        final AlertDialog dlg = new AlertDialog.Builder(this).create();
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(glass(GLASS_R));
+        int pad = dp(20);
+        box.setPadding(pad, dp(18), pad, dp(14));
+
+        box.addView(text("发现新版本 v" + latest, 18, Typeface.BOLD, cTxP()));
+
+        String msg = "当前版本 v" + Version.NAME + "　→　最新版本 v" + latest
+                + "\n\n【没有代理也能下载】点「镜像下载」走 gh-proxy 反代打开 Releases 页；"
+                + "「GitHub 下载」是官方直链（需要能访问 GitHub）。"
+                + "\n\n更新后建议强停三家地图 App 再重新打开。";
+        TextView mv = text(msg, 13, Typeface.NORMAL, cTxS());
+        mv.setLineSpacing(0, 1.28f);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mlp.topMargin = dp(10);
+        box.addView(mv, mlp);
+
+        LinearLayout r1 = new LinearLayout(this);
+        r1.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = dp(16);
+        r1.addView(dlgButton("镜像下载", true, new Runnable() {
+            @Override public void run() { openUrl(mirrorUrl()); dlg.dismiss(); }
+        }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        r1.addView(spacer(dp(10)));
+        r1.addView(dlgButton("GitHub 下载", false, new Runnable() {
+            @Override public void run() { openUrl(Version.RELEASES); dlg.dismiss(); }
+        }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        box.addView(r1, rlp);
+
+        LinearLayout r2 = new LinearLayout(this);
+        r2.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rlp2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp2.topMargin = dp(10);
+        r2.addView(dlgButton("Telegram 群", false, new Runnable() {
+            @Override public void run() { openUrl(Version.TG); dlg.dismiss(); }
+        }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        r2.addView(spacer(dp(10)));
+        r2.addView(dlgButton("稍后更新", false, new Runnable() {
+            @Override public void run() { dlg.dismiss(); }
+        }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        box.addView(r2, rlp2);
+
+        dlg.setView(box);
+        dlg.show();
+        try {
+            android.view.Window w = dlg.getWindow();
+            if (w != null) w.setBackgroundDrawable(new ColorDrawable(0));
+        } catch (Throwable ignored) {}
+    }
+
+    /** 镜像下载页（按实测可用性排序，取第一个） */
+    private String mirrorUrl() {
+        String[] m = Version.DOWNLOAD_MIRRORS;
+        return (m != null && m.length > 0) ? m[0] : Version.RELEASES;
+    }
+
+    private TextView dlgButton(String label, boolean primary, final Runnable action) {
+        TextView b = text(label, 14, Typeface.BOLD, primary ? 0xFFFFFFFF : cAccent());
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(8), dp(12), dp(8), dp(12));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(primary ? (dark ? 0xFF2F6BFF : 0xFF0A6CF5) : (dark ? 0x2E7AB1FF : 0x1F0A6CF5));
+        bg.setCornerRadius(dp(HEAD_R));
+        b.setBackground(ripple(bg, HEAD_R));
+        b.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { action.run(); }
+        });
+        return b;
+    }
+
     // ---------------------------------------------------------------- 区块构建
 
     private void buildHero(LinearLayout root) {
@@ -249,9 +443,28 @@ public final class MainActivity extends Activity {
         root.addView(title);
 
         statusView = text("", 13, Typeface.NORMAL, cTxS());
-        statusView.setPadding(dp(4), 0, 0, dp(12));
+        statusView.setPadding(dp(4), 0, 0, dp(6));
         root.addView(statusView);
         renderStatus();
+
+        // 版本行：绿=已是最新 / 黄=有新版本 / 灰=未获取（点一下强制刷新）
+        verLine = text("", 13, Typeface.BOLD, cTxS());
+        verLine.setPadding(dp(4), 0, 0, dp(2));
+        verLine.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Toast.makeText(MainActivity.this, "正在检查更新…", Toast.LENGTH_SHORT).show();
+                UpdateChecker.check(MainActivity.this, true, updateCb);
+            }
+        });
+        root.addView(verLine);
+
+        // 最佳适配应用版本（本机实际安装版本并排对照）
+        adLine = text("", 12, Typeface.NORMAL, cTxS());
+        adLine.setLineSpacing(0, 1.2f);
+        adLine.setPadding(dp(4), 0, 0, dp(10));
+        root.addView(adLine);
+
+        renderVersionLines();
     }
 
     /** 去广告卡片：始终开启、不折叠，作为页面第一块「仪表盘」 */
@@ -385,14 +598,226 @@ public final class MainActivity extends Activity {
         addSwitch(sec.card, "搜索页去广告（券包 / 红包 / 满减 / 会场 / 运营卡）", Config.K_SEARCH_AD);
         addNoteRow(sec.card, "搜索输入页、联想页、搜索结果页里的运营推广卡会被就地隐藏（含「高德邀你畅玩十一」"
                 + "这类会场流）。搜到的真实地点、路线、攻略不受影响。");
+        // 「其他 · 入口与调试」一组已挪到第 3 页（其他），见 buildOtherPage()
+    }
 
-        sec = newDrawer("其他 · 入口与调试");
-        addLocalSwitch(sec.card, "隐藏桌面图标", App.K_HIDE_ICON);
-        addNoteRow(sec.card, "隐藏后桌面图标消失；LSPosed 管理器里的「打开」入口不受影响（v1.1.0 新增），"
-                + "快捷设置磁贴与 adb 命令也始终可用。");
-        addSwitch(sec.card, "工具宫格自动排序（实验性：可能与地图动画冲突）", Config.K_TOOL_SORT);
-        addSwitch(sec.card, "调试日志（logcat 输出首页文本锚点）", Config.K_DEBUG_LOG);
-        // v1.1.0：「工具宫格自动排序」开关行已删 —— 跨行补位无条件执行，不留空洞
+    // ══════════════════════════════════════════════ v2.0.0 分页（百度 / 高德 / 其他）
+
+    private ScrollView newPage() {
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(true);
+        sv.setClipToPadding(false);
+        sv.setVerticalScrollBarEnabled(false);
+        pages.add(sv);
+        return sv;
+    }
+
+    private LinearLayout pageRoot(ScrollView sv) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int p = dp(16);
+        root.setPadding(p, dp(10), p, dp(96));
+        sv.addView(root);
+        return root;
+    }
+
+    /** 抽屉挂载点：CHANGING 过渡让折叠/展开时后续卡片平滑上移/下移 */
+    private LinearLayout newMount() {
+        LinearLayout m = new LinearLayout(this);
+        m.setOrientation(LinearLayout.VERTICAL);
+        android.animation.LayoutTransition lt = new android.animation.LayoutTransition();
+        lt.enableTransitionType(android.animation.LayoutTransition.CHANGING);
+        lt.setDuration(190);
+        m.setLayoutTransition(lt);
+        return m;
+    }
+
+    /** 页 0：百度地图 —— 分类来自 io.github.ldxm666.bmapclean.Spec（开关写 bmapclean_config） */
+    private ScrollView buildBaiduPage() {
+        ScrollView sv = newPage();
+        LinearLayout root = pageRoot(sv);
+        addBmapInfoCard(root);
+        LinearLayout mount = newMount();
+        root.addView(mount);
+        LinearLayout old = list;
+        list = mount;
+        try {
+            io.github.ldxm666.bmapclean.Spec.Cat[] cats = io.github.ldxm666.bmapclean.Spec.cats();
+            for (int i = 0; i < cats.length; i++) {
+                final io.github.ldxm666.bmapclean.Spec.Cat cat = cats[i];
+                Sec sec = newDrawer(cat.title);
+                if (cat.subtitle != null && cat.subtitle.length() > 0) addNoteRow(sec.card, cat.subtitle);
+                for (int j = 0; j < cat.rows.length; j++) {
+                    io.github.ldxm666.bmapclean.Spec.Row row = cat.rows[j];
+                    if (row.key == null) addNoteRow(sec.card, row.title);
+                    else addBmapSwitch(sec.card, row.title, row.key, row.note);
+                }
+                if (i == 0) toggle(sec);        // 第一组默认展开
+            }
+        } finally {
+            list = old;
+        }
+        addVersionFooter(root, "首页开关：强停百度地图后重开即可生效；"
+                + "「我的」页开关：关掉后重开该页即生效（数据层/JS 层在页面加载时读配置）");
+        return sv;
+    }
+
+    /** 页 1：高德地图 —— 沿用 MapAdKiller 的抽屉 */
+    private ScrollView buildAmapPage() {
+        ScrollView sv = newPage();
+        LinearLayout root = pageRoot(sv);
+        buildForcedCard(root);          // 去广告（始终开启，不折叠）
+        LinearLayout mount = newMount();
+        root.addView(mount);
+        LinearLayout old = list;
+        list = mount;
+        try {
+            buildDrawers();
+        } finally {
+            list = old;
+        }
+        addVersionFooter(root, "改动后请强停对应地图 App 并重新打开以生效；开关可随时单独开/关");
+        return sv;
+    }
+
+    /** 页 2：其他 / 调试 */
+    private ScrollView buildOtherPage() {
+        ScrollView sv = newPage();
+        LinearLayout root = pageRoot(sv);
+        LinearLayout mount = newMount();
+        root.addView(mount);
+        LinearLayout old = list;
+        list = mount;
+        try {
+            Sec sec = newDrawer("入口与调试");
+            addLocalSwitch(sec.card, "隐藏桌面图标", App.K_HIDE_ICON);
+            addNoteRow(sec.card, "隐藏后桌面图标消失；LSPosed 管理器里的「打开」入口不受影响（v1.1.0 起），"
+                    + "快捷设置磁贴与 adb 命令也始终可用。");
+            addSwitch(sec.card, "工具宫格自动排序（实验性：可能与地图动画冲突）", Config.K_TOOL_SORT);
+            addSwitch(sec.card, "调试日志（logcat 输出首页文本锚点）", Config.K_DEBUG_LOG);
+            toggle(sec);
+            Sec sec2 = newDrawer("去广告说明");
+            addNoteRow(sec2.card, "去广告是**基线能力**，没有总开关：高德/百度/腾讯三家的开屏、横幅、"
+                    + "信息流运营卡命中即拦截；广告 SDK 清单可在底部「SDK 清单」里查看。");
+        } finally {
+            list = old;
+        }
+        addVersionFooter(root, "MapClean v2.0.0 = BMapClean（百度界面精简）+ MapAdKiller（三家去广告）");
+        return sv;
+    }
+
+    private void addTab(String label) {
+        final TextView chip = text(label, 13, Typeface.BOLD, cTxS());
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(dp(14), dp(9), dp(14), dp(9));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(dark ? 0x1FFFFFFF : 0x22FFFFFF);
+        bg.setCornerRadius(dp(HEAD_R));
+        chip.setBackground(ripple(bg, HEAD_R));
+        chip.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                int i = tabChips.indexOf(v);
+                if (i >= 0) { pager.setPage(i, true); selectTab(i); }
+            }
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.rightMargin = dp(8);
+        tabChips.add(chip);
+        tabBar.addView(chip, lp);
+    }
+
+    private void selectTab(int index) {
+        for (int i = 0; i < tabChips.size(); i++) {
+            TextView c = tabChips.get(i);
+            boolean on = (i == index);
+            c.setTextColor(on ? cAccent() : cTxS());
+            c.setAlpha(on ? 1f : 0.7f);
+        }
+    }
+
+    /** 百度那一页的信息卡：模块状态 + 最近一次规则执行 + 一键恢复 */
+    private void addBmapInfoCard(LinearLayout root) {
+        LinearLayout card = newCard();
+        LinearLayout.LayoutParams clp = cardLp();
+        root.addView(card, clp);
+
+        TextView head = text("百度地图 · 界面精简", 15, Typeface.BOLD, cTxP());
+        head.setPadding(0, dp(2), 0, dp(8));
+        card.addView(head);
+
+        String diag = null;
+        try { diag = io.github.ldxm666.bmapclean.App.diag(); } catch (Throwable ignored) {}
+        int cnt = 0;
+        try { cnt = io.github.ldxm666.bmapclean.App.reportCount(); } catch (Throwable ignored) {}
+        String info = "最近一次规则执行：" + (diag == null ? "尚未收到回报" : diag)
+                + "\n累计回报 " + cnt + " 次";
+        TextView infoView = text(info, 12, Typeface.NORMAL, cTxS());
+        infoView.setLineSpacing(0, 1.25f);
+        card.addView(infoView);
+
+        TextView reset = text("全部恢复显示（清空百度侧配置）", 13, Typeface.BOLD, cDotBad());
+        reset.setPadding(0, dp(14), 0, dp(4));
+        reset.setBackground(ripple(capsule(0x12FF6B70), HEAD_R));
+        reset.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = dp(12);
+        reset.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                boolean ok = false;
+                try { ok = io.github.ldxm666.bmapclean.App.resetAll(); } catch (Throwable ignored) {}
+                Toast.makeText(MainActivity.this,
+                        ok ? "已恢复默认，重开百度地图生效" : "LSPosed 服务未连接",
+                        Toast.LENGTH_SHORT).show();
+                if (ok) syncSwitches();
+            }
+        });
+        card.addView(reset, rlp);
+    }
+
+    /** 百度组的开关行（配置 group 与高德不同，写 bmapclean_config） */
+    private void addBmapSwitch(final LinearLayout card, String title, final String key, String note) {
+        LinearLayout row = newRow(card);
+        TextView label = text(title, 15, Typeface.NORMAL, cTxP());
+        label.setPadding(0, dp(12), dp(8), dp(12));
+        row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final Switch sw = makeSwitch();
+        boolean def = io.github.ldxm666.bmapclean.Spec.defaultVisible(key);
+        try {
+            sw.setChecked(io.github.ldxm666.bmapclean.App.read(key, def));
+            sw.setEnabled(io.github.ldxm666.bmapclean.App.connected());
+        } catch (Throwable t) {
+            sw.setChecked(def);
+        }
+        sw.setClickable(false);
+        bmapSwitches.put(key, sw);
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                boolean next = !sw.isChecked();
+                boolean ok = false;
+                try { ok = io.github.ldxm666.bmapclean.App.write(key, next); } catch (Throwable ignored) {}
+                if (ok) {
+                    sw.setChecked(next);
+                } else {
+                    Toast.makeText(MainActivity.this, "LSPosed 服务未连接，请稍后重试", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        row.addView(sw, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (note != null && note.length() > 0) addNoteRow(card, note);
+    }
+
+    private void addVersionFooter(LinearLayout root, String tip) {
+        TextView t = text(tip, 12, Typeface.NORMAL, cTxS());
+        t.setLineSpacing(0, 1.2f);
+        t.setPadding(dp(4), dp(16), 0, dp(2));
+        root.addView(t, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private void buildFooter(LinearLayout root) {
@@ -400,7 +825,7 @@ public final class MainActivity extends Activity {
         tip.setPadding(dp(4), dp(16), 0, dp(2));
         root.addView(tip);
 
-        TextView ver = text("MapAdKiller v1.1.0 · Liquid Glass UI", 11, Typeface.NORMAL, cTxS());
+        TextView ver = text("MapAdKiller v2.0.0 · 高德/百度/腾讯去广告 + 百度界面精简", 11, Typeface.NORMAL, cTxS());
         ver.setAlpha(0.7f);
         ver.setGravity(Gravity.CENTER);
         ver.setPadding(0, dp(10), 0, 0);
@@ -537,6 +962,18 @@ public final class MainActivity extends Activity {
                 sw.setEnabled(true);
                 sw.setAlpha(1f);
             }
+            // 百度那一页用的是另一个 group（bmapclean_config）—— 单独再刷一遍
+            try {
+                android.content.SharedPreferences bp =
+                        s.getRemotePreferences(io.github.ldxm666.bmapclean.Cfg.GROUP);
+                for (Map.Entry<String, Switch> e : bmapSwitches.entrySet()) {
+                    Switch sw = e.getValue();
+                    sw.setChecked(bp.getBoolean(e.getKey(),
+                            io.github.ldxm666.bmapclean.Spec.defaultVisible(e.getKey())));
+                    sw.setEnabled(true);
+                    sw.setAlpha(1f);
+                }
+            } catch (Throwable ignored) {}
             refreshSdkRow();
         } catch (Throwable ignored) {}
     }

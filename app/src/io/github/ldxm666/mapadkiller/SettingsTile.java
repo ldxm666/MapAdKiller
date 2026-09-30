@@ -1,6 +1,8 @@
 package io.github.ldxm666.mapadkiller;
 
 import android.app.PendingIntent;
+import io.github.ldxm666.mapclean.MainActivity;
+
 import android.content.Intent;
 import android.os.Build;
 import android.service.quicksettings.Tile;

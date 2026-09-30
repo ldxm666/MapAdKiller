@@ -2,52 +2,50 @@ package io.github.ldxm666.mapadkiller;
 
 import android.util.Log;
 
+import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 
 /**
- * MapAdKiller — 高德/百度/腾讯地图 去广告模块
- * 基于 libxposed API 102（XposedModule 入口 + META-INF/xposed 元数据），不再使用 legacy de.robv API。
+ * 高德/百度/腾讯 去广告（v1.1.0 逻辑原样保留）。
  *
- * 证据链（docs/ANALYSIS.md）：
- *  - com.autonavi.minimap : 自研广告体系 splashscreen 闸门(u96/za6).g / banner / msgbox.push / AJX 联动 / 搜索模板开屏
- *  - com.baidu.BaiduMap   : SplashAdManager F/z 闸门 + G/H/n/m + commonadprovider 聚合(6 ADN) + BMAd*Provider
- *                           + 品牌开屏遮罩 HomeSplashPresenter.n 摘除 + 黄条/中部横幅
- *  - com.tencent.map      : GDT GDTADManager.initWith + 开屏流水线 tasks + HomeBannerItem + POI 广告卡(ViewKiller)
+ * v2.0.0 合并版起本类**不再是 Xposed 入口**，改由 `io.github.ldxm666.mapclean.MainHook`
+ * 转发回调（见那边的说明），本类方法签名从 override 改为带 module 参数的 static。
  */
-public final class MainHook extends XposedModule {
+public final class MainHook {
 
     public static final String TAG = "MapAdKiller";
 
     public static final String PKG_AMAP = "com.autonavi.minimap";
     public static final String PKG_BMAP = "com.baidu.BaiduMap";
     public static final String PKG_TMAP = "com.tencent.map";
+    /** 模块自身包名 = 合并后的包名 */
     public static final String PKG_SELF = "io.github.ldxm666.mapadkiller";
 
-    private volatile String loadedProcess;
+    private static volatile String sProcess;
 
-    @Override
-    public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
-        loadedProcess = param.getProcessName();
-        H.module = this;
-        H.log(Log.INFO, TAG, "event=module_loaded process=" + loadedProcess
-                + " api=" + getApiVersion() + " framework=" + getFrameworkName());
+    private MainHook() {}
+
+    public static void onModuleLoaded(XposedModule mod, XposedModuleInterface.ModuleLoadedParam param) {
+        sProcess = param.getProcessName();
+        H.module = mod;
+        H.log(Log.INFO, TAG, "event=module_loaded process=" + sProcess
+                + " api=" + mod.getApiVersion() + " framework=" + mod.getFrameworkName());
     }
 
-    @Override
-    public void onPackageReady(XposedModuleInterface.PackageReadyParam param) {
+    public static void onPackageReady(XposedModule mod, XposedModuleInterface.PackageReadyParam param) {
         final String pkg = param.getPackageName();
-        final String process = loadedProcess;
+        final String process = sProcess;
         if (pkg == null) return;
 
         // 模块自身：状态自检（LSPosed Manager 显示"已激活"）
         if (PKG_SELF.equals(pkg)) {
             try {
                 Class<?> sc = param.getClassLoader().loadClass(PKG_SELF + ".StatusCheck");
-                hook(sc.getDeclaredMethod("amEnabled"))
+                mod.hook(sc.getDeclaredMethod("amEnabled"))
                         .setId("self_check")
-                        .intercept(new io.github.libxposed.api.XposedInterface.Hooker() {
-                            @Override public Object intercept(io.github.libxposed.api.XposedInterface.Chain chain) {
+                        .intercept(new XposedInterface.Hooker() {
+                            @Override public Object intercept(XposedInterface.Chain chain) {
                                 return Boolean.TRUE;
                             }
                         });

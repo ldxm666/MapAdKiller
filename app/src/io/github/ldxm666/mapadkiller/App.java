@@ -159,4 +159,24 @@ public final class App extends Application implements XposedServiceHelper.OnServ
     public void onServiceDied(XposedService s) {
         if (service == s) service = null;
     }
+
+    // ── v2.0.0 合并版：由 io.github.ldxm666.mapclean.App（真正的 Application）驱动 ──
+    private static volatile android.content.Context CTX;
+
+    public static void attach(android.app.Application a) {
+        CTX = a;
+        try { applyLauncherState(a); } catch (Throwable ignored) {}
+    }
+
+    public static void onBind(XposedService s) {
+        service = s;
+        flushPending();          // 补写服务没连上时收到的学习结果
+        try {
+            LearnedProvider.flushToRemote(CTX == null ? null : CTX.getApplicationContext());
+        } catch (Throwable ignored) {}
+    }
+
+    public static void onDied(XposedService s) {
+        if (service == s) service = null;
+    }
 }

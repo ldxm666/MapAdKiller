@@ -1,47 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.ldxm666.mapadkiller"
-    android:versionCode="110"
-    android:versionName="1.1.0">
+    android:versionCode="200"
+    android:versionName="2.0.0">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
 
+    <!-- 版本检查：去 GitHub Releases 拉最新版本号（多源回退，失败不打扰） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Android 11+ 包可见性：设置页要读三家地图的版本号/作用域做状态自检 -->
+    <queries>
+        <package android:name="com.baidu.BaiduMap" />
+        <package android:name="com.autonavi.minimap" />
+        <package android:name="com.tencent.map" />
+    </queries>
+
     <application
-        android:name=".App"
+        android:name="io.github.ldxm666.mapclean.App"
         android:label="MapAdKiller"
         android:description="@string/description"
         android:icon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <!--
-            设置页本体。两个入口通道：
-            1) CATEGORY_INFO —— 隐藏桌面图标后 LSPosed 管理器的「打开」仍然可用。
-               LSPosed 管理器（继承自 XposedInstaller）解析模块设置入口用的是
-               PackageManager#getLaunchIntentForPackage：它优先查 MAIN+CATEGORY_INFO，
-               查不到才回退 MAIN+CATEGORY_LAUNCHER。桌面启动器只认 CATEGORY_LAUNCHER、
-               永不展示 INFO 入口 —— 于是 INFO 通道专供管理器，与「桌面隐藏」完全正交。
-            2) 显式组件名 —— exported=true，adb / 磁贴随时可拉起：
-                adb shell am start -n io.github.ldxm666.mapadkiller/.MainActivity
+            设置页（v2.0.0 起是**左右滑动分页**：百度地图 / 高德地图 / 其他）。
+            CATEGORY_INFO 供 LSPosed 管理器解析入口；显式组件名供 adb 拉起：
+              adb shell am start -n io.github.ldxm666.mapclean/.MainActivity
         -->
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name="io.github.ldxm666.mapclean.MainActivity"
+            android:exported="true"
+            android:label="MapAdKiller">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.INFO" />
-                <!-- DEFAULT：让 am start 等 AMS 侧 MATCH_DEFAULT_ONLY 的隐式解析也命中 -->
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
-        <!--
-            桌面入口。开/关由 App.setHideIcon() 通过
-            PackageManager#setComponentEnabledSetting 切换 —— 这就是「隐藏桌面图标」开关。
-            隐藏它不影响上面的 INFO 通道，LSPosed 管理器入口因此常驻。
-        -->
+        <!-- 桌面入口：开/关由 App.setHideIcon() 通过 setComponentEnabledSetting 切换 -->
         <activity-alias
             android:name=".DesktopAlias"
-            android:targetActivity=".MainActivity"
+            android:targetActivity="io.github.ldxm666.mapclean.MainActivity"
             android:exported="true"
             android:label="MapAdKiller"
             android:icon="@drawable/ic_launcher">
@@ -51,11 +53,9 @@
             </intent-filter>
         </activity-alias>
 
-        <!--
-            快捷设置磁贴：不进启动器、不依赖 LAUNCHER 解析，天然不受图标开关影响。
-        -->
+        <!-- 快捷设置磁贴（来自 MapAdKiller v1.1.0） -->
         <service
-            android:name=".SettingsTile"
+            android:name="io.github.ldxm666.mapadkiller.SettingsTile"
             android:exported="true"
             android:icon="@drawable/ic_launcher"
             android:label="MapAdKiller"
@@ -66,7 +66,7 @@
         </service>
 
         <receiver
-            android:name=".LearnedReceiver"
+            android:name="io.github.ldxm666.mapadkiller.LearnedReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="io.github.ldxm666.mapadkiller.LEARNED" />
@@ -74,7 +74,7 @@
         </receiver>
 
         <provider
-            android:name=".LearnedProvider"
+            android:name="io.github.ldxm666.mapadkiller.LearnedProvider"
             android:authorities="io.github.ldxm666.mapadkiller.learned"
             android:exported="true" />
 
@@ -82,5 +82,17 @@
             android:name="io.github.libxposed.service.XposedProvider"
             android:authorities="io.github.ldxm666.mapadkiller.XposedService"
             android:exported="true" />
+
+        <!--
+            百度侧：目标进程里的 hook 通过显式广播回报钩子状态与规则命中结果。
+            接收方只把文本写进本地存储并刷新设置页，且校验 App 侧生成的 token。
+        -->
+        <receiver
+            android:name="io.github.ldxm666.bmapclean.ReportReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="io.github.ldxm666.bmapclean.REPORT" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

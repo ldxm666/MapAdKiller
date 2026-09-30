@@ -1,5 +1,11 @@
 # MapAdKiller
 
+> **v2.0.0 合并版**：已把 **BMapClean（百度地图界面精简）** 整体并入本模块。
+> 设置页改为**左右滑动分页**（百度地图 / 高德地图 / 其他），并新增**版本检查与更新提示**。
+> 下载：[最新 Release](https://github.com/ldxm666/MapAdKiller/releases/latest) ·
+> 无代理可用镜像：<https://gh-proxy.com/https://github.com/ldxm666/MapAdKiller/releases/latest> ·
+> Telegram 群：<https://t.me/+2rqisPe5tJxjNTk1>
+
 > 高德 / 百度 / 腾讯地图 去广告 Xposed (LSPosed) 模块
 > Ad-blocking LSPosed module for Amap / Baidu Maps / Tencent Maps
 
