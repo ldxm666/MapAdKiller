@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | **v2.0.1**（versionCode 201） |
+| 版本 | **v2.0.2**（versionCode 202） |
 | 源码 | <https://github.com/ldxm666/MapAdKiller> |
 | 下载 | <https://github.com/ldxm666/MapAdKiller/releases/latest> |
 | 镜像 | <https://gh-proxy.com/https://github.com/ldxm666/MapAdKiller/releases/latest> |

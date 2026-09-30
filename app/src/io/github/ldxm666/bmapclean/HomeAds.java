@@ -40,12 +40,21 @@ public final class HomeAds {
     /** 左上角浮层的 contentDescription 白名单（实测「活动」；另两个是同类运营位的常见叫法） */
     private static final String[] AD_DESCS = {"活动", "新鲜事", "一键穿越", "古今地图"};
 
+    /**
+     * 左上角运营气泡的**资源 id**（真机诊断原文：
+     *   `{RelativeLayout id=event_entry_container @18,297 137x137}`   ← 新鲜事 / 一键穿越
+     *   `{FrameLayout id=left_container @26,135 131x131 click}`       ← 动态图标 / 答题红包
+     * 这类气泡没有 a11y 节点（uiautomator 看不到）、文案服务端下发（dex 搜不到），
+     * 按 id 命中是唯一稳定抓手；名字在 App 更新后重排数值也不怕（运行时按名解析）。
+     */
+    private static final String[] BUBBLE_IDS = {"event_entry_container", "left_container"};
+
     private static volatile boolean installed;
     private static volatile int sHidden;
     private static volatile int sFrozen;
     private static volatile int sIdCache;
     /** 左上角浮层扫描只诊断一次（未命中时把候选节点打出来） */
-    private static volatile boolean sScanned;
+    private static volatile int sScanned;
     private static final ThreadLocal<Boolean> IN = new ThreadLocal<Boolean>();
 
     // ══════════════════════════════════════════════ 安装（钩子）
@@ -154,6 +163,79 @@ public final class HomeAds {
 
     // ══════════════════════════════════════════════ 首页左上角运营浮层
 
+    /**
+     * 左上角运营气泡的几何兜底。
+     *
+     * 背景：这类气泡（新鲜事 / 一键穿越 / 古今地图）在 uiautomator 树里**完全看不到**
+     * （浮层自绘，没有 a11y 节点），文案是服务端下发的所以 dex 里也搜不到 ——
+     * 只能按位置与尺寸在浮层容器里认：
+     *   可点击 + 完全落在屏幕左上角（右边界 < 45% 宽、上边界 > 7% 高、下边界 < 32% 高）
+     *   + 宽高都 ≤ 150dp（气泡是个小方块）+ 不在 ufo_root / home_ai_container / 搜索框子树里
+     * 命中即 GONE，并把它的 class/尺寸打进日志（便于下轮收紧或放宽）。
+     */
+    private static View findBubbleByGeometry(View decor) {
+        try {
+            View frame = Anchors.find(decor, "front_frame", 0);
+            if (frame == null || !(frame instanceof ViewGroup)) return null;
+            return scanBubble((ViewGroup) frame, 0);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static View scanBubble(ViewGroup g, int depth) {
+        if (depth > 6) return null;
+        try {
+            android.util.DisplayMetrics dm = g.getResources().getDisplayMetrics();
+            for (int i = 0; i < g.getChildCount(); i++) {
+                View c = g.getChildAt(i);
+                if (c == null || c.getVisibility() != View.VISIBLE) continue;
+                if (c.isClickable() && isCornerBubble(c, dm) && !inKnownUi(c)) return c;
+                if (c instanceof ViewGroup) {
+                    View r = scanBubble((ViewGroup) c, depth + 1);
+                    if (r != null) return r;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static boolean isCornerBubble(View v, android.util.DisplayMetrics dm) {
+        try {
+            int[] loc = new int[2];
+            v.getLocationOnScreen(loc);
+            int x = loc[0], y = loc[1];
+            int w = v.getWidth(), h = v.getHeight();
+            int maxSide = (int) (150 * dm.density);
+            return w > 0 && h > 0 && w <= maxSide && h <= maxSide
+                    && x + w < dm.widthPixels * 0.45f
+                    && y > dm.heightPixels * 0.07f
+                    && y + h < dm.heightPixels * 0.32f;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 已知 UI（首页面板 / 工具行 / 搜索框 / 悬浮按钮）一律不碰 */
+    private static boolean inKnownUi(View v) {
+        int[] ids = {
+                Anchors.NUM_UFO_ROOT, Anchors.NUM_HOME_PANEL,
+                Anchors.NUM_SEARCHBAR_TITLE, Anchors.NUM_SEARCHBOX_SWITCHER,
+                Anchors.NUM_SEARCHBOX_CONTAINER,
+        };
+        View p = v;
+        int guard = 0;
+        while (p != null && guard++ < 25) {
+            int id = p.getId();
+            for (int i = 0; i < ids.length; i++) {
+                if (ids[i] != 0 && id == ids[i]) return true;
+            }
+            android.view.ViewParent q = p.getParent();
+            p = (q instanceof View) ? (View) q : null;
+        }
+        return false;
+    }
+
     /** 在首页 decor 上清一次左上角浮层；返回清掉的个数（0/1） */
     public static int applyHomeActivity(View decor) {
         // ⚠ 键语义是「可见」：true=显示 → 用户要显示时**不要动**；false/缺省=隐藏 → 执行
@@ -161,10 +243,11 @@ public final class HomeAds {
         if (Cfg.visible(Spec.K_HOME_ACT, Spec.defaultVisible(Spec.K_HOME_ACT))) return 0;
         try {
             View v = findAdOverlay(decor, 0);
+            if (v == null) v = findBubbleByGeometry(decor);
             if (v == null) {
-                if (!sScanned) {
-                    sScanned = true;
-                    Cfg.log("homeAd scan: 未命中；左上角可点击节点 = " + dumpTopLeft(decor, 0, new StringBuilder()));
+                if (sScanned < 6) {
+                    sScanned++;
+                    Cfg.log("homeAd scan: 未命中；左上角可点击节点 = " + allTopLeft(decor, 0, new StringBuilder()));
                 }
                 return 0;
             }
@@ -179,25 +262,35 @@ public final class HomeAds {
         }
     }
 
-    /** 一次性诊断：把左上角区域可点击节点（含 desc / 文本）打出来，便于下一次精准命中 */
-    private static String dumpTopLeft(View v, int depth, StringBuilder sb) {
-        if (v == null || depth > 200 || sb.length() > 900) return sb.toString();
+    /** 一次性诊断：把左上角区域**所有**视图打出来（含没有 a11y 属性的）—— 运营气泡就是那种 */
+    private static String allTopLeft(View v, int depth, StringBuilder sb) {
+        if (v == null || depth > 60 || sb.length() > 1300) return sb.toString();
         try {
             if (v.getVisibility() == View.GONE) return sb.toString();
-            if (v.isClickable() && inTopLeft(v)) {
+            int[] loc = new int[2];
+            v.getLocationOnScreen(loc);
+            android.util.DisplayMetrics dm = v.getResources().getDisplayMetrics();
+            int w = v.getWidth(), h = v.getHeight();
+            if (loc[1] < dm.heightPixels * 0.36f && loc[0] < dm.widthPixels * 0.5f
+                    && w > 0 && h > 0 && w <= dm.widthPixels * 0.5f) {
+                String id = "";
+                try { id = v.getResources().getResourceEntryName(v.getId()); } catch (Throwable ignored) {}
                 String desc = v.getContentDescription() == null ? "" : v.getContentDescription().toString();
                 String txt = (v instanceof TextView && ((TextView) v).getText() != null)
                         ? ((TextView) v).getText().toString() : "";
-                if (desc.length() > 0 || txt.length() > 0) {
-                    sb.append('[').append(v.getClass().getSimpleName())
-                      .append(" desc=").append(desc)
-                      .append(" text=").append(txt).append("] ");
-                }
+                sb.append('{').append(v.getClass().getSimpleName())
+                  .append(" id=").append(id)
+                  .append(" @").append(loc[0]).append(',').append(loc[1])
+                  .append(' ').append(w).append('x').append(h)
+                  .append(v.isClickable() ? " click" : "")
+                  .append(desc.length() > 0 ? (" desc=" + desc) : "")
+                  .append(txt.length() > 0 ? (" text=" + txt) : "")
+                  .append("} ");
             }
             if (v instanceof ViewGroup) {
                 ViewGroup g = (ViewGroup) v;
                 for (int i = 0; i < g.getChildCount(); i++) {
-                    dumpTopLeft(g.getChildAt(i), depth + 1, sb);
+                    allTopLeft(g.getChildAt(i), depth + 1, sb);
                 }
             }
         } catch (Throwable ignored) {}
@@ -218,7 +311,8 @@ public final class HomeAds {
         if (v == null || depth > 200) return null;
         try {
             if (v.getVisibility() == View.GONE) return null;
-            if (v.isClickable() && inTopLeft(v) && hitWhitelist(v, 0)) return v;
+            if (inTopLeft(v) && hitBubbleId(v)) return v;                  // ① id 最准
+            if (v.isClickable() && inTopLeft(v) && hitWhitelist(v, 0)) return v;   // ② desc/文案
             if (v instanceof ViewGroup) {
                 ViewGroup g = (ViewGroup) v;
                 for (int i = 0; i < g.getChildCount(); i++) {
@@ -228,6 +322,18 @@ public final class HomeAds {
             }
         } catch (Throwable ignored) {}
         return null;
+    }
+
+    /** 资源 id 命中运营气泡白名单（按名解析，不依赖 0x7f 数值） */
+    private static boolean hitBubbleId(View v) {
+        try {
+            int id = v.getId();
+            if (id == 0) return false;
+            for (int i = 0; i < BUBBLE_IDS.length; i++) {
+                if (id == idOf(v, BUBBLE_IDS[i], 0)) return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
     }
 
     /** contentDescription 或子树文案命中白名单（子树只往下探 3 层，够用且便宜） */

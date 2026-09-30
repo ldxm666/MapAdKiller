@@ -671,7 +671,8 @@ public final class HomeClean {
         try {
             java.util.List<ViewGroup> dirty = new java.util.ArrayList<ViewGroup>();
             if (!Cfg.visible(Spec.K_MINE_SPORT, Spec.defaultVisible(Spec.K_MINE_SPORT))) {
-                n += hideSection(decor, "百度运动", 420, dirty);
+                // 宫格里也有「百度运动」这四个字，单锚点会选中宫格里的那一条 → 用双锚点 LCA
+                n += hideCardByTexts(decor, "百度运动", "开始运动", "百度运动");
             }
             // 「全民共建」的标题是图片徽章，TextView 里只有「反馈中心」（Spec 里记过这条）
             if (!Cfg.visible(Spec.K_MINE_BUILD, Spec.defaultVisible(Spec.K_MINE_BUILD))) {
@@ -686,6 +687,66 @@ public final class HomeClean {
         if (n > 0) Cfg.log("mine cards(view): hidden=" + n);
         return n;
     }
+    /**
+     * 双锚点摘卡：取两张文案的**最近公共祖先**再摘。
+     *
+     * 为什么需要它：`百度运动` 这四个字在「我的」页出现两次 —— 卡片标题 + 顶部图标宫格里的一个图标名。
+     * 单锚点 `findByExactText` 会先命中宫格里的那一条，`sectionRootSafe` 自然拒绝（不是满宽区块）→ 卡片纹丝不动。
+     * 用「百度运动 + 开始运动」两张只在卡片里同时出现的文案取 LCA，唯一确定卡片根。
+     */
+    private static int hideCardByTexts(View decor, String t1, String t2, String tag) {
+        try {
+            View a = findByExactText(decor, t1, 0);
+            View b = findByExactText(decor, t2, 0);
+            if (a == null || b == null) {
+                if (Cfg.debug()) H.log(Log.INFO, MainHook.TAG, "mine card: anchor missing " + t1 + "/" + t2);
+                return 0;
+            }
+            java.util.ArrayList<View> chain = new java.util.ArrayList<View>();
+            View p = a;
+            int guard = 0;
+            while (p != null && guard++ < 40) { chain.add(p); ViewParent q = p.getParent(); p = (q instanceof View) ? (View) q : null; }
+            View lca = null;
+            p = b;
+            guard = 0;
+            while (p != null && guard++ < 40) {
+                if (chain.contains(p)) { lca = p; break; }
+                ViewParent q = p.getParent();
+                p = (q instanceof View) ? (View) q : null;
+            }
+            if (lca == null) return 0;
+            // 往上再找一层"满宽 + 不太高"的卡片壳（LCA 往往只是标题行）
+            View card = lca;
+            View par = (lca.getParent() instanceof View) ? (View) lca.getParent() : null;
+            if (par != null) {
+                int pw = par.getWidth();
+                int w = lca.getRight() - lca.getLeft();
+                if (pw <= 0 || w >= (int) (pw * 0.8)) {
+                    int h = par.getBottom() - par.getTop();
+                    if (h > 0 && h <= pxOf(par, 460) && !tooBigToHide(par)) card = par;
+                }
+            }
+            if (tooBigToHide(card)) return 0;
+            java.util.List<ViewGroup> dirty = new java.util.ArrayList<ViewGroup>();
+            boolean ok = collapse(card, dirty);
+            if (ok) Cfg.log("mine card(" + tag + "): hidden "
+                    + card.getClass().getSimpleName() + " h=" + (card.getBottom() - card.getTop()));
+            return ok ? 1 : 0;
+        } catch (Throwable t) {
+            H.log(Log.WARN, MainHook.TAG, "mine card " + tag + " failed: " + t);
+            return 0;
+        }
+    }
+
+    /** dp → px（用某个已有 View 的 metrics，省得传 Context） */
+    private static int pxOf(View v, int dp) {
+        try {
+            return (int) (dp * v.getResources().getDisplayMetrics().density);
+        } catch (Throwable t) {
+            return dp * 3;
+        }
+    }
+
     /** 标题文案 → 满宽区块根（maxDp 上限 + tooBigToHide + 禁词消歧 三重保险） */
     private static int hideSection(View root, String title, int maxDp,
                                    java.util.List<ViewGroup> dirty) {

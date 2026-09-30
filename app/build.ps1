@@ -101,6 +101,6 @@ Write-Host "[6/6] dist"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 New-Item -ItemType Directory -Force -Path $Rel | Out-Null
 Copy-Item "$src\build\out\BMapClean.apk" "$Out\BMapClean.apk" -Force
-Copy-Item "$src\build\out\BMapClean.apk" "$Rel\MapClean-lsp-v2.0.1.apk" -Force
-Get-Item "$Rel\MapClean-lsp-v2.0.1.apk" | Select-Object FullName,Length
+Copy-Item "$src\build\out\BMapClean.apk" "$Rel\MapClean-lsp-v2.0.2.apk" -Force
+Get-Item "$Rel\MapClean-lsp-v2.0.2.apk" | Select-Object FullName,Length
 Write-Host "BUILD OK src=$src"

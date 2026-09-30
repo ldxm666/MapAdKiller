@@ -44,6 +44,8 @@ public final class UpdateChecker {
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile boolean sRunning;
+    /** 本次进程是否已经查过（节流只对同一次运行生效；冷启动一律重新查） */
+    private static volatile boolean sThisProcess;
 
     private UpdateChecker() {}
 
@@ -82,7 +84,10 @@ public final class UpdateChecker {
         }
         try {
             long at = prefs(app).getLong(K_AT, 0L);
-            if (!force && System.currentTimeMillis() - at < THROTTLE_MS) return;
+            // ⚠ 只在同一次运行内节流：v2.0.0 实测「发了新版但用户开着 App 一直不提示」，
+            //   因为 6 小时节流把冷启动的检查也挡掉了。冷启动必须查一次。
+            if (!force && sThisProcess && System.currentTimeMillis() - at < THROTTLE_MS) return;
+            sThisProcess = true;
         } catch (Throwable ignored) {}
         if (sRunning) return;
         sRunning = true;

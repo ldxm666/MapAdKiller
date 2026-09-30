@@ -63,6 +63,8 @@ public final class MainActivity extends Activity {
     private TextView statusView;
     /** 版本行（绿/黄/灰）与最佳适配行 */
     private TextView verLine;
+    /** 醒目的更新入口：默认「检查版本更新」，有新版时变成「立即更新 vX」 */
+    private TextView updateBtn;
     private TextView adLine;
     private boolean updateDialogShown;
     /** 「已捕获广告 SDK」那一行；服务绑定后要重刷文案，否则一直显示 onCreate 时的空快照 */
@@ -320,6 +322,21 @@ public final class MainActivity extends Activity {
             txt = "当前版本 v" + Version.NAME + " · 已是最新";
         }
         verLine.setText(txt);
+        if (updateBtn != null) {
+            if (out && latest != null) {
+                updateBtn.setText("⬆ 立即更新 v" + latest + "（镜像/GitHub/Telegram）");
+                updateBtn.setTextColor(0xFFFFFFFF);
+                updateBtn.setBackground(capsuleBg(0xFFE0A200, HEAD_R));
+            } else if (latest == null) {
+                updateBtn.setText("检查版本更新（点此重试）");
+                updateBtn.setTextColor(0xFFFFFFFF);
+                updateBtn.setBackground(capsuleBg(cAccent(), HEAD_R));
+            } else {
+                updateBtn.setText("✓ 已是最新 v" + Version.NAME + "（点此再检查）");
+                updateBtn.setTextColor(0xFFFFFFFF);
+                updateBtn.setBackground(capsuleBg(dark ? 0xFF1E7A4B : 0xFF12B76A, HEAD_R));
+            }
+        }
         if (adLine != null) adLine.setText(adaptSummary());
     }
 
@@ -421,6 +438,14 @@ public final class MainActivity extends Activity {
         return (m != null && m.length > 0) ? m[0] : Version.RELEASES;
     }
 
+    /** 圆角纯色背景（更新按钮用） */
+    private GradientDrawable capsuleBg(int color, int radiusDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(radiusDp));
+        return g;
+    }
+
     private TextView dlgButton(String label, boolean primary, final Runnable action) {
         TextView b = text(label, 14, Typeface.BOLD, primary ? 0xFFFFFFFF : cAccent());
         b.setGravity(Gravity.CENTER);
@@ -463,6 +488,25 @@ public final class MainActivity extends Activity {
         adLine.setLineSpacing(0, 1.2f);
         adLine.setPadding(dp(4), 0, 0, dp(10));
         root.addView(adLine);
+
+        updateBtn = text("检查版本更新", 14, Typeface.BOLD, 0xFFFFFFFF);
+        updateBtn.setGravity(Gravity.CENTER);
+        updateBtn.setPadding(dp(14), dp(10), dp(14), dp(10));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(8);
+        updateBtn.setBackground(capsuleBg(cAccent(), HEAD_R));
+        updateBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (UpdateChecker.isOutdated(MainActivity.this)) {
+                    showUpdateDialog(UpdateChecker.latest(MainActivity.this));
+                    return;
+                }
+                Toast.makeText(MainActivity.this, "正在检查更新…", Toast.LENGTH_SHORT).show();
+                UpdateChecker.check(MainActivity.this, true, updateCb);
+            }
+        });
+        root.addView(updateBtn, blp);
 
         renderVersionLines();
     }

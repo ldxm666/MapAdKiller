@@ -11,8 +11,8 @@
 
 **中文** | [English](#english)
 
-> **版本：v2.0.1（versionCode 201）** —— `module.prop` / `AndroidManifest.xml` / 设置页 /
-> Release tag `201-2.0.1` 全部一致。
+> **版本：v2.0.2（versionCode 202）** —— `module.prop` / `AndroidManifest.xml` / 设置页 /
+> Release tag `202-2.0.2` 全部一致。
 >
 > v2.0.0 = 原 BMapClean（百度地图界面精简）合并版：设置页**左右滑动分页**（百度地图 / 高德地图 / 其他），
 > 并新增**版本检查与更新提示**（多源镜像，无代理可用）。

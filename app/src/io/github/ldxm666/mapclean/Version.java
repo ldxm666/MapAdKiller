@@ -6,8 +6,8 @@ public final class Version {
     private Version() {}
 
     /** 模块版本：与 module.prop、AndroidManifest 保持一致 */
-    public static final String NAME = "2.0.1";
-    public static final int CODE = 201;
+    public static final String NAME = "2.0.2";
+    public static final int CODE = 202;
 
     public static final String REPO = "https://github.com/ldxm666/MapAdKiller";
     public static final String RELEASES = REPO + "/releases/latest";
