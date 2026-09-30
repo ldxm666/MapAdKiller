@@ -239,7 +239,7 @@ public final class MineData {
                 @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                     Object[] na = null;
                     try {
-                        if (Spec.mineEnabled() && Spec.opsHidden()) {
+                        if (Spec.mineEnabled() && Spec.opsHidden() && Spec.gkNeeded()) {
                             List<Object> args = chain.getArgs();
                             Object p = (args != null && args.size() == 1) ? args.get(0) : null;
                             Object proxy = wrapPromise(p);

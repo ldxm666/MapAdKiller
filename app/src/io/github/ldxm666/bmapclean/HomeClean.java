@@ -216,6 +216,8 @@ public final class HomeClean {
             n += applyWeather(decor);
             n += applyFeed(decor);
             n += applyMine(decor);
+            n += applyMineCards(decor);
+            n += HomeAds.applyHomeActivity(decor);   // 左上角运营浮层（一键穿越/古今地图）
 
             if (Cfg.debug()) {
                 H.log(Log.INFO, MainHook.TAG, "apply@" + at + "ms act="
@@ -658,6 +660,32 @@ public final class HomeClean {
         return null;
     }
 
+    /**
+     * 视图层兜底（v2.0.1）：JS 层注入被 App 的 bundle 加载机制挡住时，
+     * 「百度运动 / 全民共建」这两张卡用**标题锚点整块摘**关掉。
+     * 复用首页同款的 hideSection —— 它自带三重保险（满宽 / 高度上限 / 禁词消歧），
+     * 是 v0.1.7 白屏事故之后加的，只摘单张卡不会动到页面骨架。
+     */
+    private static int applyMineCards(View decor) {
+        int n = 0;
+        try {
+            java.util.List<ViewGroup> dirty = new java.util.ArrayList<ViewGroup>();
+            if (!Cfg.visible(Spec.K_MINE_SPORT, Spec.defaultVisible(Spec.K_MINE_SPORT))) {
+                n += hideSection(decor, "百度运动", 420, dirty);
+            }
+            // 「全民共建」的标题是图片徽章，TextView 里只有「反馈中心」（Spec 里记过这条）
+            if (!Cfg.visible(Spec.K_MINE_BUILD, Spec.defaultVisible(Spec.K_MINE_BUILD))) {
+                n += hideSection(decor, "反馈中心", 420, dirty);
+            }
+            if (!Cfg.visible(Spec.K_MINE_GRID, Spec.defaultVisible(Spec.K_MINE_GRID))) {
+                n += hideSection(decor, "常用功能", 420, dirty);
+            }
+        } catch (Throwable t) {
+            H.log(Log.WARN, MainHook.TAG, "mine cards failed: " + t);
+        }
+        if (n > 0) Cfg.log("mine cards(view): hidden=" + n);
+        return n;
+    }
     /** 标题文案 → 满宽区块根（maxDp 上限 + tooBigToHide + 禁词消歧 三重保险） */
     private static int hideSection(View root, String title, int maxDp,
                                    java.util.List<ViewGroup> dirty) {

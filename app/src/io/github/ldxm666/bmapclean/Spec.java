@@ -85,7 +85,8 @@ public final class Spec {
      *     —— 用户要的就是它们消失，其余区块默认保持原样。
      */
     public static boolean defaultVisible(String key) {
-        if (K_MINE_OPS.equals(key) || K_MINE_AD.equals(key)) return false;
+        if (K_MINE_OPS.equals(key) || K_MINE_AD.equals(key)
+                || K_HOME_ACT.equals(key) || K_WX_HOTWORD.equals(key)) return false;
         return true;
     }
 
@@ -93,6 +94,25 @@ public final class Spec {
     public static boolean opsHidden() {
         return !Cfg.visible(K_MINE_OPS, defaultVisible(K_MINE_OPS))
                 || !Cfg.visible(K_MINE_CARNAV, defaultVisible(K_MINE_CARNAV));
+    }
+
+    /**
+     * gk=0 **该不该注入** —— v2.0.1 的关键修正。
+     *
+     * `phoneInfo.gk !== '0'` 出现在 8 张卡的 s-if 里，其中这几张**自己还有独立开关**：
+     *   car（我的车）、voice（热门语音）、carLogo（导航车标）、gold（热门活动）、banner（资源位）
+     * v2.0.0 无条件注入 gk=0 → 用户把「我的车 / 热门语音 / 导航车标 / 热门活动」打开也照样不出现
+     * （被 gk 压住），表现为"开关不生效"（用户实测）。
+     *
+     * 现在：**只有这些卡本来就都处于"隐藏"时才注入 gk**（用来顺手干掉签到按钮 / 常用功能行
+     * 这类没有开关的附属元素）；只要有一个被打开就完全不注入，各卡改由 {@link MineJs}
+     * 的 per-card 过滤控制 —— gk 与独立开关的冲突因此彻底消失。
+     */
+    public static boolean gkNeeded() {
+        return !Cfg.visible(K_MINE_CAR, defaultVisible(K_MINE_CAR))
+                && !Cfg.visible(K_MINE_VOICE, defaultVisible(K_MINE_VOICE))
+                && !Cfg.visible(K_MINE_CARNAV, defaultVisible(K_MINE_CARNAV))
+                && !Cfg.visible(K_MINE_AD, defaultVisible(K_MINE_AD));
     }
 
     /** 「我的」页规则是否启用（默认开；关掉则整页完全不受影响） */
@@ -142,6 +162,18 @@ public final class Spec {
     public static final int CAT_DIAG = 4;
     public static final int CAT_FEED = 5;
     public static final int CAT_MINE = 6;
+    public static final int CAT_AD = 7;
+
+    // ── 首页广告位（v2.0.1 新增）─────────────────────────────────────────
+    /** 左上角运营浮层：「一键穿越 / 古今地图」那块（真机 node: RelativeLayout content-desc="活动"） */
+    public static final String K_HOME_ACT = "home_act";
+    /** 首页搜索框里的热词轮播（"青城山门票 / 成都海昌极地海洋公园好…"换着播） */
+    public static final String K_WX_HOTWORD = "wx_hotword";
+
+    /** 热词是否要钉死（默认钉；关掉就恢复原生轮播） */
+    public static boolean hotwordFreeze() {
+        return !Cfg.visible(K_WX_HOTWORD, defaultVisible(K_WX_HOTWORD));
+    }
 
     /** 频道栏文案锚点（需同一容器内同时命中 ≥2 个才算频道栏，避免误伤卡片文案） */
     public static final String[] CHIP_ANCHORS = {"推荐", "看世界", "成都市"};
@@ -227,7 +259,7 @@ public final class Spec {
 
     public static synchronized Cat[] cats() {
         if (CATS != null) return CATS;
-        Cat[] a = new Cat[7];
+        Cat[] a = new Cat[8];
 
         Row[] bar = new Row[1 + TABS.length];
         bar[0] = new Row(K_BAR, "隐藏整个底部入口栏", "把 ufo_root 里整条入口栏摘掉（含中央长按说话覆盖层）", true);
@@ -303,10 +335,18 @@ public final class Spec {
                         "JS 层：宫格图标对象不入列表（整块关）。宫格是包内 JS 静态表 + 版本号过滤，数据层够不到", false),
         };
         a[CAT_MINE] = new Cat(CAT_MINE, "「我的」页",
-                "v0.4.2：数据层过滤。可关：广告/运营卡（天天领钱·出行保+借钱·我的店铺·导航车标）、"
-                        + "热门活动/资源位、热门语音、我的车、全民共建。"
-                        + "暂不可关：顶部图标宫格（包内 JS 静态表 + 版本号过滤）、百度运动"
-                        + "（s-if 里是 phoneInfo.sv 版本号判断，改它会把整页请求参数也改掉）。", mine);
+                "数据层（Talos 响应改写，v2.0.1 起改成逐卡名过滤）+ JS 层（cardList）双管齐下。"
+                        + "各卡都有自己的开关，互不牵连；改完重开该页即生效。", mine);
+
+        Row[] ad = {
+                new Row(K_HOME_ACT, "左上角运营浮层（一键穿越 / 古今地图）",
+                        "真机实证：首页地图上 class=RelativeLayout、content-desc=\"活动\" 的可点击浮层；"
+                                + "它在左上角绝对定位，GONE 不影响右侧「图层 / 反馈」按钮", false),
+                new Row(K_WX_HOTWORD, "搜索框热词轮播（青城山门票 / 成都海昌…）",
+                        "把 tv_searchbar_title 上的文案钉死成默认提示词「查找地点、公交、地铁」，"
+                                + "不再轮播运营词；不摘控件、不动搜索框本身", false),
+        };
+        a[CAT_AD] = new Cat(CAT_AD, "首页广告位", "首页地图区 / 搜索框上的运营位（默认关）", ad);
 
         CATS = a;
         return CATS;
