@@ -79,7 +79,7 @@ public final class MineJs {
         hookLoad(bridge, "preLoadJSFile");
         hookContentEntry(bridge);
         // 最终兜底：直接把页面 bundle 文件改成带补丁的版本（见方法注释）
-        // patchBundlesOnDisk();   // 已停用：App 不认改动后的 bundle（见方法注释），改用视图层兜底
+        patchBundlesOnDisk();   // v2.0.3: 重新启用（上一轮未加载的误判已澄清）
     }
 
     // ══════════════════════════════════════════════ 磁盘直改（最终兜底，已验证最可靠）

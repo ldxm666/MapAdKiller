@@ -216,7 +216,8 @@ public final class HomeClean {
             n += applyWeather(decor);
             n += applyFeed(decor);
             n += applyMine(decor);
-            n += applyMineCards(decor);
+            // n += applyMineCards(decor);   // 已停用：JS 层过滤生效后卡片根本不渲染（无留白）；
+            //                              视图层 removeView 在 AJX 列表上会留洞，故只在 JS 失效时才有意义 —— 宁可显示也不留洞
             n += HomeAds.applyHomeActivity(decor);   // 左上角运营浮层（一键穿越/古今地图）
 
             if (Cfg.debug()) {
