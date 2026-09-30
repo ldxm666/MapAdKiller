@@ -11,8 +11,11 @@
 
 **中文** | [English](#english)
 
-> **版本：v1.1.0（versionCode 110）** —— `module.prop` / `AndroidManifest.xml` / 设置页 /
-> Release tag `110-1.1.0` 全部一致。
+> **版本：v2.0.0（versionCode 200）** —— `module.prop` / `AndroidManifest.xml` / 设置页 /
+> Release tag `200-2.0.0` 全部一致。
+>
+> v2.0.0 = 原 BMapClean（百度地图界面精简）合并版：设置页**左右滑动分页**（百度地图 / 高德地图 / 其他），
+> 并新增**版本检查与更新提示**（多源镜像，无代理可用）。
 > 下载：[最新 Release](https://github.com/ldxm666/MapAdKiller/releases/latest)
 
 ---
