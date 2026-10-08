@@ -170,6 +170,7 @@ public final class App extends Application implements XposedServiceHelper.OnServ
 
     public static void onBind(XposedService s) {
         service = s;
+        migrateAmapHomepage(s);
         flushPending();          // 补写服务没连上时收到的学习结果
         try {
             LearnedProvider.flushToRemote(CTX == null ? null : CTX.getApplicationContext());
@@ -178,5 +179,23 @@ public final class App extends Application implements XposedServiceHelper.OnServ
 
     public static void onDied(XposedService s) {
         if (service == s) service = null;
+    }
+
+    /** One-time move from overlapping text rules to the requested compact homepage. */
+    private static void migrateAmapHomepage(XposedService s) {
+        try {
+            android.content.SharedPreferences p = s.getRemotePreferences(Config.PREF_GROUP);
+            if (p.getInt("_amap_protocol_schema", 0) >= 210) return;
+            org.json.JSONObject previous = new org.json.JSONObject();
+            String[] hidden = {Config.K_FEED_WEATHER, Config.K_FEED_BOARD, Config.K_FEED_CONTENT,
+                    Config.K_FEED_FESTIVAL, Config.K_HOME_CHIPS};
+            for (String key : hidden) previous.put(key, p.getBoolean(key, true));
+            previous.put(Config.K_RIDE_CARD_OFF, p.getBoolean(Config.K_RIDE_CARD_OFF, true));
+            android.content.SharedPreferences.Editor edit = p.edit();
+            for (String key : hidden) edit.putBoolean(key, false);
+            edit.putBoolean(Config.K_RIDE_CARD_OFF, true)
+                .putString("_amap_legacy_home_snapshot", previous.toString())
+                .putInt("_amap_protocol_schema", 210).commit();
+        } catch (Throwable t) { android.util.Log.w("MapCleanApp", "homepage migration", t); }
     }
 }

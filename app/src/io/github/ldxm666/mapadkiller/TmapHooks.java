@@ -76,7 +76,7 @@ public final class TmapHooks {
         H.hookAll(bannerItem, "setItemData", "tmap_hbi", H.VOID);
 
         // ---- ⑤ 开屏容器视图探测（兜底）----
-        AmapHooks.installContainerProbe(cl, "com.tencent.ams.fusion.widget.splash.SplashView", "tmap");
+        SplashContainerHooks.installContainerProbe(cl, "com.tencent.ams.fusion.widget.splash.SplashView", "tmap");
 
         // ---- ⑥ 视图兜底（GONE + 移除子树 + 广告角标识别）----
         Sweeper.install(new ViewKiller("TMAP-KILL",

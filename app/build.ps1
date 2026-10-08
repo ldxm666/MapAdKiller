@@ -15,7 +15,7 @@ $Keytool = "$Jdk\bin\keytool.exe"
 $App = $PSScriptRoot
 $Out = Join-Path $App "dist"
 # 仓库 output\（本脚本位于 src\modules\<pkg>\ 下，故向上三级）
-$Repo = Split-Path (Split-Path (Split-Path $App -Parent) -Parent) -Parent
+$Repo = Split-Path $App -Parent
 $Rel  = Join-Path $Repo "output"
 
 if (-not (Test-Path $Aj)) { throw "android.jar not found: $Aj" }
@@ -23,8 +23,7 @@ if (-not (Test-Path $Aj)) { throw "android.jar not found: $Aj" }
 $stamp = Get-Date -Format "HHmmss"
 $srcRoot = Join-Path $env:TEMP "bmapcleanbuild"
 try { New-Item -ItemType Directory -Force -Path $srcRoot -ErrorAction Stop | Out-Null } catch { $srcRoot = "$env:TEMP\bmapcleanbuild"; New-Item -ItemType Directory -Force -Path $srcRoot | Out-Null }
-$src = "$srcRoot\bc$stamp"
-if (Test-Path $src) { Remove-Item $src -Recurse -Force }
+$src = Join-Path $srcRoot ("bc" + $stamp + "-" + [guid]::NewGuid().ToString("N").Substring(0,8))
 New-Item -ItemType Directory -Force -Path "$src\build\stubs","$src\build\classes","$src\build\dex","$src\build\out" | Out-Null
 Copy-Item "$App\stub-src","$App\src","$App\res","$App\META-INF","$App\libs" -Destination $src -Recurse -Force
 Copy-Item "$App\AndroidManifest.xml" $src
@@ -38,7 +37,7 @@ Write-Host "[1/6] compile libxposed-api stubs (compile-only)"
 if ($LASTEXITCODE -ne 0) { Get-Content "$src\build\j1.err"; throw "stub compile failed" }
 
 Write-Host "[2/6] compile module sources (+ libxposed service jar)"
-& $Javac -encoding UTF-8 -nowarn -source 8 -target 8 -bootclasspath $Aj -classpath "$src\build\stubs;$src\libs\service-classes.jar" -d "$src\build\classes" (Get-ChildItem "$src\src" -Recurse -Filter *.java | % FullName) 2>"$src\build\j2.err"
+& $Javac -encoding UTF-8 -nowarn --release 8 -classpath "$Aj;$src\build\stubs;$src\libs\service-classes.jar" -d "$src\build\classes" (Get-ChildItem "$src\src" -Recurse -Filter *.java | % FullName) 2>"$src\build\j2.err"
 if ($LASTEXITCODE -ne 0) { Get-Content "$src\build\j2.err"; throw "module compile failed" }
 $ErrorActionPreference = $EAP
 
@@ -101,6 +100,6 @@ Write-Host "[6/6] dist"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 New-Item -ItemType Directory -Force -Path $Rel | Out-Null
 Copy-Item "$src\build\out\BMapClean.apk" "$Out\BMapClean.apk" -Force
-Copy-Item "$src\build\out\BMapClean.apk" "$Rel\MapClean-lsp-v2.0.2.apk" -Force
-Get-Item "$Rel\MapClean-lsp-v2.0.2.apk" | Select-Object FullName,Length
+Copy-Item "$src\build\out\BMapClean.apk" "$Rel\MapClean-lsp-v2.1.0-beta1.apk" -Force
+Get-Item "$Rel\MapClean-lsp-v2.1.0-beta1.apk" | Select-Object FullName,Length
 Write-Host "BUILD OK src=$src"

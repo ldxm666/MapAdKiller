@@ -79,12 +79,6 @@ public final class Anchors {
     /** 「我的」页容器（Talos 渲染，判定这一页是不是我的页） */
     public static final String ID_USER_CENTER     = "user_center_talos_container"; public static final int NUM_USER_CENTER = 0;
 
-    /** 首页搜索框标题（热词轮播就写在这上面）—— 资源名 + v22.0.0 实测数值 */
-    public static final String ID_SEARCHBAR_TITLE = "tv_searchbar_title"; public static final int NUM_SEARCHBAR_TITLE = 0x7f0252b5;
-    /** 搜索框文本切换器（ViewSwitcher，热词与默认词在此切换）与其另一个子容器 */
-    public static final String ID_SEARCHBOX_SWITCHER = "tv_searchbox_home_text_switcher"; public static final int NUM_SEARCHBOX_SWITCHER = 0;
-    public static final String ID_SEARCHBOX_CONTAINER = "searchbox_home_text_container"; public static final int NUM_SEARCHBOX_CONTAINER = 0;
-
     // ── 诊断计数 ───────────────────────────────────────────────────────
     public static volatile int nameHits;
     public static volatile int numHits;

@@ -85,8 +85,7 @@ public final class Spec {
      *     —— 用户要的就是它们消失，其余区块默认保持原样。
      */
     public static boolean defaultVisible(String key) {
-        if (K_MINE_OPS.equals(key) || K_MINE_AD.equals(key)
-                || K_HOME_ACT.equals(key) || K_WX_HOTWORD.equals(key)) return false;
+        if (K_MINE_OPS.equals(key) || K_MINE_AD.equals(key)) return false;
         return true;
     }
 
@@ -94,25 +93,6 @@ public final class Spec {
     public static boolean opsHidden() {
         return !Cfg.visible(K_MINE_OPS, defaultVisible(K_MINE_OPS))
                 || !Cfg.visible(K_MINE_CARNAV, defaultVisible(K_MINE_CARNAV));
-    }
-
-    /**
-     * gk=0 **该不该注入** —— v2.0.1 的关键修正。
-     *
-     * `phoneInfo.gk !== '0'` 出现在 8 张卡的 s-if 里，其中这几张**自己还有独立开关**：
-     *   car（我的车）、voice（热门语音）、carLogo（导航车标）、gold（热门活动）、banner（资源位）
-     * v2.0.0 无条件注入 gk=0 → 用户把「我的车 / 热门语音 / 导航车标 / 热门活动」打开也照样不出现
-     * （被 gk 压住），表现为"开关不生效"（用户实测）。
-     *
-     * 现在：**只有这些卡本来就都处于"隐藏"时才注入 gk**（用来顺手干掉签到按钮 / 常用功能行
-     * 这类没有开关的附属元素）；只要有一个被打开就完全不注入，各卡改由 {@link MineJs}
-     * 的 per-card 过滤控制 —— gk 与独立开关的冲突因此彻底消失。
-     */
-    public static boolean gkNeeded() {
-        return !Cfg.visible(K_MINE_CAR, defaultVisible(K_MINE_CAR))
-                && !Cfg.visible(K_MINE_VOICE, defaultVisible(K_MINE_VOICE))
-                && !Cfg.visible(K_MINE_CARNAV, defaultVisible(K_MINE_CARNAV))
-                && !Cfg.visible(K_MINE_AD, defaultVisible(K_MINE_AD));
     }
 
     /** 「我的」页规则是否启用（默认开；关掉则整页完全不受影响） */
@@ -162,18 +142,6 @@ public final class Spec {
     public static final int CAT_DIAG = 4;
     public static final int CAT_FEED = 5;
     public static final int CAT_MINE = 6;
-    public static final int CAT_AD = 7;
-
-    // ── 首页广告位（v2.0.1 新增）─────────────────────────────────────────
-    /** 左上角运营浮层：「一键穿越 / 古今地图」那块（真机 node: RelativeLayout content-desc="活动"） */
-    public static final String K_HOME_ACT = "home_act";
-    /** 首页搜索框里的热词轮播（"青城山门票 / 成都海昌极地海洋公园好…"换着播） */
-    public static final String K_WX_HOTWORD = "wx_hotword";
-
-    /** 热词是否要钉死（默认钉；关掉就恢复原生轮播） */
-    public static boolean hotwordFreeze() {
-        return !Cfg.visible(K_WX_HOTWORD, defaultVisible(K_WX_HOTWORD));
-    }
 
     /** 频道栏文案锚点（需同一容器内同时命中 ≥2 个才算频道栏，避免误伤卡片文案） */
     public static final String[] CHIP_ANCHORS = {"推荐", "看世界", "成都市"};
@@ -258,98 +226,30 @@ public final class Spec {
     private static Cat[] CATS;
 
     public static synchronized Cat[] cats() {
-        if (CATS != null) return CATS;
-        Cat[] a = new Cat[8];
-
-        Row[] bar = new Row[1 + TABS.length];
-        bar[0] = new Row(K_BAR, "隐藏整个底部入口栏", "把 ufo_root 里整条入口栏摘掉（含中央长按说话覆盖层）", true);
-        String[] tabNote = {
-                "首页 tab（ufo_root/new_route）",
-                "周边 tab（ufo_root/new_nearby）",
-                "长按说话（new_third + home_ai_container 覆盖层，两者同进同退）",
-                "打车 tab（ufo_root/new_fourth）",
-                "我的 tab（ufo_root/new_user）",
-        };
-        for (int i = 0; i < TABS.length; i++) {
-            bar[i + 1] = new Row(K_TAB + TABS[i], TABS[i], tabNote[i], false);
-        }
-        a[CAT_BAR] = new Cat(CAT_BAR, "底部入口栏", "首页最下方 5 个入口；隐藏后剩余自动均分重排", bar);
-
-        Row[] tools = new Row[1 + allToolLabels().length];
-        tools[0] = new Row(K_TOOLS, "隐藏整块工具宫格", "component_container3（含 row1/2/3 三排）", true);
-        String[] labels = allToolLabels();
-        for (int i = 0; i < labels.length; i++) {
-            tools[i + 1] = new Row(K_TOOL + labels[i], labels[i], null, false);
-        }
-        a[CAT_TOOLS] = new Cat(CAT_TOOLS, "首页工具宫格",
-                "逐格开关（宫格文案由服务端下发，实测三行共 15 格）", tools);
-
-        Row[] hc = {
-                new Row(K_HC, "隐藏整行", "component_container5（回家 + 去公司 + 去设置）", true),
-                new Row(K_HC_HOME, "回家", "home_info 整条（图标 + 文案 + 路况）", false),
-                new Row(K_HC_COMPANY, "去公司", "company_info 整条（图标 + 文案 + 路况）", false),
-                new Row(K_HC_SETTING, "去设置", "未设置地址时右侧的「去设置」入口", false),
-        };
-        a[CAT_HC] = new Cat(CAT_HC, "回家 / 去公司", "首页中部那一行通勤入口", hc);
-
-        Row[] wx = {
-                new Row(K_WEATHER, "隐藏整块天气", "总开关（同时关掉下面两项）", true),
-                new Row(K_WX_MAP, "地图右侧天气条", "原生 weather_limited（如「21°C 27 限行」）", false),
-                new Row(K_WX_CARD, "底部行程/天气卡", "信息流首项；由百度 Talos 引擎渲染，按卡内文案 + 瀑布流结构定位整卡摘除", false),
-        };
-        a[CAT_WX] = new Cat(CAT_WX, "天气 / 行程栏", "两处天气展示：地图浮层 + 底部卡片", wx);
-
-        Row[] diag = {
-                new Row(Cfg.K_DEBUG, "调试日志（debug_log）", "打开后 logcat 里会打出每一条规则的命中/未命中，以及宫格实际文案", false),
-        };
-        a[CAT_DIAG] = new Cat(CAT_DIAG, "诊断", "钩子状态 / 锚点命中统计 / 排错指引", diag);
-
-        // 展开态首页（面板上拉）才显示；都是 Talos 渲染，没有资源 id，按结构 + 文案锚点定位
-        Row[] feed = {
-                new Row(K_FEED, "隐藏整块推荐信息流", "component_container6：频道栏 + 优质内容精选 + 全部推荐卡片一次清空", true),
-                new Row(K_FEED_CHIPS, "频道栏", "「推荐 / 看世界 / 成都市 …」那一行（同容器命中 ≥2 个锚点才动手）", false),
-                new Row(K_FEED_QUALITY, "优质内容精选 + 推荐卡片", "从「优质内容精选」标题起，把它和它下面的卡片一并摘除", false),
-        };
-        a[CAT_FEED] = new Cat(CAT_FEED, "推荐信息流", "首页面板往下拉后出现的内容区（频道栏 + 推荐卡片）", feed);
-
-        Row[] mine = {
-                new Row(K_MINE_APPLY, "启用「我的」页精简",
-                        "总闸（默认开）。v0.4.0 起走**数据层**：在 Talos 小程序收到的 JSON 里摘字段，"
-                                + "卡片的 s-if 恒假 → 组件根本不创建 → 布局由 Yoga 重算，无留白、不误伤。", true),
-                new Row(K_MINE_OPS, "广告/运营卡",
-                        "天天领钱 · 出行保+借钱 · 我的店铺 · 导航车标 —— 这四张在页面 JS 里共用同一个闸门 phoneInfo.gk（默认关）", false),
-                new Row(K_MINE_AD, "热门活动 / 资源位",
-                        "清空 qt=ads 接口下发的 campaign / banner 数组（默认关）", false),
-                new Row(K_MINE_VOICE, "热门语音",
-                        "数据层摘 serverData.voice_card / voice（s-if 闸门就是它，摘了卡片不渲染）", false),
-                new Row(K_MINE_CAR, "我的车",
-                        "数据层摘 serverData.car（s-if 闸门就是它）", false),
-                new Row(K_MINE_CARNAV, "导航车标（区块）",
-                        "与「广告/运营卡」同一闸门；关任一个即生效", false),
-                new Row(K_MINE_BUILD, "全民共建 / 反馈中心",
-                        "JS 层：把 'contribution' 从页面 cardList 摘掉（该卡唯一闸门是 isCarPlay，"
-                                + "旧方案会把页头变成车机文案，v0.4.3 已改走 JS，页头不动）", false),
-                new Row(K_MINE_SPORT, "百度运动",
-                        "JS 层：把 'sport' 从 page 的 cardList 摘掉（数据层无闸门：s-if 只认 showSportCard←版本号）", false),
-                new Row(K_MINE_GRID, "顶部图标宫格",
-                        "JS 层：宫格图标对象不入列表（整块关）。宫格是包内 JS 静态表 + 版本号过滤，数据层够不到", false),
-        };
-        a[CAT_MINE] = new Cat(CAT_MINE, "「我的」页",
-                "数据层（Talos 响应改写，v2.0.1 起改成逐卡名过滤）+ JS 层（cardList）双管齐下。"
-                        + "各卡都有自己的开关，互不牵连；改完重开该页即生效。", mine);
-
-        Row[] ad = {
-                new Row(K_HOME_ACT, "左上角运营浮层（一键穿越 / 古今地图）",
-                        "真机实证：首页地图上 class=RelativeLayout、content-desc=\"活动\" 的可点击浮层；"
-                                + "它在左上角绝对定位，GONE 不影响右侧「图层 / 反馈」按钮", false),
-                new Row(K_WX_HOTWORD, "搜索框热词轮播（青城山门票 / 成都海昌…）",
-                        "把 tv_searchbar_title 上的文案钉死成默认提示词「查找地点、公交、地铁」，"
-                                + "不再轮播运营词；不摘控件、不动搜索框本身", false),
-        };
-        a[CAT_AD] = new Cat(CAT_AD, "首页广告位", "首页地图区 / 搜索框上的运营位（默认关）", ad);
-
-        CATS = a;
-        return CATS;
+        if(CATS!=null)return CATS;
+        Row[] bar=new Row[1+TABS.length];
+        bar[0]=new Row(K_BAR,"显示底部入口栏","开关勾选表示显示；关闭表示隐藏。",true);
+        for(int i=0;i<TABS.length;i++)bar[i+1]=new Row(K_TAB+TABS[i],TABS[i],i==0?"整栏显示时保留首页，确保可以返回地图。":null,false);
+        Row[] tools=new Row[1+TOOLS.length];
+        tools[0]=new Row(K_TOOLS,"显示首页工具宫格","关闭整块时，所有工具入口一起隐藏。",true);
+        for(int i=0;i<TOOLS.length;i++)tools[i+1]=new Row(K_TOOL+TOOLS[i],TOOLS[i],null,false);
+        CATS=new Cat[]{
+            new Cat(CAT_BAR,"底部入口栏","勾选为显示；隐藏后剩余入口均分。",bar),
+            new Cat(CAT_TOOLS,"首页工具宫格","单独控制工具；保留原有点击功能。",tools),
+            new Cat(CAT_HC,"回家 / 去公司","单独控制通勤地址入口。",new Row[]{
+                new Row(K_HC,"显示通勤地址栏",null,true),new Row(K_HC_HOME,"回家",null,false),new Row(K_HC_COMPANY,"去公司",null,false),new Row(K_HC_SETTING,"去设置",null,false)}),
+            new Cat(CAT_WX,"天气 / 行程栏","地图天气和首页卡片分别控制。",new Row[]{
+                new Row(K_WEATHER,"显示天气 / 行程栏",null,true),new Row(K_WX_MAP,"地图天气条",null,false),new Row(K_WX_CARD,"底部行程 / 天气卡",null,false)}),
+            new Cat(CAT_FEED,"推荐信息流","独立控制频道入口和推荐内容。",new Row[]{
+                new Row(K_FEED,"显示推荐信息流",null,true),new Row(K_FEED_CHIPS,"频道栏",null,false),new Row(K_FEED_QUALITY,"推荐内容",null,false)}),
+            new Cat(CAT_MINE,"「我的」页","逐卡过滤；运营卡与导航车标各自控制。",new Row[]{
+                new Row(K_MINE_APPLY,"启用「我的」页精简","关闭后还原该页原始内容。",true),
+                new Row(K_MINE_OPS,"广告 / 运营卡","天天领钱、出行保、借钱、我的店铺。",false),
+                new Row(K_MINE_AD,"热门活动 / 资源位",null,false),new Row(K_MINE_VOICE,"热门语音",null,false),
+                new Row(K_MINE_CAR,"我的车",null,false),new Row(K_MINE_CARNAV,"导航车标（区块）",null,false),
+                new Row(K_MINE_BUILD,"全民共建 / 反馈中心",null,false),new Row(K_MINE_SPORT,"百度运动",null,false),new Row(K_MINE_GRID,"顶部图标宫格",null,false)}),
+            new Cat(CAT_DIAG,"诊断","百度 22.0.0 版本适配；改动后重启百度生效。",new Row[]{new Row(Cfg.K_DEBUG,"调试日志",null,false)})
+        };return CATS;
     }
 
     public static Cat cat(int id) {
@@ -378,9 +278,14 @@ public final class Spec {
      * 这样设置页显示的计数与 Hook 侧真实行为一致。
      */
     public static boolean effectiveVisible(String key, Read r) {
-        if (K_WX_MAP.equals(key) || K_WX_CARD.equals(key)) {
-            if (!r.visible(K_WEATHER)) return false;
-        }
+        if(key==null)return true;
+        if(key.startsWith(K_TAB)&&!r.visible(K_BAR))return false;
+        if(key.startsWith(K_TOOL)&&!r.visible(K_TOOLS))return false;
+        if((K_HC_HOME.equals(key)||K_HC_COMPANY.equals(key)||K_HC_SETTING.equals(key))&&!r.visible(K_HC))return false;
+        if((K_WX_MAP.equals(key)||K_WX_CARD.equals(key))&&!r.visible(K_WEATHER))return false;
+        if((K_FEED_CHIPS.equals(key)||K_FEED_QUALITY.equals(key))&&!r.visible(K_FEED))return false;
+        if(key.startsWith("mine_")&&!K_MINE_APPLY.equals(key)&&!r.visible(K_MINE_APPLY))return true;
+        if((K_TAB+TABS[0]).equals(key))return true;
         return r.visible(key);
     }
 

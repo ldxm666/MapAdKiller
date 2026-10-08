@@ -2,7 +2,6 @@ package io.github.ldxm666.mapclean;
 
 import io.github.ldxm666.mapadkiller.App;
 import io.github.ldxm666.mapadkiller.Config;
-import io.github.ldxm666.mapadkiller.DiagPage;
 import io.github.ldxm666.mapadkiller.LearnedProvider;
 import io.github.ldxm666.mapadkiller.MainHook;
 import io.github.ldxm666.mapadkiller.SdkAutoBlock;
@@ -514,12 +513,11 @@ public final class MainActivity extends Activity {
     /** 去广告卡片：始终开启、不折叠，作为页面第一块「仪表盘」 */
     private void buildForcedCard(LinearLayout root) {
         LinearLayout card = newCard();
-        TextView head = text("去广告 · 始终开启", 13, Typeface.BOLD, cAccent());
+        TextView head = text("高德 · 精确协议适配", 13, Typeface.BOLD, cAccent());
         head.setPadding(dp(4), dp(10), 0, dp(4));
         card.addView(head);
-        addNoteRow(card, "开屏 / 横幅 / 推送 / 信息流广告卡拦截，覆盖高德、百度、腾讯三家地图（无需配置）");
-        addNoteRow(card, "广告 SDK 自动检索：打开地图时模块会在其进程内扫描 dex，命中广告特征的厂商包"
-                + "会自动记下来并拦截，记录长期保存，下次启动直接生效。");
+        addNoteRow(card, "高德 17.00.0.2005：开屏入口、工具列表、首页分页数据和我的页数据均使用固定方法签名。其他高德版本保留原界面，避免错误挂钩。");
+        addNoteRow(card, "高德已移除运行时 dex 检索、文本扫描与坐标重排。下方 SDK 清单用于百度、腾讯地图的原有兼容功能。");
         sdkRow = addActionButton(card, sdkSummary(), new Runnable() {
             @Override public void run() { showLearnedSdks(); }
         });
@@ -600,23 +598,16 @@ public final class MainActivity extends Activity {
         for (String tab : Config.TABS) addSwitch(sec.card, "显示标签「" + tab + "」", Config.K_TAB_PREFIX + tab);
 
         sec = newDrawer("高德 · 首页工具宫格");
-        // v1.1.0：宫格 15 格全量独立开关（截图实证的完整 3×5 宫格）
+        addNoteRow(sec.card, "按固定工具 ID 控制显示。关闭全部首页推荐时采用原生工具数据构建等宽宫格，自动补位；图标与点击动作同步保留。");
         for (String tool : Config.TOOLS) addSwitch(sec.card, "显示「" + tool + "」", Config.K_TOOL_PREFIX + tool);
 
         sec = newDrawer("高德 · 首页推荐内容");
-        addSwitch(sec.card, "显示榜单/特色推荐卡（尝尝这里 / 特色场所，全页面统一）", Config.K_FEED_BOARD);
-        addSwitch(sec.card, "显示出行节/会场活动卡（库迪咖啡 4选1 / 车主服务入口等）", Config.K_FEED_FESTIVAL);
+        addSwitch(sec.card, "扫街榜 / 周边精选榜单（首页及分页）", Config.K_FEED_BOARD);
+        addSwitch(sec.card, "首页出行节 / 促销活动接口", Config.K_FEED_FESTIVAL);
+        addSwitch(sec.card, "地图右侧运营挂件（扫街榜 / 活动入口）", Config.K_MAP_PROMO);
         addSwitch(sec.card, "天气卡片", Config.K_FEED_WEATHER);
-        addSwitch(sec.card, "周边景区 / 景点推荐", Config.K_FEED_SCENIC);
-        addSwitch(sec.card, "榜单帖子卡（景区榜 / 美食榜 / 打卡地…）", Config.K_FEED_POSTS);
-        addSwitch(sec.card, "带距离的内容卡（旅行帖 / 探店帖…）", Config.K_FEED_DISTANCE);
-        addSwitch(sec.card, "精选榜单 / 热门榜", Config.K_FEED_RANK);
         addSwitch(sec.card, "攻略 / 内容流卡片", Config.K_FEED_CONTENT);
-        addSwitch(sec.card, "问问 AI 入口", Config.K_FEED_AI);
-        addSwitch(sec.card, "推荐频道栏（关注 / 附近 / 美食…）", Config.K_FEED_FILTER);
         addSwitch(sec.card, "设置家 / 设置单位 / 常去地点", Config.K_HOME_CHIPS);
-        addSwitch(sec.card, "搜索栏下方快捷入口整排（美食 / 酒店 / 景点门票 / 加油充电 / 出行节 / 扫街榜）",
-                Config.K_HOME_QUICK_ROW);
         addSwitch(sec.card, "关闭首页搜索框热词轮播（文字流动 / 运营广告词）",
                 Config.K_HOTWORD_OFF);
         addNoteRow(sec.card, "首页那支搜索框里的文字会自己流动（预置词/运营词，有时是广告）。"
@@ -624,24 +615,17 @@ public final class MainActivity extends Activity {
                 + "热词品牌图标一并摘掉；关掉开关即可恢复原样。");
         addSwitch(sec.card, "关闭首页「去XXX 打车」打车浮窗（打车运营卡）",
                 Config.K_RIDE_CARD_OFF);
-        addNoteRow(sec.card, "首页信息流底部那张「去幸福路步行街 / 有座不拥挤 · 行程有保障 / 打车」"
-                + "的运营浮窗卡会整张摘除（含卡片高度，不留空洞）。"
-                + "识别用「卡内文案 + AJX 列表 item 结构」双判据，正常地点卡、路线卡不受影响。");
+        addNoteRow(sec.card, "拦截首页 taxiQS 和 taxiQSMarket 数据卡。关闭全部推荐、天气和常去地点时，首页不创建推荐画布，避免刷新回弹及留白。修改后重开高德生效。");
+        addNoteRow(sec.card, "适配高德 17.00.0.2005。旧版按文字区分的景区帖、距离帖等开关已合并为榜单和内容流。尚无精确入口的频道栏、快捷入口排不再提供开关。");
 
         sec = newDrawer("高德 · 「我的」页");
         addSwitch(sec.card, "订单 / 收藏 / 待评价 一栏", Config.K_MY_ORDER_ROW);
         addSwitch(sec.card, "车辆服务 / 高德运动 一栏", Config.K_MY_SERVICE_ROW);
         addSwitch(sec.card, "达人任务卡片", Config.K_MY_TASK);
-        addSwitch(sec.card, "扫街新发现 / 小德果园 一栏", Config.K_MY_PROMO_ROW);
+        addSwitch(sec.card, "热门活动卡", Config.K_MY_PROMO_ROW);
         addSwitch(sec.card, "猜你喜欢", Config.K_MY_GUESS);
-        addSwitch(sec.card, "资质信息 / 协议中心", Config.K_MY_QUALITY);
-
-        sec = newDrawer("高德 · 搜索框内页");
-        // v1.1.0：搜索页整页是 AJX3 画布（无资源 id），这一层用「结构指纹 + 文案锚点」判页判广告，
-        // 命中即 GONE 单卡；总开关默认开（命中面全是券包/红包/会场类运营卡）。
-        addSwitch(sec.card, "搜索页去广告（券包 / 红包 / 满减 / 会场 / 运营卡）", Config.K_SEARCH_AD);
-        addNoteRow(sec.card, "搜索输入页、联想页、搜索结果页里的运营推广卡会被就地隐藏（含「高德邀你畅玩十一」"
-                + "这类会场流）。搜到的真实地点、路线、攻略不受影响。");
+        addSwitch(sec.card, "好友动态", Config.K_MY_FRIENDS);
+        addNoteRow(sec.card, "按 Mine 卡片类型与入口行数据处理。搜索页运营卡、资质页及其他未完成协议适配的区域暂不提供开关。");
         // 「其他 · 入口与调试」一组已挪到第 3 页（其他），见 buildOtherPage()
     }
 
@@ -737,12 +721,11 @@ public final class MainActivity extends Activity {
             addLocalSwitch(sec.card, "隐藏桌面图标", App.K_HIDE_ICON);
             addNoteRow(sec.card, "隐藏后桌面图标消失；LSPosed 管理器里的「打开」入口不受影响（v1.1.0 起），"
                     + "快捷设置磁贴与 adb 命令也始终可用。");
-            addSwitch(sec.card, "工具宫格自动排序（实验性：可能与地图动画冲突）", Config.K_TOOL_SORT);
-            addSwitch(sec.card, "调试日志（logcat 输出首页文本锚点）", Config.K_DEBUG_LOG);
+            addNoteRow(sec.card, "高德工具列表隐藏后自动补位；旧版实验性坐标重排已移除。");
+            addSwitch(sec.card, "调试日志（LSPosed 输出协议适配错误）", Config.K_DEBUG_LOG);
             toggle(sec);
             Sec sec2 = newDrawer("去广告说明");
-            addNoteRow(sec2.card, "去广告是**基线能力**，没有总开关：高德/百度/腾讯三家的开屏、横幅、"
-                    + "信息流运营卡命中即拦截；广告 SDK 清单可在底部「SDK 清单」里查看。");
+            addNoteRow(sec2.card, "高德使用版本专用协议适配；推荐内容由高德页的开关控制。百度、腾讯保留原有广告兼容规则和 SDK 清单。");
         } finally {
             list = old;
         }

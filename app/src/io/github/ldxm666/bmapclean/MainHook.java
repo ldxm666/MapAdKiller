@@ -53,13 +53,7 @@ public final class MainHook {
         ClassLoader cl = param.getClassLoader();
         try {
             H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg);
-            HomeClean.install(cl);
-            // 首页广告位：左上角运营浮层（视图层）+ 搜索框热词钉死（setText 钩子）
-            HomeAds.install(cl);
-            // 「我的」页走 Talos 数据层（不是视图层）：挂 Talos 网络栈 / 响应交付两处
-            MineData.install(cl);
-            // 数据层够不到的卡（百度运动 / 全民共建 / 宫格）走 JS 层：给宿主小程序注入补丁
-            MineJs.install(cl);
+            BaiduHooks.install(cl);
         } catch (Throwable t) {
             H.log(Log.ERROR, TAG, "event=install_failed pkg=" + pkg, t);
         } finally {

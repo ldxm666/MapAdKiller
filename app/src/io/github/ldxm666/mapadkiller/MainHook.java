@@ -70,12 +70,10 @@ public final class MainHook {
                 case PKG_AMAP:
                     H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg);
                     AmapHooks.install(cl);   // 去广告基线
-                    TreeDump.install();      // 取证用全树 dump（debugLog 打开时才输出）
-                    HomeTweaks.install(cl);  // 首页/「我的」页 UI 自定义（配置驱动）
                     break;
                 case PKG_BMAP:
                     H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg);
-                    BmapHooks.install(cl);   // 百度去广告基线
+                    // 百度由 bmapclean 的版本适配器统一接管。
                     break;
                 case PKG_TMAP:
                     H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg);
@@ -85,7 +83,7 @@ public final class MainHook {
                     break;
             }
             // 三家通用层：广告 SDK 自动检索 + 拦截（已知入口立刻挂，dex 扫描后台跑）
-            SdkAutoBlock.install(cl, pkg);
+            if (PKG_TMAP.equals(pkg)) SdkAutoBlock.install(cl, pkg);
         } catch (Throwable t) {
             H.log(Log.ERROR, TAG, "event=install_failed pkg=" + pkg, t);
         }

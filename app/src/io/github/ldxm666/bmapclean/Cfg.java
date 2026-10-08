@@ -29,6 +29,10 @@ public final class Cfg {
     public static final boolean FORCE_DEBUG = false;
 
     private static volatile SharedPreferences cached;
+    private static volatile java.util.Map<String, ?> snapshot = java.util.Collections.emptyMap();
+    private static volatile long expires;
+    private static final SharedPreferences.OnSharedPreferenceChangeListener listener =
+            (p, key) -> expires = 0;
     private static volatile long dbgAt;
     private static volatile boolean dbgVal;
 
@@ -46,6 +50,7 @@ public final class Cfg {
                         p = null;
                     }
                     cached = p;
+                    if (p != null) try { p.registerOnSharedPreferenceChangeListener(listener); } catch (Throwable ignored) {}
                 }
             }
         }
@@ -62,7 +67,8 @@ public final class Cfg {
         try {
             SharedPreferences p = prefs();
             if (p == null) return def;
-            return p.getBoolean(key, def);
+            Object value = values().get(key);
+            return value instanceof Boolean ? (Boolean) value : def;
         } catch (Throwable t) {
             return def;
         }
@@ -92,7 +98,8 @@ public final class Cfg {
         try {
             SharedPreferences p = prefs();
             if (p == null) return "";
-            String s = p.getString("app_token", "");
+            Object value = values().get("app_token");
+            String s = value instanceof String ? (String) value : "";
             return s == null ? "" : s;
         } catch (Throwable t) {
             return "";
@@ -106,5 +113,19 @@ public final class Cfg {
      */
     public static void log(String s) {
         H.log(Log.INFO, MainHook.TAG, s);
+    }
+
+    private static java.util.Map<String, ?> values() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now >= expires) synchronized (Cfg.class) {
+            if (now >= expires) {
+                SharedPreferences p = prefs();
+                if (p != null) try {
+                    snapshot = java.util.Collections.unmodifiableMap(new java.util.HashMap<String, Object>(p.getAll()));
+                } catch (Throwable ignored) {}
+                expires = now + 2000;
+            }
+        }
+        return snapshot;
     }
 }
