@@ -1,55 +1,23 @@
-# libxposed-service-aidl.dex 来源说明（provenance）
+# libxposed API 102 依赖与 AIDL 来源
 
-## 这是什么
+当前构建直接使用 Maven Central 发布的完整官方 `102.0.0` AAR 中的 `classes.jar`。各 JAR 与对应官方 AAR 的 `classes.jar` 逐字节一致，不再从历史模块 APK 提取 AIDL DEX。
 
-`classes2.dex` 的内容：`io.github.libxposed.service` 下的 **AIDL 桩类**，共 13 个：
+| 本地文件 | 官方坐标 | 构建用途 |
+| --- | --- | --- |
+| `api-102.0.0.jar` | `io.github.libxposed:api:102.0.0` | 仅编译；由框架提供运行时 API，禁止打入模块 APK |
+| `service-classes.jar` | `io.github.libxposed:service:102.0.0` | 设置页服务客户端、Provider、RemotePreferences；合并进模块 DEX |
+| `interface-102.0.0.jar` | `io.github.libxposed:interface:102.0.0` | 完整官方 AIDL、`HookedProcess` 及 Parcelable；合并进模块 DEX |
 
-```
-IXposedService{,$Default,$Stub,$Stub$Proxy,$_Parcel}
-IHotReloadCallback{,$Default,$Stub,$Stub$Proxy}
-IXposedScopeCallback{,$Default,$Stub,$Stub$Proxy}
-```
+`app/build.ps1` 的 javac 使用三份 JAR，d8 只合并模块代码、service 和 interface；API JAR 作为 `--lib`。无需手工复制 `classes2.dex`。d8 根据容量生成的 DEX 文件编号不代表 AIDL 的来源。
 
-## 为什么必须自带
+原 `libxposed-service-aidl.dex` 只含历史提取的 13 个桩类，缺少 API 102 的 `HookedProcess` Parcelable，已经移除，不参与构建。旧版“从可运行 APK 抽取并随框架版本替换 AIDL”的步骤不再适用。
 
-模块的**设置页 App 进程**不会被 LSPosed 注入（LSPosed 只注入模块作用域内的目标 App）。
-而 `libs/service-classes.jar` 里只有上层封装（`XposedServiceHelper` / `XposedProvider` /
-`RemotePreferences`…），**不含 AIDL 桩**——AIDL 在受注入的进程里由框架提供。
+构建使用官方 `io.github.libxposed.service.IXposedService` 协议；Vector 内部 IPC 包名变化不应改写此公共协议。依赖与元数据的静态核验不能替代具体框架设备测试。
 
-于是在我们自己的 App 进程里：
+官方 AAR 下载地址：
 
-```
-D XposedProvider: binder received: android.os.BinderProxy@...
-E XposedServiceHelper: java.lang.NoClassDefFoundError:
-    Failed resolution of: Lio/github/libxposed/service/IXposedService$Stub;
-  at io.github.libxposed.service.XposedServiceHelper.onBinderReceived(XposedServiceHelper.java:40)
-  at io.github.libxposed.service.XposedProvider.call(XposedProvider.java:65)
-Caused by: java.lang.ClassNotFoundException: io.github.libxposed.service.IXposedService$Stub
-```
+- [API 102.0.0](https://repo.maven.apache.org/maven2/io/github/libxposed/api/102.0.0/api-102.0.0.aar)
+- [Service 102.0.0](https://repo.maven.apache.org/maven2/io/github/libxposed/service/102.0.0/service-102.0.0.aar)
+- [Interface 102.0.0](https://repo.maven.apache.org/maven2/io/github/libxposed/interface/102.0.0/interface-102.0.0.aar)
 
-daemon 明明把 binder 推过来了，we 却在解析 AIDL 时抛异常 → `onServiceBind` 永不回调
-→ 设置页恒显「服务未连接」、开关写不进去。真机 LSPosed 2.1.1 / Android 16 实测。
-
-## 提取方式（可复现）
-
-来源是**已被真机证明可用**的成品：`_src/MapAdKiller-master/releases/MapAdKiller-v1.1.0.apk`
-（它的设置页能正常显示「已激活」，即该 dex 与台上这套 LSPosed 的 AIDL 事务码匹配）。
-
-```powershell
-apktool d -f -o .scratch\work\makdec <该 apk>
-# 只保留 AIDL 类，其余 smali 全部删除（避免与本模块 classes.dex 重复定义）
-#   保留：smali\io\github\libxposed\service\{IXposedService,IHotReloadCallback,IXposedScopeCallback}*.smali
-apktool b .scratch\work\makdec -o .scratch\work\aidl.apk
-# 取 apk 里的 classes.dex（13740 字节，dexdump 验证：正好 13 个类，无重复）
-```
-
-固化脚本：`scripts/tools/extract_libxposed_aidl.ps1`（台账 REGISTRY.md 已登记）。
-
-## 校验
-
-```
-dexdump -f libs\libxposed-service-aidl.dex   # 应只有上面 13 个 Class descriptor
-```
-
-**不要**替换成别处下载的同名 jar：AIDL 事务码必须与设备上运行的 LSPosed 版本一致。
-换 LSPosed 大版本时，用上面同一套步骤从当时能正常工作的模块 APK 重新提取。
+复现时从相应 AAR 中提取 `classes.jar`，保存为上表本地文件名，并核对 `dependencies.json` 所列的官方 AAR 与提取后 JAR 的 SHA256。正式构建后运行 `tools/verify_module.py`，核对签名、API 是否误打包、完整 service/interface 类、作用域和 Native Hook 库。

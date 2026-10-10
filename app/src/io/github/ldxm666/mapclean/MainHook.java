@@ -40,12 +40,15 @@ public final class MainHook extends XposedModule {
         } catch (Throwable t) {
             Log.w(TAG, "amap module_loaded failed", t);
         }
+        NativeLabelAssets.start(loadedProcess);
     }
 
     @Override
     public void onPackageReady(XposedModuleInterface.PackageReadyParam param) {
         final String pkg = param.getPackageName();
         if (pkg == null) return;
+
+        EmbeddedSettings.install(this, param, loadedProcess);
 
         // 百度地图：界面精简 + 去广告，两套都挂
         if (io.github.ldxm666.bmapclean.MainHook.PKG_BMAP.equals(pkg)) {

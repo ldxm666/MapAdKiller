@@ -17,7 +17,7 @@
 app/
   AndroidManifest.xml      合并版（application = io.github.ldxm666.mapclean.App）
   META-INF/xposed/         module.prop(v2.0.0/200) / scope.list(三家) / java_init.list(单一入口)
-  libs/                    service-classes.jar + libxposed-service-aidl.dex(=classes2.dex)
+  libs/                    当前为官方 API102 / service / interface JAR（旧 AIDL DEX 已移除）
   src/io/github/ldxm666/
     mapclean/              合并层：MainHook(唯一入口) / App(唯一 Application) / MainActivity(分页 UI)
                            Pager(自绘横向分页，无 AndroidX) / UpdateChecker / Version

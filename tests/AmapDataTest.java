@@ -10,8 +10,10 @@ public final class AmapDataTest {
     private static int assertions;
     private static class Options implements AmapData.Settings {
         final Map<String, Boolean> values = new HashMap<String, Boolean>();
-        public boolean enabled(String key) { Boolean v = values.get(key); return v == null || v; }
+        public boolean enabled(String key) { Boolean v = values.get(key); return v == null ? !Config.K_TOOLS_ALLOWLIST.equals(key) : v; }
+        public boolean selected(String key) { return Boolean.TRUE.equals(values.get(key)); }
         Options off(String key) { values.put(key, false); return this; }
+        Options on(String key) { values.put(key, true); return this; }
     }
     private static void check(boolean condition, String description) {
         assertions++;
@@ -29,21 +31,47 @@ public final class AmapDataTest {
             tools.put(new JSONObject().put("id", Integer.parseInt(entry[0])).put("schema", "action:" + entry[0]).put("name", "changed display text"));
         tools.put(new JSONObject().put("id", 9999).put("schema", "action:unknown"));
         String raw = new JSONObject().put("recommendTools", tools).put("recommendInfo", new JSONObject().put("version", 17)).toString();
-        check(raw.equals(AmapData.storage("recommendTools", raw, all)), "all visible is byte preserving");
+        String known = AmapData.storage("recommendTools", raw, all);
+        check(new JSONObject(known).getJSONArray("recommendTools").length() == tools.length() - 1, "unknown promotion has no enabled switch and is removed");
+        check(known.equals(AmapData.storage("recommendTools", known, all)), "all known visible is byte preserving");
         for (String[] entry : AmapData.TOOLS) {
             Options hidden = new Options().off(Config.K_TOOL_PREFIX + entry[1]);
             String result = AmapData.storage("recommendTools", raw, hidden);
             JSONArray kept = new JSONObject(result).getJSONArray("recommendTools");
-            check(kept.length() == tools.length() - 1, "one ID maps to one switch " + entry[0]);
+            check(kept.length() == tools.length() - 2, "one ID maps to one switch; unknown ID stays hidden " + entry[0]);
             for (int i = 0; i < kept.length(); i++) {
                 JSONObject tool = kept.getJSONObject(i);
                 check(!entry[0].equals(tool.optString("id")), "hidden ID absent");
                 check(tool.getString("schema").equals("9999".equals(tool.optString("id")) ? "action:unknown" : "action:" + tool.optString("id")), "actions stay paired");
             }
             check(result.equals(AmapData.storage("recommendTools", result, hidden)), "idempotent filtering");
-            check(raw.equals(AmapData.storage("recommendTools", raw, all)), "restore uses untouched original");
+            check(known.equals(AmapData.storage("recommendTools", raw, all)), "restore uses untouched original");
         }
         check(raw.equals(AmapData.storage("unrelated", raw, new Options().off(Config.K_TOOLS_VISIBLE))), "unrelated storage untouched");
+        Options allowlist = new Options().on(Config.K_TOOLS_ALLOWLIST).on("tool_骑行");
+        check(AmapData.toolVisible("105", allowlist), "cycling has its own fixed-ID switch");
+        check(!AmapData.toolVisible("104", allowlist), "unset walking is hidden in allowlist mode");
+        check(!AmapData.toolVisible("102", allowlist), "normal default-on tools are hidden until selected");
+        check(!AmapData.toolVisible("9999", allowlist), "future unknown tools are hidden in allowlist mode");
+        check(new JSONObject(AmapData.storage("recommendTools", raw, allowlist)).getJSONArray("recommendTools").length() == 1, "allowlist removes unopened and unknown tools");
+        check(!AmapData.toolVisible("105", allowlist.off(Config.K_TOOLS_VISIBLE)), "master switch overrides allowlist selections");
+        check(!AmapData.toolVisible("105", new Options().off("tool_骑行")), "cycling off is independent of taxi");
+        java.util.Set<String> ids = new java.util.HashSet<String>();
+        java.util.Set<String> keys = new java.util.HashSet<String>();
+        Options onlyWalking = new Options().on(Config.K_TOOLS_ALLOWLIST).on("tool_步行");
+        int visible = 0;
+        for (String[] entry : AmapToolCatalog.ENTRIES) {
+            check(ids.add(entry[0]), "catalog IDs are unique " + entry[0]);
+            check(keys.add(AmapToolCatalog.key(entry[0])), "every catalog tool has its own preference " + entry[0]);
+            check(entry[3].startsWith("amapuri://"), "native route retained " + entry[0]);
+            if (AmapData.toolVisible(entry[0], onlyWalking)) visible++;
+        }
+        check(visible == 1, "only walking enabled produces only walking from complete catalog");
+        check(!AmapToolCatalog.key("145").equals(AmapToolCatalog.key("502")), "same-named transit codes are separately configurable");
+        check("tool_火车票".equals(AmapToolCatalog.key("327")), "renamed native tool preserves old backup key");
+        check("tool_骑行".equals(AmapToolCatalog.key("105")), "cycling preserves existing saved selection");
+        check(!Config.defaultVisible(AmapToolCatalog.key("544")), "unselected super-sale promotion defaults off");
+        check(Config.defaultVisible(AmapToolCatalog.key("104")), "walking default matches its setting switch");
         JSONObject template = new JSONObject().put("king_switch", "1");
         for (int i = 0; i < 4; i++) {
             String id = AmapData.TOOLS[i][0];

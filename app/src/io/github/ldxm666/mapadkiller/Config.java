@@ -11,6 +11,7 @@ public final class Config {
     public static final String PREF_GROUP = "amap_enhancer_config";
     public static final String K_TAB_PREFIX = "tab_", K_TOOL_PREFIX = "tool_";
     public static final String K_TOOLS_VISIBLE = "ui_tools_visible";
+    public static final String K_TOOLS_ALLOWLIST = "ui_tools_allowlist";
     public static final String K_FEED_WEATHER = "feed_weather", K_FEED_SCENIC = "feed_scenic";
     public static final String K_FEED_RANK = "feed_rank", K_FEED_POSTS = "feed_posts", K_FEED_DISTANCE = "feed_distance";
     public static final String K_FEED_CONTENT = "feed_content", K_FEED_AI = "feed_ai", K_FEED_FILTER = "feed_filter";
@@ -22,6 +23,8 @@ public final class Config {
     public static final String K_MY_PROMO_ROW = "my_promo_row", K_MY_GUESS = "my_guess", K_MY_QUALITY = "my_quality";
     public static final String K_MY_FRIENDS = "my_friends";
     public static final String K_MAP_PROMO = "map_promo";
+    public static final String K_MAP_POI = "map_poi";
+    public static final String K_PLACE_RECOMMEND = "place_recommend";
     // The map's default page is kept; removing it invalidates navigation return targets.
     public static final String[] TABS = {"探索", "长按说话", "打车", "我的"};
     public static final String[] TOOLS = toolLabels();
@@ -41,7 +44,9 @@ public final class Config {
         return out;
     }
     public static boolean defaultVisible(String key) {
-        if (K_DEBUG_LOG.equals(key)) return false;
+        if (K_DEBUG_LOG.equals(key) || K_TOOLS_ALLOWLIST.equals(key) || K_MAP_POI.equals(key)
+                || K_PLACE_RECOMMEND.equals(key)) return false;
+        if (key != null && key.startsWith("tool_id_")) return false;
         if (key != null && key.startsWith(K_TOOL_PREFIX))
             return !TOOLS_DEFAULT_OFF.contains(key.substring(K_TOOL_PREFIX.length()));
         return !K_HOME_QUICK_ROW.equals(key) && !K_FEED_BOARD.equals(key) && !K_FEED_FESTIVAL.equals(key)
@@ -60,7 +65,7 @@ public final class Config {
         }
         return p;
     }
-    public static boolean visible(String key) {
+    private static Map<String, ?> currentValues() {
         long now = android.os.SystemClock.uptimeMillis();
         if (now >= expiresAt) synchronized (Config.class) {
             if (now >= expiresAt) {
@@ -69,8 +74,17 @@ public final class Config {
                 expiresAt = now + 2000;
             }
         }
-        Object value = snapshot.get(key);
-        return value instanceof Boolean ? (Boolean) value : defaultVisible(key);
+        return snapshot;
+    }
+    public static boolean visible(String key) { return value(currentValues(), key); }
+    public static boolean selected(String key) { return Boolean.TRUE.equals(currentValues().get(key)); }
+    /** UI and hooks use the same default when the tool allowlist is active. */
+    public static boolean readVisible(SharedPreferences prefs, String key) { return value(prefs.getAll(), key); }
+    private static boolean value(Map<String, ?> values, String key) {
+        Object stored = values.get(key);
+        if (stored instanceof Boolean) return (Boolean) stored;
+        if (key != null && key.startsWith(K_TOOL_PREFIX) && Boolean.TRUE.equals(values.get(K_TOOLS_ALLOWLIST))) return false;
+        return defaultVisible(key);
     }
     public static boolean toolVisible(String label) { return visible(K_TOOL_PREFIX + label); }
     public static boolean tabVisible(String label) { return visible(K_TAB_PREFIX + label); }

@@ -1,0 +1,30 @@
+{
+  "version": "102.0.0",
+  "source": "Maven Central official io.github.libxposed artifacts",
+  "artifacts": [
+    {
+      "coordinate": "io.github.libxposed:api:102.0.0",
+      "localJar": "api-102.0.0.jar",
+      "aarUrl": "https://repo.maven.apache.org/maven2/io/github/libxposed/api/102.0.0/api-102.0.0.aar",
+      "aarSha256": "423484a6e1807e7a423c4b88fcd8176d104318259d91791877fed88fe91479d0",
+      "jarSha256": "a515dd7a53cd7a47c05e101dff77d61acb3091a97b20a885b9ea3494412db985",
+      "packaged": false
+    },
+    {
+      "coordinate": "io.github.libxposed:service:102.0.0",
+      "localJar": "service-classes.jar",
+      "aarUrl": "https://repo.maven.apache.org/maven2/io/github/libxposed/service/102.0.0/service-102.0.0.aar",
+      "aarSha256": "a665e4af4638924047f5d5cb610553e15bc2c0ea2ce64a27afb6dee257ff014c",
+      "jarSha256": "b07bc86b9da1e9adc4fd967d5f27a37f1907e8234594a20e6928c78981f0f37f",
+      "packaged": true
+    },
+    {
+      "coordinate": "io.github.libxposed:interface:102.0.0",
+      "localJar": "interface-102.0.0.jar",
+      "aarUrl": "https://repo.maven.apache.org/maven2/io/github/libxposed/interface/102.0.0/interface-102.0.0.aar",
+      "aarSha256": "4e0b76d6050be1d3dc0d35525180ad7d9b60a47fd8d8fe1d18c2bdc840be9ddb",
+      "jarSha256": "08711eceb0ffb64cbade3536fa7bb48a5fe3420dfdb1e3edde12cea006ae207f",
+      "packaged": true
+    }
+  ]
+}

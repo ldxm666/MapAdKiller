@@ -20,15 +20,37 @@ public final class BaiduHooks {
     private static final java.util.Set<String> toolIdsLogged = new java.util.HashSet<>();
     private BaiduHooks() {}
     public static void install(ClassLoader cl) throws Exception {
-        Class<?> build = H.cls(cl, "com.baidu.BaiduMap.BuildConfig");
-        if (build == null || ((Number) build.getField("VERSION_CODE").get(null)).intValue() != 1650) {
-            H.log("unsupported Baidu version; precise hooks skipped"); return;
-        }
+        android.content.pm.PackageInfo version = io.github.ldxm666.mapclean.Compatibility.packageInfo(cl, MainHook.PKG_BMAP);
+        H.log("baidu_adapter version=" + (version == null ? "unknown" : version.versionName) + " mode=capabilities");
         Class<?> splash = H.cls(cl, "com.baidu.baidumaps.splash.SplashAdManager");
-        for (String name : new String[]{"F","z","w","y"}) {
+        // Obfuscated splash gates retain their verified semantic meaning only on this build.
+        if (version != null && version.versionCode == 1650) for (String name : new String[]{"F","z","w","y"}) {
             hook(splash, name, chain -> false);
         }
         BaiduAdHooks.install(cl);
+        BaiduPoiLayer.install(cl);
+        BaiduSearchAds.install(cl);
+        // The fixed search bar remains reachable when the entire bottom bar is hidden.
+        Class<?> searchEntry=H.cls(cl,"com.baidu.baidumaps.aihome.search.DefaultSearchUpUIComponent");
+        hook(searchEntry,"getView",chain -> {
+            Object result=chain.proceed();
+            if(result instanceof View)io.github.ldxm666.mapclean.EmbeddedSettings.bindEntry((View)result,MainHook.PKG_BMAP);
+            return result;
+        });
+        hook(searchEntry,"onResume",chain -> {
+            Object result=chain.proceed();
+            if(io.github.ldxm666.mapclean.EmbeddedSettings.enabledFor(MainHook.PKG_BMAP)) {
+                Object binding=field(chain.getThisObject(),"binding");
+                if(binding!=null)for(String slot:new String[]{"commonSearchBoxHome","searchBoxAnim"}) {
+                    Object entry=field(binding,slot);
+                    if(entry instanceof View)io.github.ldxm666.mapclean.EmbeddedSettings.bindEntry((View)entry,MainHook.PKG_BMAP);
+                }
+            }
+            return result;
+        });
+        Class<?> mainCard = H.cls(cl, DU + "DuMainCardUIComponent");
+        hook(mainCard, "applyCardVisibility", chain -> Spec.effectiveVisible(Spec.K_AI_NOW, Spec.HOOK_READ)
+            ? chain.proceed() : chain.proceed(new Object[]{false}), boolean.class);
         Class<?> panel = H.cls(cl, "com.baidu.mapframework.aihome.AIHomePanel");
         hook(panel, "getAiHomePanel", chain -> {
             Object result = chain.proceed();
@@ -43,12 +65,17 @@ public final class BaiduHooks {
                 H.cls(cl,"com.baidu.baidumaps.aihome.newhome.CollapsePanelState"),int.class,int.class,android.content.res.Resources.class);
         for(String name:new String[]{"addUfoView","onResume"})hook(home,name,chain -> {
             Object r=chain.proceed();tabsBinding(field(chain.getThisObject(),"ufoBinding"));
+            BaiduTabRouting.refreshComponent(chain.getThisObject());
             if(!Cfg.visible(Spec.K_BAR))hide((View)field(chain.getThisObject(),"ufoContainer"));return r;
         });
         Class<?> tabs=H.cls(cl,"com.baidu.baidumaps.aihome.panel.presenter.HomeTabPresenter");
-        for(String name:new String[]{"initChangeableTab","refreshSkin","bindClickOnTabChanged"})hook(tabs,name,chain -> {
-            Object r=chain.proceed();tabsBinding(field(field(chain.getThisObject(),"component"),"ufoBinding"));return r;
+        for(String name:new String[]{"init","initListeners","initChangeableTab","refreshSkin","bindClickOnTabChanged","refreshUfoWidgetEvent","onResume"})hook(tabs,name,chain -> {
+            Object r=chain.proceed();tabsBinding(field(field(chain.getThisObject(),"component"),"ufoBinding"));
+            BaiduTabRouting.refreshPresenter(chain.getThisObject());return r;
         });
+        // Only this presenter's native bottom-tab taxi route is gated. The
+        // separate route/tool/search entry points keep their own navigation.
+        hook(tabs,"jumpRentCarPage",chain -> Cfg.visible(Spec.K_TAB+Spec.TABS[3])?chain.proceed():null);
         Class<?> weather=H.cls(cl,"com.baidu.mapframework.common.mapview.action.WeatherAction");
         for(String name:new String[]{"updateView","onStateCreate","showWeather","deactivateForceGone"})hook(weather,name,chain -> {
             Object r=chain.proceed();
@@ -74,6 +101,7 @@ public final class BaiduHooks {
             String id=(String)chain.getArg(0);
             boolean hide="du_trip_entrance".equals(id)?!Cfg.visible(Spec.K_TOOLS)
                 :"du_trip_address".equals(id)?!Cfg.visible(Spec.K_HC)
+                :"du_trip_main_card".equals(id)?!Spec.effectiveVisible(Spec.K_AI_NOW, Spec.HOOK_READ)
                 :"du_aide_feed".equals(id)?!Spec.effectiveVisible(Spec.K_FEED_QUALITY,Spec.HOOK_READ)
                     &&!Spec.effectiveVisible(Spec.K_FEED_CHIPS,Spec.HOOK_READ)
                     &&!Spec.effectiveVisible(Spec.K_WX_CARD,Spec.HOOK_READ):false;
@@ -82,6 +110,7 @@ public final class BaiduHooks {
         for(String name:new String[]{"onCreateView","onResume","updateToCollapsedUI","updateToExpandUI"})hook(route,name,chain -> {
             Object r=chain.proceed();Object b=field(chain.getThisObject(),"binding");
             if(b!=null){
+                if(!Spec.effectiveVisible(Spec.K_AI_NOW, Spec.HOOK_READ))hide((View)field(b,"componentContainer1"));
                 if(!Cfg.visible(Spec.K_TOOLS))hide((View)field(b,"componentContainer3"));
                 if(!Cfg.visible(Spec.K_HC))hide((View)field(b,"componentContainer5"));
                 if(!Spec.effectiveVisible(Spec.K_FEED_QUALITY,Spec.HOOK_READ)
@@ -126,7 +155,8 @@ public final class BaiduHooks {
         return !Cfg.visible(Spec.K_TOOLS)&&!Cfg.visible(Spec.K_HC)
             &&!Spec.effectiveVisible(Spec.K_FEED_CHIPS,Spec.HOOK_READ)
             &&!Spec.effectiveVisible(Spec.K_FEED_QUALITY,Spec.HOOK_READ)
-            &&!Spec.effectiveVisible(Spec.K_WX_CARD,Spec.HOOK_READ);
+            &&!Spec.effectiveVisible(Spec.K_WX_CARD,Spec.HOOK_READ)
+            &&!Spec.effectiveVisible(Spec.K_AI_NOW,Spec.HOOK_READ);
     }
     private static void component(ClassLoader cl,String name,String key) {
         Class<?> c=H.cls(cl,DU+name);
@@ -168,6 +198,21 @@ public final class BaiduHooks {
             View cell=(View)field(binding,slots[i]);
             boolean show=master && (i==0 || Cfg.visible(Spec.K_TAB+Spec.TABS[i]));
             if(cell==null)continue;
+            if(i==0)io.github.ldxm666.mapclean.EmbeddedSettings.bindEntry(cell,MainHook.PKG_BMAP);
+            if(i==slots.length-1 && io.github.ldxm666.mapclean.EmbeddedSettings.enabledFor(MainHook.PKG_BMAP)) {
+                cell.setOnLongClickListener(view -> {
+                    android.content.Context context=view.getContext();
+                    for(int depth=0;depth<16 && context!=null;depth++) {
+                        if(context instanceof android.app.Activity)
+                            return io.github.ldxm666.mapclean.EmbeddedSettings.open((android.app.Activity)context);
+                        if(!(context instanceof android.content.ContextWrapper))break;
+                        android.content.Context base=((android.content.ContextWrapper)context).getBaseContext();
+                        if(base==context)break;
+                        context=base;
+                    }
+                    return false;
+                });
+            }
             if(!show)hide(cell);
             if(cell.getVisibility()==View.VISIBLE){
                 n++; LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)cell.getLayoutParams();
@@ -204,7 +249,7 @@ public final class BaiduHooks {
         if(target==null)return null;Method m=target.getClass().getMethod(name);return m.invoke(target);
     }
     static void hook(Class<?> c,String name,XposedInterface.Hooker hk,Class<?>...args){
-        Method m=null;try{if(c!=null)m=c.getDeclaredMethod(name,args);}catch(Exception ignored){}
-        H.hook(m,"baidu22_"+name+(c==null?"":c.getSimpleName()),hk);
+        Method m=null;try{if(c!=null)m=c.getDeclaredMethod(name,args);}catch(Throwable ignored){}
+        H.hook(m,"baidu_"+name+(c==null?"":c.getSimpleName()),hk);
     }
 }

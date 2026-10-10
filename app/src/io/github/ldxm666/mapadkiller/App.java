@@ -165,12 +165,15 @@ public final class App extends Application implements XposedServiceHelper.OnServ
 
     public static void attach(android.app.Application a) {
         CTX = a;
-        try { applyLauncherState(a); } catch (Throwable ignored) {}
+        if (MainHook.PKG_SELF.equals(a.getPackageName())) {
+            try { applyLauncherState(a); } catch (Throwable ignored) {}
+        }
     }
 
     public static void onBind(XposedService s) {
         service = s;
         migrateAmapHomepage(s);
+        migrateMapLabels(s);
         flushPending();          // 补写服务没连上时收到的学习结果
         try {
             LearnedProvider.flushToRemote(CTX == null ? null : CTX.getApplicationContext());
@@ -179,6 +182,15 @@ public final class App extends Application implements XposedServiceHelper.OnServ
 
     public static void onDied(XposedService s) {
         if (service == s) service = null;
+    }
+    private static void migrateMapLabels(XposedService service) {
+        try {
+            android.content.SharedPreferences p=service.getRemotePreferences(Config.PREF_GROUP);
+            if(p.getInt("_map_label_schema",0)>=212)return;
+            android.content.SharedPreferences.Editor edit=p.edit();
+            for(String key:p.getAll().keySet())if(key.startsWith("map_label_"))edit.remove(key);
+            edit.putBoolean(Config.K_MAP_POI,false).putInt("_map_label_schema",212).commit();
+        } catch(Throwable error){android.util.Log.w("MapCleanApp","label migration",error);}
     }
 
     /** One-time move from overlapping text rules to the requested compact homepage. */

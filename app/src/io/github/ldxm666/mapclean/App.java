@@ -7,6 +7,10 @@ import android.util.Log;
 import io.github.libxposed.service.XposedService;
 import io.github.libxposed.service.XposedServiceHelper;
 
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+
 /**
  * 合并版（v2.0.0）里**唯一真正的 Application**。
  *
@@ -22,6 +26,73 @@ public final class App extends Application implements XposedServiceHelper.OnServ
 
     private static volatile Application self;
 
+    private static final FrameworkStatus.Monitor status = new FrameworkStatus.Monitor(
+            Executors.newSingleThreadExecutor(new ThreadFactory() {
+                @Override public Thread newThread(Runnable task) {
+                    Thread worker = new Thread(task, "MapClean-framework-status");
+                    worker.setDaemon(true);
+                    return worker;
+                }
+            }), new FrameworkStatus.Clock() {
+                @Override public long elapsedMillis() { return android.os.SystemClock.elapsedRealtime(); }
+            }, 5000);
+    private static volatile XposedService boundService;
+    private static FrameworkStatus.Source boundStatusSource;
+    private static boolean listenerRegistered;
+    private static volatile boolean embedded;
+
+    private static final XposedServiceHelper.OnServiceListener embeddedListener =
+            new XposedServiceHelper.OnServiceListener() {
+                @Override public void onServiceBind(XposedService service) { bindService(service); }
+                @Override public void onServiceDied(XposedService service) { diedService(service); }
+            };
+
+    public static FrameworkStatus.Snapshot frameworkStatus() { return status.snapshot(); }
+    public static void refreshFrameworkStatus() { status.refresh(); }
+    public static boolean embedded() { return embedded; }
+    static boolean hasEmbeddedService() { return boundService != null; }
+
+    /** LSPatch delivers its writable Binder after modules load, before the host Application. */
+    static void listenEmbedded() { registerListener(embeddedListener); }
+
+    /** Reuse the attached host Application; never construct an Application with an unset base. */
+    public static synchronized void attachEmbedded(Application host) {
+        if (host == null || !EmbeddedSettings.enabledFor(host.getPackageName())) {
+            throw new IllegalStateException("Embedded settings require the LSPatch host");
+        }
+        if (self == host && embedded && listenerRegistered) return;
+        self = host;
+        embedded = true;
+        io.github.ldxm666.bmapclean.App.attach(host);
+        io.github.ldxm666.mapadkiller.App.attach(host);
+        XposedService service = boundService;
+        if (service != null) {
+            try { io.github.ldxm666.bmapclean.App.onBind(service); } catch (Throwable ignored) {}
+            try { io.github.ldxm666.mapadkiller.App.onBind(service); } catch (Throwable ignored) {}
+        }
+        registerListener(embeddedListener);
+    }
+
+    private static synchronized void registerListener(XposedServiceHelper.OnServiceListener listener) {
+        if (listenerRegistered) return;
+        try {
+            XposedServiceHelper.registerListener(listener);
+            listenerRegistered = true;
+            Log.i(TAG, "registerListener ok");
+        } catch (Throwable t) {
+            Log.e(TAG, "registerListener failed", t);
+        }
+    }
+
+    private static final class ServiceStatusSource implements FrameworkStatus.Source {
+        private final XposedService service;
+        ServiceStatusSource(XposedService service) { this.service = service; }
+        @Override public int getApiVersion() { return service.getApiVersion(); }
+        @Override public String getFrameworkName() { return service.getFrameworkName(); }
+        @Override public String getFrameworkVersion() { return service.getFrameworkVersion(); }
+        @Override public List<String> getScope() { return service.getScope(); }
+    }
+
     public static Application app() { return self; }
 
     public static Context ctx() { return self; }
@@ -32,24 +103,31 @@ public final class App extends Application implements XposedServiceHelper.OnServ
         self = this;
         io.github.ldxm666.bmapclean.App.attach(this);
         io.github.ldxm666.mapadkiller.App.attach(this);
-        try {
-            XposedServiceHelper.registerListener(this);
-            Log.i(TAG, "registerListener ok");
-        } catch (Throwable t) {
-            Log.e(TAG, "registerListener failed", t);
-        }
+        registerListener(this);
     }
 
     @Override
-    public void onServiceBind(XposedService s) {
+    public void onServiceBind(XposedService s) { bindService(s); }
+
+    private static synchronized void bindService(XposedService s) {
         Log.i(TAG, "onServiceBind ok");
+        boundService = s;
+        boundStatusSource = new ServiceStatusSource(s);
+        status.bind(boundStatusSource);
         try { io.github.ldxm666.bmapclean.App.onBind(s); } catch (Throwable t) { Log.w(TAG, "bmap bind", t); }
         try { io.github.ldxm666.mapadkiller.App.onBind(s); } catch (Throwable t) { Log.w(TAG, "amap bind", t); }
     }
 
     @Override
-    public void onServiceDied(XposedService s) {
+    public void onServiceDied(XposedService s) { diedService(s); }
+
+    private static synchronized void diedService(XposedService s) {
         Log.w(TAG, "onServiceDied");
+        if (boundService == s) {
+            status.disconnected(boundStatusSource);
+            boundStatusSource = null;
+            boundService = null;
+        }
         try { io.github.ldxm666.bmapclean.App.onDied(s); } catch (Throwable ignored) {}
         try { io.github.ldxm666.mapadkiller.App.onDied(s); } catch (Throwable ignored) {}
     }

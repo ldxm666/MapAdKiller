@@ -1,11 +1,11 @@
-minApiVersion=101
+minApiVersion=102
 targetApiVersion=102
 staticScope=true
 exceptionMode=protective
 autoHotReload=false
 id=io.github.ldxm666.mapadkiller
 name=MapAdKiller
-version=2.1.0-beta1
-versionCode=210
+version=2.1.2
+versionCode=212
 author=ldxm666
-description=百度地图界面精简 + 高德/百度/腾讯去广告（v2.0.0 合并版）。设置页左右滑动分页：百度地图页管首页入口栏/工具宫格/回家去公司/天气/信息流/「我的」页，高德地图页管首页标签栏/工具宫格/推荐内容/「我的」页/搜索页去广告。
+description=地图界面精简：高德与百度首页、工具、底栏、推荐内容及地图兴趣点独立设置，保留道路和地名。支持完整配置备份及现代 API 102 框架。

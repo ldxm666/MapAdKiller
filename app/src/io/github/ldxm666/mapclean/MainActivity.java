@@ -87,12 +87,32 @@ public final class MainActivity extends Activity {
     private static final int HEAD_R = 18;    // 抽屉头/按钮圆角 dp
 
     private boolean dark;
+    private String embeddedHost;
+
+    private boolean embedded() { return embeddedHost != null; }
+    private boolean embeddedAmap() { return EmbeddedSettingsPolicy.AMAP.equals(embeddedHost); }
+    private String settingsTargetLabel() {
+        return embedded() ? (embeddedAmap() ? "高德" : "百度") : "高德和百度";
+    }
+    private android.content.SharedPreferences uiPrefs() {
+        return getSharedPreferences(embedded() ? EmbeddedSettingsPolicy.UI_PREFS : App.UI_PREFS, MODE_PRIVATE);
+    }
 
     // ---------------------------------------------------------------- 生命周期
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (EmbeddedSettingsPolicy.isHostPackage(getPackageName())) {
+            try {
+                io.github.ldxm666.mapclean.App.attachEmbedded(getApplication());
+                embeddedHost = getPackageName();
+            } catch (Throwable error) {
+                android.util.Log.w("MapCleanEmbedded", "settings connection unavailable", error);
+                finish();
+                return;
+            }
+        }
         dark = isDarkMode();
         // 深浅两套框架主题：对话框（AlertDialog）会跟随 Activity 主题，省掉自建 styles.xml
         setTheme(dark ? android.R.style.Theme_Material_NoActionBar
@@ -133,12 +153,16 @@ public final class MainActivity extends Activity {
         plp.topMargin = dp(180);        // 先给个近似值，量到顶部真实高度后再校正
         page.addView(pager, plp);
 
-        pager.addView(buildBaiduPage());   // 页 0
-        pager.addView(buildAmapPage());    // 页 1
-        pager.addView(buildOtherPage());   // 页 2
-
-        addTab("百度地图");
-        addTab("高德地图");
+        if (embedded()) {
+            pager.addView(embeddedAmap() ? buildAmapPage() : buildBaiduPage());
+            addTab(embeddedAmap() ? "高德地图" : "百度地图");
+        } else {
+            pager.addView(buildBaiduPage());
+            pager.addView(buildAmapPage());
+            addTab("百度地图");
+            addTab("高德地图");
+        }
+        pager.addView(buildOtherPage());
         addTab("其他");
         selectTab(0);
 
@@ -189,6 +213,13 @@ public final class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         statusHandler.removeCallbacks(statusRefresher);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config);
+        // Host placeholders may handle uiMode themselves; rebuild our own theme when it changes.
+        if (isDarkMode() != dark) recreate();
     }
 
     private boolean isDarkMode() {
@@ -341,12 +372,13 @@ public final class MainActivity extends Activity {
 
     /** 最佳适配：模块 hook 点验证过的目标版本 vs 本机实际版本 */
     private String adaptSummary() {
-        StringBuilder sb = new StringBuilder("最佳适配：");
+        StringBuilder sb = new StringBuilder("已验证版本：");
         for (int i = 0; i < Version.TARGETS.length; i++) {
             String pkg = Version.TARGETS[i][0];
+            if (embedded() && !embeddedHost.equals(pkg)) continue;
             String label = Version.TARGETS[i][1];
             String want = Version.TARGETS[i][2];
-            if (i > 0) sb.append("　");
+            if (sb.length() > "已验证版本：".length()) sb.append("　");
             sb.append(label).append(' ').append(want);
             String inst = installedVersion(pkg);
             if (inst == null) {
@@ -354,7 +386,7 @@ public final class MainActivity extends Activity {
             } else if (inst.equals(want) || inst.startsWith(want)) {
                 sb.append("（本机 ").append(inst).append(" ✔）");
             } else {
-                sb.append("（本机 ").append(inst).append(" ✘）");
+                sb.append("（本机 ").append(inst).append("，逐项检测兼容）");
             }
         }
         return sb.toString();
@@ -516,7 +548,7 @@ public final class MainActivity extends Activity {
         TextView head = text("高德 · 精确协议适配", 13, Typeface.BOLD, cAccent());
         head.setPadding(dp(4), dp(10), 0, dp(4));
         card.addView(head);
-        addNoteRow(card, "高德 17.00.0.2005：开屏入口、工具列表、首页分页数据和我的页数据均使用固定方法签名。其他高德版本保留原界面，避免错误挂钩。");
+        addNoteRow(card, "按功能检测原生入口，不因版本号变化停用整个模块。入口不兼容时仅跳过该项；其余功能继续生效。");
         addNoteRow(card, "高德已移除运行时 dex 检索、文本扫描与坐标重排。下方 SDK 清单用于百度、腾讯地图的原有兼容功能。");
         sdkRow = addActionButton(card, sdkSummary(), new Runnable() {
             @Override public void run() { showLearnedSdks(); }
@@ -597,9 +629,28 @@ public final class MainActivity extends Activity {
         sec = newDrawer("高德 · 主页标签栏");
         for (String tab : Config.TABS) addSwitch(sec.card, "显示标签「" + tab + "」", Config.K_TAB_PREFIX + tab);
 
+        sec = newDrawer("高德 · 地图标注");
+        addNoteRow(sec.card, "统一控制酒店、景点、门店等兴趣点的图标和名称。道路、街道、城市及地图地名保留。修改后彻底关闭并重新打开高德生效。");
+        addSwitch(sec.card, "显示地图兴趣点图标和名称", Config.K_MAP_POI);
+
         sec = newDrawer("高德 · 首页工具宫格");
         addNoteRow(sec.card, "按固定工具 ID 控制显示。关闭全部首页推荐时采用原生工具数据构建等宽宫格，自动补位；图标与点击动作同步保留。");
-        for (String tool : Config.TOOLS) addSwitch(sec.card, "显示「" + tool + "」", Config.K_TOOL_PREFIX + tool);
+        addSwitch(sec.card, "显示首页工具宫格", Config.K_TOOLS_VISIBLE);
+        addSwitch(sec.card, "反转开关：仅显示已打开的工具", Config.K_TOOLS_ALLOWLIST);
+        addNoteRow(sec.card, "开启反转后，只保留你明确打开的工具；未设置、新增和未知工具全部隐藏。关闭反转可恢复原有默认值。修改后重开高德生效。");
+        addNoteRow(sec.card, "以下目录取自高德「更多工具」，按出行、服务等分类。开启的工具会补入首页；新增推广工具默认关闭。同名工具按 ID 分别控制。");
+        addSwitch(sec.card, "显示「更多工具」", Config.K_TOOL_PREFIX + "更多工具");
+        addSwitch(sec.card, "显示「高德出行节」", Config.K_TOOL_PREFIX + "高德出行节");
+        for (String group : io.github.ldxm666.mapadkiller.AmapToolCatalog.GROUPS) {
+            sec = newDrawer("高德 · 工具：" + group);
+            for (String[] tool : io.github.ldxm666.mapadkiller.AmapToolCatalog.ENTRIES) {
+                if (!group.equals(tool[2])) continue;
+                String name = tool[1];
+                if ("145".equals(tool[0])) name += "（高德入口）";
+                if ("502".equals(tool[0])) name += "（支付宝入口）";
+                addSwitch(sec.card, "显示「" + name + "」", io.github.ldxm666.mapadkiller.AmapToolCatalog.key(tool[0]));
+            }
+        }
 
         sec = newDrawer("高德 · 首页推荐内容");
         addSwitch(sec.card, "扫街榜 / 周边精选榜单（首页及分页）", Config.K_FEED_BOARD);
@@ -617,6 +668,10 @@ public final class MainActivity extends Activity {
                 Config.K_RIDE_CARD_OFF);
         addNoteRow(sec.card, "拦截首页 taxiQS 和 taxiQSMarket 数据卡。关闭全部推荐、天气和常去地点时，首页不创建推荐画布，避免刷新回弹及留白。修改后重开高德生效。");
         addNoteRow(sec.card, "适配高德 17.00.0.2005。旧版按文字区分的景区帖、距离帖等开关已合并为榜单和内容流。尚无精确入口的频道栏、快捷入口排不再提供开关。");
+
+        sec = newDrawer("高德 · 地点详情");
+        addSwitch(sec.card, "显示「发现好去处」照片推荐", Config.K_PLACE_RECOMMEND);
+        addNoteRow(sec.card, "关闭后移除长按选点详情里的推荐标题和照片信息流，刷新和分页同样生效。保留地址、逛逛周边工具、收藏、分享、新增和路线按钮。重新打开地点详情生效。");
 
         sec = newDrawer("高德 · 「我的」页");
         addSwitch(sec.card, "订单 / 收藏 / 待评价 一栏", Config.K_MY_ORDER_ROW);
@@ -718,18 +773,26 @@ public final class MainActivity extends Activity {
         list = mount;
         try {
             Sec sec = newDrawer("入口与调试");
-            addLocalSwitch(sec.card, "隐藏桌面图标", App.K_HIDE_ICON);
-            addNoteRow(sec.card, "隐藏后桌面图标消失；LSPosed 管理器里的「打开」入口不受影响（v1.1.0 起），"
-                    + "快捷设置磁贴与 adb 命令也始终可用。");
-            addNoteRow(sec.card, "高德工具列表隐藏后自动补位；旧版实验性坐标重排已移除。");
-            addSwitch(sec.card, "调试日志（LSPosed 输出协议适配错误）", Config.K_DEBUG_LOG);
+            if (embedded()) {
+                addNoteRow(sec.card, "当前整合版设置仅控制本地图，配置保存在本地图的嵌入式模块服务中。修改后彻底退出并重开地图生效。");
+                addNoteRow(sec.card, "返回可继续使用地图。更新整合版时，请下载对应地图的新版安装包。");
+                if (embeddedAmap()) addSwitch(sec.card, "调试日志", Config.K_DEBUG_LOG);
+                else addNoteRow(sec.card, "调试日志开关位于百度地图页的「诊断」分组。");
+            } else {
+                addLocalSwitch(sec.card, "隐藏桌面图标", App.K_HIDE_ICON);
+                addNoteRow(sec.card, "隐藏后桌面图标消失；LSPosed 管理器里的「打开」入口不受影响（v1.1.0 起），"
+                        + "快捷设置磁贴与 adb 命令也始终可用。");
+                addNoteRow(sec.card, "高德工具列表隐藏后自动补位；旧版实验性坐标重排已移除。");
+                addSwitch(sec.card, "调试日志（框架输出协议适配错误）", Config.K_DEBUG_LOG);
+            }
             toggle(sec);
             Sec sec2 = newDrawer("去广告说明");
             addNoteRow(sec2.card, "高德使用版本专用协议适配；推荐内容由高德页的开关控制。百度、腾讯保留原有广告兼容规则和 SDK 清单。");
         } finally {
             list = old;
         }
-        addVersionFooter(root, "MapClean v2.0.0 = BMapClean（百度界面精简）+ MapAdKiller（三家去广告）");
+        addVersionFooter(root, embedded() ? "MapAdKiller v" + Version.NAME + " · 免 root 整合版"
+                : "MapAdKiller v" + Version.NAME + " · 高德 / 百度地图精简");
         return sv;
     }
 
@@ -911,48 +974,51 @@ public final class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- 状态区
 
-    /**
-     * 状态区：两个点各代表一件独立的事，绿=好，红=坏。
-     *  1) 配置通道是否连上 LSPosed 服务 —— App.svc() != null
-     *  2) 作用域是否勾选地图应用 —— 直接问 LSPosed 服务要已勾选的包名列表
-     */
+    /** Render a cached public-service snapshot; framework IPC stays off the UI thread. */
     private void renderStatus() {
         if (statusView == null) return;
-        io.github.libxposed.service.XposedService s = App.svc();
-        boolean active = s != null;
+        FrameworkStatus.Snapshot state = io.github.ldxm666.mapclean.App.frameworkStatus();
+        boolean connected = state.connected;
 
         String[] targets = {MainHook.PKG_AMAP, MainHook.PKG_BMAP, MainHook.PKG_TMAP};
         String[] labels = {"高德", "百度", "腾讯"};
+        if (embedded()) {
+            targets = new String[]{embeddedHost};
+            labels = new String[]{embeddedAmap() ? "高德" : "百度"};
+        }
         int scoped = 0;
         StringBuilder picked = new StringBuilder();
-        try {
-            java.util.List<String> scope = active ? s.getScope() : null;
-            if (scope != null) {
-                for (int i = 0; i < targets.length; i++) {
-                    if (scope.contains(targets[i])) {
-                        scoped++;
-                        if (picked.length() > 0) picked.append(" / ");
-                        picked.append(labels[i]);
-                    }
+        if (state.scopeKnown) {
+            for (int i = 0; i < targets.length; i++) {
+                if (state.scope.contains(targets[i])) {
+                    scoped++;
+                    if (picked.length() > 0) picked.append(" / ");
+                    picked.append(labels[i]);
                 }
             }
-        } catch (Throwable ignored) {}
+        }
         boolean scopeOk = scoped > 0;
 
-        String l1 = active
-                ? "已激活 · " + s.getFrameworkName() + " " + s.getFrameworkVersion()
-                : "未激活 · 请在 LSPosed 中启用本模块";
+        String l1 = connected
+                ? (state.loaded ? "已连接 · " + state.frameworkLabel() : "已连接 · 正在读取框架信息…")
+                : "正在连接框架服务 · 请确认已启用模块";
+        if (connected && state.apiVersion > 0 && state.apiVersion < 102) {
+            l1 += "（需要 API 102+）";
+        }
         String l2;
-        if (!active) l2 = "作用域未知 · 正在等待 LSPosed 服务…";
-        else if (scopeOk) l2 = "作用域已勾选 · " + picked + "（" + scoped + "/3）";
-        else l2 = "作用域未勾选 · 请在 LSPosed 里勾选地图应用";
+        if (!connected) l2 = "连接后读取地图作用域";
+        else if (!state.loaded) l2 = "正在读取地图作用域…";
+        else if (!state.scopeKnown) l2 = "作用域读取失败 · 请在框架管理器确认，稍后重试";
+        else if (scopeOk) l2 = "作用域已勾选 · " + picked + "（" + scoped + "/" + targets.length + "）";
+        else l2 = "作用域未包含地图 · 请在框架管理器勾选地图应用";
 
         String plain = "●  " + l1 + "\n●  " + l2;
         android.text.SpannableString ss = new android.text.SpannableString(plain);
         int second = plain.indexOf('\n') + 1;
-        ss.setSpan(new android.text.style.ForegroundColorSpan(active ? cDotOk() : cDotBad()),
+        ss.setSpan(new android.text.style.ForegroundColorSpan(connected ? cDotOk() : cTxS()),
                 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        ss.setSpan(new android.text.style.ForegroundColorSpan(scopeOk ? cDotOk() : cDotBad()),
+        int scopeColor = !state.scopeKnown ? cTxS() : (scopeOk ? cDotOk() : cDotBad());
+        ss.setSpan(new android.text.style.ForegroundColorSpan(scopeColor),
                 second, second + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         statusView.setText(ss);
     }
@@ -962,6 +1028,7 @@ public final class MainActivity extends Activity {
 
     private final Runnable statusRefresher = new Runnable() {
         @Override public void run() {
+            io.github.ldxm666.mapclean.App.refreshFrameworkStatus();
             renderStatus();
             // 服务是异步绑定的：绑定前 readState() 只能回退默认 true，
             // 若此时就把开关画成"开"，用户重开设置页会以为配置全丢了。
@@ -985,7 +1052,7 @@ public final class MainActivity extends Activity {
                     s.getRemotePreferences(Config.PREF_GROUP);
             for (Map.Entry<String, Switch> e : switches.entrySet()) {
                 Switch sw = e.getValue();
-                sw.setChecked(p.getBoolean(e.getKey(), Config.defaultVisible(e.getKey())));
+                sw.setChecked(Config.readVisible(p, e.getKey()));
                 sw.setEnabled(true);
                 sw.setAlpha(1f);
             }
@@ -1087,9 +1154,9 @@ public final class MainActivity extends Activity {
     private static final String CFG_FILE = "MapAdKiller_config.json";
 
     private void showConfigManager() {
-        boolean hasSnap = !readSnapshot().isEmpty();
+        boolean hasSnap = readSnapshot() != null;
         glassDialog("配置管理",
-                "保存配置：把当前所有开关快照存到本地\n" +
+                "保存配置：把高德、百度及桌面图标设置存到本地\n" +
                 "恢复配置：回到上次保存的快照\n" +
                 "导出 / 导入：通过分享或粘贴迁移到其它设备" + (hasSnap ? "\n\n已有本地快照" : "\n\n尚未保存过快照"),
                 "保存配置", new Runnable() {
@@ -1120,86 +1187,114 @@ public final class MainActivity extends Activity {
                 },
                 "恢复默认", new Runnable() {
                     @Override public void run() {
-                        glassDialog("恢复默认？", "清空全部配置键（全部显示），强停地图 App 后生效。",
+                        glassDialog("恢复默认？", "恢复" + settingsTargetLabel() + "的默认开关，强停地图 App 后生效。",
                                 "恢复默认", new Runnable() {
                                     @Override public void run() {
-                                        if (App.clearAll()) {
-                                            Toast.makeText(MainActivity.this, "已恢复默认", Toast.LENGTH_LONG).show();
-                                            recreate();
-                                        } else {
-                                            Toast.makeText(MainActivity.this, "LSPosed 服务未连接", Toast.LENGTH_SHORT).show();
-                                        }
+                                        resetConfig();
                                     }
                                 }, null, null, "取消", null);
                     }
                 });
     }
 
-    /** 当前全部开关 → JSONObject（只收 UI 登记过的键） */
-    private JSONObject collectConfig() {
-        JSONObject o = new JSONObject();
-        try {
-            io.github.libxposed.service.XposedService s = App.svc();
-            android.content.SharedPreferences p = s == null ? null
-                    : s.getRemotePreferences(Config.PREF_GROUP);
-            for (Map.Entry<String, Switch> e : switches.entrySet()) {
-                boolean v = p != null
-                        ? p.getBoolean(e.getKey(), Config.defaultVisible(e.getKey()))
-                        : e.getValue().isChecked();
-                o.put(e.getKey(), v);
+    private Map<String, java.util.Set<String>> configSchema() {
+        Map<String, java.util.Set<String>> schema = new LinkedHashMap<>();
+        java.util.Set<String> amap = new java.util.LinkedHashSet<>(switches.keySet());
+        amap.add(ConfigBackup.LEARNED);
+        if (!embedded() || embeddedAmap()) schema.put(ConfigBackup.AMAP, amap);
+        if (!embedded() || !embeddedAmap()) schema.put(ConfigBackup.BAIDU, new java.util.LinkedHashSet<>(bmapSwitches.keySet()));
+        if (!embedded()) schema.put(ConfigBackup.UI, new java.util.LinkedHashSet<>(java.util.Arrays.asList(App.K_HIDE_ICON)));
+        return schema;
+    }
+
+    private ConfigBackup.Store configStore() {
+        final io.github.libxposed.service.XposedService service = App.svc();
+        if (service == null) throw new IllegalStateException("框架服务未连接，请稍后重试");
+        return new ConfigBackup.Store() {
+            private android.content.SharedPreferences prefs(String group) {
+                return ConfigBackup.UI.equals(group) ? uiPrefs()
+                    : service.getRemotePreferences(group);
             }
-            o.put("_app", getPackageName());
-            o.put("_ver", 1);
-        } catch (Throwable ignored) {}
-        return o;
+            @Override public Map<String, ?> read(String group) { return prefs(group).getAll(); }
+            @Override public boolean write(String group, Map<String, Object> values) {
+                android.content.SharedPreferences.Editor editor = prefs(group).edit();
+                for (Map.Entry<String, Object> entry : values.entrySet()) {
+                    Object value = entry.getValue();
+                    if (value == null) editor.remove(entry.getKey());
+                    else if (value instanceof Boolean) editor.putBoolean(entry.getKey(), (Boolean) value);
+                    else if (value instanceof java.util.Set) editor.putStringSet(entry.getKey(), new java.util.LinkedHashSet<String>((java.util.Set<String>) value));
+                    else throw new IllegalArgumentException("配置类型错误");
+                }
+                return editor.commit();
+            }
+        };
+    }
+
+    private JSONObject collectConfig() throws Exception {
+        return ConfigBackup.encode(configStore(), configSchema(), getPackageName());
     }
 
     private void saveSnapshot() {
         try {
             String json = collectConfig().toString();
-            getSharedPreferences(App.UI_PREFS, MODE_PRIVATE).edit()
-                    .putString(CFG_SNAPSHOT, json).commit();
+            if (!uiPrefs().edit()
+                    .putString(CFG_SNAPSHOT, json).commit()) throw new IllegalStateException("本地快照写入失败");
             Toast.makeText(this, "配置已保存", Toast.LENGTH_SHORT).show();
         } catch (Throwable t) {
-            Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "保存失败：" + t.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
-    private java.util.Map<String, Boolean> readSnapshot() {
-        java.util.Map<String, Boolean> m = new LinkedHashMap<>();
+    private JSONObject readSnapshot() {
         try {
-            String j = getSharedPreferences(App.UI_PREFS, MODE_PRIVATE)
+            String j = uiPrefs()
                     .getString(CFG_SNAPSHOT, null);
             if (j != null) {
                 JSONObject o = new JSONObject(j);
-                java.util.Iterator<String> it = o.keys();
-                while (it.hasNext()) {
-                    String k = it.next();
-                    if (k.startsWith("_")) continue;
-                    m.put(k, o.optBoolean(k, true));
-                }
+                ConfigBackup.decode(o, configSchema());
+                return o;
             }
         } catch (Throwable ignored) {}
-        return m;
+        return null;
     }
 
-    private void applyConfigMap(java.util.Map<String, Boolean> m) {
-        int n = 0;
-        for (Map.Entry<String, Boolean> e : m.entrySet()) {
-            if (App.writeBoolean(e.getKey(), e.getValue())) n++;
+    private void applyConfig(JSONObject backup) {
+        try {
+            Map<String, Map<String, Object>> groups = ConfigBackup.decode(backup, configSchema());
+            int count = ConfigBackup.apply(configStore(), groups);
+            if (!embedded() && groups.containsKey(ConfigBackup.UI) && !App.setHideIcon(this, App.hideIcon(this)))
+                throw new IllegalStateException("开关已恢复，桌面图标更新失败，请重新切换图标开关");
+            String scope = embedded() ? settingsTargetLabel()
+                    : (groups.containsKey(ConfigBackup.BAIDU) ? "高德和百度" : "高德");
+            Toast.makeText(this, "已恢复" + scope + " " + count + " 项，重开地图后生效", Toast.LENGTH_LONG).show();
+            recreate();
+        } catch (Exception error) {
+            Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
         }
-        Toast.makeText(this, n > 0 ? "已写入 " + n + " 项，强停地图 App 后生效"
-                                   : "LSPosed 服务未连接，写入失败", Toast.LENGTH_LONG).show();
-        if (n > 0) recreate();
+    }
+
+    private void resetConfig() {
+        try {
+            Map<String, Map<String, Object>> groups = new LinkedHashMap<>();
+            for (Map.Entry<String, java.util.Set<String>> entry : configSchema().entrySet()) {
+                if (ConfigBackup.UI.equals(entry.getKey())) continue;
+                Map<String, Object> values = new LinkedHashMap<>();
+                for (String key : entry.getValue()) values.put(key, null);
+                groups.put(entry.getKey(), values);
+            }
+            ConfigBackup.apply(configStore(), groups);
+            Toast.makeText(this, settingsTargetLabel() + "已恢复默认，重开地图后生效", Toast.LENGTH_LONG).show();
+            recreate();
+        } catch (Exception error) { Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show(); }
     }
 
     private void restoreSnapshot() {
-        java.util.Map<String, Boolean> m = readSnapshot();
-        if (m.isEmpty()) {
+        JSONObject backup = readSnapshot();
+        if (backup == null) {
             Toast.makeText(this, "没有可用快照", Toast.LENGTH_SHORT).show();
             return;
         }
-        applyConfigMap(m);
+        applyConfig(backup);
     }
 
     private void exportConfig() {
@@ -1212,7 +1307,7 @@ public final class MainActivity extends Activity {
             send.putExtra(Intent.EXTRA_TITLE, CFG_FILE);
             startActivity(Intent.createChooser(send, "导出配置"));
         } catch (Throwable t) {
-            Toast.makeText(this, "导出失败", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "导出失败：" + t.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -1284,22 +1379,7 @@ public final class MainActivity extends Activity {
 
     private void doImport(String text) {
         try {
-            JSONObject o = new JSONObject(text);
-            java.util.Map<String, Boolean> m = new LinkedHashMap<>();
-            java.util.Iterator<String> it = o.keys();
-            int n = 0;
-            while (it.hasNext()) {
-                String k = it.next();
-                if (k.startsWith("_")) continue;
-                if (!switches.containsKey(k)) continue;   // 未知键忽略
-                m.put(k, o.optBoolean(k, Config.defaultVisible(k)));
-                n++;
-            }
-            if (n == 0) {
-                Toast.makeText(this, "没有可识别的配置项", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            applyConfigMap(m);
+            applyConfig(new JSONObject(text));
         } catch (Throwable t) {
             Toast.makeText(this, "JSON 解析失败", Toast.LENGTH_SHORT).show();
         }
@@ -1409,6 +1489,7 @@ public final class MainActivity extends Activity {
                 boolean next = !sw.isChecked();
                 if (App.writeBoolean(key, next)) {
                     sw.setChecked(next);
+                    if (Config.K_TOOLS_ALLOWLIST.equals(key)) syncSwitches();
                 } else {
                     Toast.makeText(MainActivity.this, "LSPosed 服务未连接，请稍后重试", Toast.LENGTH_SHORT).show();
                 }
@@ -1465,6 +1546,7 @@ public final class MainActivity extends Activity {
     }
 
     private void applyHide(boolean hide, Switch sw) {
+        if (embedded()) return;
         boolean ok = App.setHideIcon(MainActivity.this, hide);
         sw.setChecked(hide);
         Toast.makeText(MainActivity.this,
@@ -1478,7 +1560,7 @@ public final class MainActivity extends Activity {
         boolean def = Config.defaultVisible(key);
         try {
             io.github.libxposed.service.XposedService s = App.svc();
-            if (s != null) return s.getRemotePreferences(Config.PREF_GROUP).getBoolean(key, def);
+            if (s != null) return Config.readVisible(s.getRemotePreferences(Config.PREF_GROUP), key);
         } catch (Throwable ignored) {}
         return def;
     }

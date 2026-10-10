@@ -144,7 +144,9 @@ public final class UpdateChecker {
     // ── 内部实现 ────────────────────────────────────────────────────────
 
     private static SharedPreferences prefs(Context c) {
-        return c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        // Always compare Version.NAME (the embedded module), never the host map's PackageInfo.
+        return c.getSharedPreferences(EmbeddedSettingsPolicy.isHostPackage(c.getPackageName())
+                ? EmbeddedSettingsPolicy.UI_PREFS : PREF, Context.MODE_PRIVATE);
     }
 
     private static String shortUrl(String u) {

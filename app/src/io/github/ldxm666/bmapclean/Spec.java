@@ -34,6 +34,8 @@ public final class Spec {
     public static final String K_WX_MAP = "wx_map";
     /** 底部行程/天气卡（Talos 渲染） */
     public static final String K_WX_CARD = "wx_card";
+    public static final String K_AI_NOW = "ai_now_card";
+    public static final String K_MAP_POI = "map_poi";
 
     // ── 推荐信息流（展开态：频道栏 + 优质内容精选 + 推荐卡片，全部由 Talos 渲染） ──
     /** 整块推荐信息流 = component_container6 */
@@ -85,7 +87,7 @@ public final class Spec {
      *     —— 用户要的就是它们消失，其余区块默认保持原样。
      */
     public static boolean defaultVisible(String key) {
-        if (K_MINE_OPS.equals(key) || K_MINE_AD.equals(key)) return false;
+        if (K_MINE_OPS.equals(key) || K_MINE_AD.equals(key) || K_AI_NOW.equals(key) || K_MAP_POI.equals(key)) return false;
         return true;
     }
 
@@ -142,6 +144,7 @@ public final class Spec {
     public static final int CAT_DIAG = 4;
     public static final int CAT_FEED = 5;
     public static final int CAT_MINE = 6;
+    public static final int CAT_MAP = 7;
 
     /** 频道栏文案锚点（需同一容器内同时命中 ≥2 个才算频道栏，避免误伤卡片文案） */
     public static final String[] CHIP_ANCHORS = {"推荐", "看世界", "成都市"};
@@ -239,7 +242,8 @@ public final class Spec {
             new Cat(CAT_HC,"回家 / 去公司","单独控制通勤地址入口。",new Row[]{
                 new Row(K_HC,"显示通勤地址栏",null,true),new Row(K_HC_HOME,"回家",null,false),new Row(K_HC_COMPANY,"去公司",null,false),new Row(K_HC_SETTING,"去设置",null,false)}),
             new Cat(CAT_WX,"天气 / 行程栏","地图天气和首页卡片分别控制。",new Row[]{
-                new Row(K_WEATHER,"显示天气 / 行程栏",null,true),new Row(K_WX_MAP,"地图天气条",null,false),new Row(K_WX_CARD,"底部行程 / 天气卡",null,false)}),
+                new Row(K_WEATHER,"显示天气 / 行程栏",null,true),new Row(K_WX_MAP,"地图天气条",null,false),new Row(K_WX_CARD,"底部行程 / 天气卡",null,false),
+                new Row(K_AI_NOW,"AI此刻 / 首页主提示卡","包含 AI 天气和行程主提示；默认关闭，重开百度生效。",false)}),
             new Cat(CAT_FEED,"推荐信息流","独立控制频道入口和推荐内容。",new Row[]{
                 new Row(K_FEED,"显示推荐信息流",null,true),new Row(K_FEED_CHIPS,"频道栏",null,false),new Row(K_FEED_QUALITY,"推荐内容",null,false)}),
             new Cat(CAT_MINE,"「我的」页","逐卡过滤；运营卡与导航车标各自控制。",new Row[]{
@@ -248,6 +252,7 @@ public final class Spec {
                 new Row(K_MINE_AD,"热门活动 / 资源位",null,false),new Row(K_MINE_VOICE,"热门语音",null,false),
                 new Row(K_MINE_CAR,"我的车",null,false),new Row(K_MINE_CARNAV,"导航车标（区块）",null,false),
                 new Row(K_MINE_BUILD,"全民共建 / 反馈中心",null,false),new Row(K_MINE_SPORT,"百度运动",null,false),new Row(K_MINE_GRID,"顶部图标宫格",null,false)}),
+            new Cat(CAT_MAP,"地图标注","统一关闭兴趣点图标和店名，保留地名、街道和城市名称。修改后彻底关闭并重新打开百度生效。",BaiduLabelSettings.rows()),
             new Cat(CAT_DIAG,"诊断","百度 22.0.0 版本适配；改动后重启百度生效。",new Row[]{new Row(Cfg.K_DEBUG,"调试日志",null,false)})
         };return CATS;
     }
@@ -282,7 +287,7 @@ public final class Spec {
         if(key.startsWith(K_TAB)&&!r.visible(K_BAR))return false;
         if(key.startsWith(K_TOOL)&&!r.visible(K_TOOLS))return false;
         if((K_HC_HOME.equals(key)||K_HC_COMPANY.equals(key)||K_HC_SETTING.equals(key))&&!r.visible(K_HC))return false;
-        if((K_WX_MAP.equals(key)||K_WX_CARD.equals(key))&&!r.visible(K_WEATHER))return false;
+        if((K_WX_MAP.equals(key)||K_WX_CARD.equals(key)||K_AI_NOW.equals(key))&&!r.visible(K_WEATHER))return false;
         if((K_FEED_CHIPS.equals(key)||K_FEED_QUALITY.equals(key))&&!r.visible(K_FEED))return false;
         if(key.startsWith("mine_")&&!K_MINE_APPLY.equals(key)&&!r.visible(K_MINE_APPLY))return true;
         if((K_TAB+TABS[0]).equals(key))return true;

@@ -207,6 +207,7 @@ public final class App extends Application implements XposedServiceHelper.OnServ
     public void onServiceBind(XposedService s) {
         service = s;
         android.util.Log.i(TAG, "onServiceBind ok");
+        migrateMapLabels(s);
         ensureToken();
         notifyReport();
     }
@@ -224,6 +225,7 @@ public final class App extends Application implements XposedServiceHelper.OnServ
 
     public static void onBind(XposedService s) {
         service = s;
+        migrateMapLabels(s);
         ensureToken();
         notifyReport();
     }
@@ -231,5 +233,18 @@ public final class App extends Application implements XposedServiceHelper.OnServ
     public static void onDied(XposedService s) {
         if (service == s) service = null;
         notifyReport();
+    }
+
+    /** Replace the retired category UI once; subsequent imports keep their own value. */
+    private static void migrateMapLabels(XposedService s) {
+        try {
+            android.content.SharedPreferences p = s.getRemotePreferences(Cfg.GROUP);
+            if (p.getInt("_map_label_schema", 0) >= 212) return;
+            android.content.SharedPreferences.Editor edit = p.edit();
+            for (String key : p.getAll().keySet()) if (key.startsWith("map_label_")) edit.remove(key);
+            edit.putBoolean(Spec.K_MAP_POI, false).putInt("_map_label_schema", 212).commit();
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "map label migration failed: " + t.getClass().getSimpleName());
+        }
     }
 }

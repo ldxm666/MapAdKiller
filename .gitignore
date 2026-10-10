@@ -9,9 +9,17 @@ lsposed/mc.db*
 shots/
 work/
 
-# keystore exception: debug key is intentionally committed for reproducible module updates
-!app/debug.keystore
+# Signing keys stay local; source archives generate a fresh development key.
+*.keystore
+*.jks
+*.p12
 
 # editor
 .vscode/
 .idea/
+
+# Rootless map APKs and downloaded patcher binaries remain local.
+/output/nonroot-*/
+/output/.build-tools/
+__pycache__/
+*.pyc

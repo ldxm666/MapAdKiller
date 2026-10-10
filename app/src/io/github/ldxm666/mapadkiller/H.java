@@ -135,6 +135,12 @@ public final class H {
             if (mod == null) return false;
             final XposedInterface.Hooker inner = hooker;
             final String hid = id;
+            final io.github.ldxm666.mapclean.HookGuard guarded = new io.github.ldxm666.mapclean.HookGuard(id, inner,
+                    new io.github.ldxm666.mapclean.HookGuard.Reporter() {
+                        public void disabled(String name, Throwable error) {
+                            log(Log.WARN, MainHook.TAG, "event=hook_disabled id=" + name + " reason=" + error.getClass().getSimpleName());
+                        }
+                    });
             // 首火日志包装：每个 Hook 首次触发记一条 HIT，便于诊断"装了没触发"类问题
             mod.hook(m)
                .setId(id)
@@ -146,7 +152,7 @@ public final class H {
                            hitLogged = true;
                            log(Log.INFO, MainHook.TAG, "HIT " + hid);
                        }
-                       return inner.intercept(chain);
+                       return guarded.intercept(chain);
                    }
                });
             return true;

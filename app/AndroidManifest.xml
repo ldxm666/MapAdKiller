@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.ldxm666.mapadkiller"
-    android:versionCode="210"
-    android:versionName="2.1.0-beta1">
+    android:versionCode="212"
+    android:versionName="2.1.2">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
 
@@ -19,6 +19,7 @@
 
     <application
         android:name="io.github.ldxm666.mapclean.App"
+        android:extractNativeLibs="false"
         android:label="MapAdKiller"
         android:description="@string/description"
         android:icon="@drawable/ic_launcher"

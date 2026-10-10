@@ -68,6 +68,12 @@ public final class H {
             }
             final XposedInterface.Hooker inner = hk;
             final String hid = id;
+            final io.github.ldxm666.mapclean.HookGuard guarded = new io.github.ldxm666.mapclean.HookGuard(id, inner,
+                    new io.github.ldxm666.mapclean.HookGuard.Reporter() {
+                        public void disabled(String name, Throwable error) {
+                            log(Log.WARN, MainHook.TAG, "event=hook_disabled id=" + name + " reason=" + error.getClass().getSimpleName());
+                        }
+                    });
             mod.hook(m)
                .setId(id)
                .setExceptionMode(XposedInterface.ExceptionMode.DEFAULT)
@@ -78,7 +84,7 @@ public final class H {
                            first = false;
                            log(Log.INFO, MainHook.TAG, "HIT " + hid);
                        }
-                       return inner.intercept(chain);
+                       return guarded.intercept(chain);
                    }
                });
             ok.incrementAndGet();

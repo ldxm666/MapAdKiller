@@ -22,16 +22,9 @@ public final class AmapProtocolHooks {
     private AmapProtocolHooks() {}
 
     public static boolean compatible(ClassLoader cl) {
-        try {
-            Class<?> thread = cl.loadClass("android.app.ActivityThread");
-            Method current = thread.getDeclaredMethod("currentActivityThread"); current.setAccessible(true);
-            Method context = thread.getDeclaredMethod("getSystemContext"); context.setAccessible(true);
-            Context c = (Context) context.invoke(current.invoke(null));
-            PackageInfo p = c.getPackageManager().getPackageInfo(MainHook.PKG_AMAP, 0);
-            boolean ok = "17.00.0.2005".equals(p.versionName) && p.versionCode == 170000;
-            H.log("amap_adapter version=" + p.versionName + " enabled=" + ok);
-            return ok;
-        } catch (Throwable t) { H.log("amap_adapter disabled: cannot verify target version " + t.getClass().getSimpleName()); return false; }
+        PackageInfo p = io.github.ldxm666.mapclean.Compatibility.packageInfo(cl, MainHook.PKG_AMAP);
+        H.log("amap_adapter version=" + (p == null ? "unknown" : p.versionName) + " mode=capabilities");
+        return true;
     }
 
     public static void install(final ClassLoader cl) {

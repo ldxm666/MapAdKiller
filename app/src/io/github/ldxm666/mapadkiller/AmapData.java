@@ -7,15 +7,20 @@ import org.json.JSONObject;
 
 /** Version 17 protocol adapter: fixed paths and stable identifiers, never display text. */
 public final class AmapData {
-    public interface Settings { boolean enabled(String key); }
+    public interface Settings {
+        boolean enabled(String key);
+        default boolean selected(String key) { return enabled(key); }
+    }
     public static final Settings CURRENT = new Settings() {
         @Override public boolean enabled(String key) { return Config.visible(key); }
+        @Override public boolean selected(String key) { return Config.selected(key); }
     };
     public static final String[][] TOOLS = {
         {"102", "驾车"}, {"103", "公交地铁"}, {"168", "租车"}, {"106", "打车"},
         {"317", "订酒店"}, {"327", "火车票"}, {"469", "顺风车"}, {"483", "高德扫街"},
         {"461", "高德出行节"}, {"362", "代驾"}, {"418", "秒送"}, {"151", "实时公交"},
-        {"380", "旅游度假"}, {"116", "车主服务"}, {"113", "景点游玩"}, {"115", "离线地图"}, {"86", "更多工具"}
+        {"380", "旅游度假"}, {"116", "车主服务"}, {"113", "景点游玩"}, {"115", "离线地图"},
+        {"104", "步行"}, {"105", "骑行"}, {"86", "更多工具"}
     };
     private static final String[] SLOT_FIELDS = {
         "id", "schema", "name", "size", "containerClass", "isLottie", "displayLottie",
@@ -26,9 +31,13 @@ public final class AmapData {
 
     public static boolean toolVisible(String id, Settings s) {
         if (!s.enabled(Config.K_TOOLS_VISIBLE)) return false;
-        for (String[] entry : TOOLS)
-            if (entry[0].equals(id)) return s.enabled(Config.K_TOOL_PREFIX + entry[1]);
-        return true;
+        boolean allowlist = s.enabled(Config.K_TOOLS_ALLOWLIST);
+        String key = AmapToolCatalog.key(id);
+        return key != null && (allowlist ? s.selected(key) : s.enabled(key));
+    }
+    public static boolean toolSelected(String id, Settings s) {
+        String key = AmapToolCatalog.key(id);
+        return key != null && s.selected(key);
     }
 
     public static String storage(String key, String raw, Settings s) throws Exception {
