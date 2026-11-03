@@ -46,6 +46,7 @@
 | **免 root 内置版（高德）** | `Amap-2.3.1-nonroot-embedded.apk` | 普通用户，手机上没装框架 | **不需要** |
 | **免 root 内置版（百度）** | `Baidu-2.3.1-nonroot-embedded.apk` | 同上，百度地图 | **不需要** |
 | **免 root 内置版（腾讯）** | `Tencent-2.3.1-nonroot-embedded.apk` | 同上，腾讯地图 | **不需要** |
+| **免 root 内置版（高德 Play 版）** | `Amap-Play-2.3.1-nonroot-embedded.zip` | 手机上是 **Google Play 版**高德（17.02.2.2014），非国内版 | **不需要** |
 | **模块版**（推荐） | `MapClean-lsp-v2.3.1.apk` | 已经在用 LSPosed / Vector 的用户 | 需要框架 |
 
 **一句话区别**：内置版把模块直接并进了地图本体，装完就是成品，代价是包体大、签名变了；模块版是一个几 MB 的小模块，靠框架注入，三个地图共用一份配置。
@@ -63,6 +64,13 @@
 
 
 ---
+
+> **高德有两个内置版，别装错**：
+> - `Amap-2.3.1-nonroot-embedded.apk` —— 对应**国内版**高德（17.02.0.1541），单个 APK 直接装。
+> - `Amap-Play-2.3.1-nonroot-embedded.zip` —— 对应 **Google Play 版**高德（17.02.2.2014），
+>   Play 版是拆分包，必须**四个文件一起装**：
+>   `adb install-multiple base.apk split_config.arm64_v8a.apk split_config.xxxhdpi.apk split_config.zh.apk`
+>   只装 `base.apk` 会失败。两者包名相同，**只能装一个**。
 
 ## 快速开始
 
