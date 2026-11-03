@@ -463,15 +463,19 @@ public final class Announce {
                 if (!ok && !networkOk && mayLog("all_failed", 6)) {
                     Log.i(TAG, "event=announce_skip reason=all_failed tried=" + urls.length);
                 }
-                // 304 是最常见的结果，也是最该安静的结果：不解析、不写盘、不打日志。
-                // 只有「拿到了新正文」或「失败了」才留一行，日志量才配得上 5 分钟的检查频率。
-                boolean quiet = ok && "hit".equals(etagHit);
-                if (!quiet && mayLog("fetch", 8)) {
-                    Log.i(TAG, "event=announce_fetch ok=" + ok
-                            + " ms=" + (System.currentTimeMillis() - started)
-                            + " etag=" + etagHit
-                            + (host.length() > 0 ? " base=" + host : "")
-                            + (reason.length() > 0 ? " reason=" + reason : ""));
+                // 304 是最常见的结果，也是最该安静的结果：不解析、不写盘。
+                // 它降到 debug：`logcat -s MapCleanAnnounce:I` 看不到（不刷屏），
+                // 需要核「到底有没有联网、是不是 304」时 `-s MapCleanAnnounce:D` 一条不少。
+                boolean hit = ok && "hit".equals(etagHit);
+                String line = "event=announce_fetch ok=" + ok
+                        + " ms=" + (System.currentTimeMillis() - started)
+                        + " etag=" + etagHit
+                        + (host.length() > 0 ? " base=" + host : "")
+                        + (reason.length() > 0 ? " reason=" + reason : "");
+                if (hit) {
+                    Log.d(TAG, line);
+                } else if (mayLog("fetch", 8)) {
+                    Log.i(TAG, line);
                 }
                 if (ok && "hit".equals(etagHit) && userAsked) {
                     // 304 = 缓存没变；用户点进来是想重看，那就给他缓存里的那条。

@@ -35,3 +35,6 @@ output/
 # 服务器密钥：绝不能入库（含公告签名密钥）
 tools/announce/secret.txt
 tools/announce/*.key
+
+# 服务端部署脚本：仅本地保留，禁止入库
+tools/announce/
