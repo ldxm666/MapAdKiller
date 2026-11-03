@@ -694,13 +694,49 @@ JAVA_JAVAC = "javac"
 JAVA_JAR = "jar"
 
 
+def resolve_original(path: Path) -> list:
+    """Expand `--OriginalApk` into the ordered APK list LSPatch should patch.
+
+    A single APK is the normal case and stays a one-element list, so every existing
+    variant invocation is byte-for-byte unchanged.
+
+    A **directory** means an App-Bundle install (Play 商店). Android 11+ keeps the split
+    APKs in the app's own data dir, so `adb pull` of that dir yields base.apk plus
+    split_config.*.apk. LSPatch's CLI takes `apks...` -- plural -- and folds the splits
+    into the base output via ApkPatcher.packSplit, producing one integrated APK. No
+    APKEditor merge step is needed, and none is wanted: merging first would re-write the
+    resource table and native libs that the split already provides correctly.
+
+    Order matters. `patchOne` reads the manifest from the first input, so base.apk must
+    come first; a split listed first would patch the wrong archive.
+    """
+    if path.is_file():
+        return [path]
+    if not path.is_dir():
+        raise ValueError(f"--OriginalApk is neither a file nor a directory: {path}")
+    apks = sorted(p for p in path.iterdir() if p.suffix.lower() == ".apk")
+    base = [p for p in apks if p.name == "base.apk"]
+    splits = [p for p in apks if p.name != "base.apk"]
+    if not base:
+        raise ValueError(f"--OriginalApk directory has no base.apk: {path}")
+    if not splits:
+        raise ValueError(f"--OriginalApk directory holds base.apk but no splits: {path}")
+    return base + splits
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--Version", default=None, help="defaults to the version in Version.java")
-    ap.add_argument("--OriginalApk", type=Path, required=True)
+    ap.add_argument("--OriginalApk", type=Path, required=True,
+                    help="host APK, or a directory holding base.apk + split_config.*.apk "
+                         "for an App-Bundle (Play 商店) install")
     ap.add_argument("--Target", choices=sorted(TARGETS), default="amap",
                     help="which map app this integrated build is for")
     ap.add_argument("--OutputDirectory", type=Path, default=None)
+    ap.add_argument("--ArtifactName", default=None,
+                    help="override the published file name; the variant's own default is "
+                         "used for the national build, a distinct name keeps the two "
+                         "variants apart when they share one version number")
     ap.add_argument("--Java", type=Path, default=Path(os.environ.get("JAVA_HOME", "")) / "bin" / "java")
     ap.add_argument("--Javac", type=Path, default=Path(os.environ.get("JAVA_HOME", "")) / "bin" / "javac")
     ap.add_argument("--Jar", type=Path, default=Path(os.environ.get("JAVA_HOME", "")) / "bin" / "jar")
@@ -728,7 +764,10 @@ def main() -> int:
 
     sdk = args.AndroidSdk.resolve(strict=True)
     build_tools = sdk_build_tools(sdk, args.BuildToolsVersion)
-    original = args.OriginalApk.resolve(strict=True)
+    original_list = resolve_original(args.OriginalApk.resolve(strict=True))
+    # base.apk carries the manifest, the versionCode and the nested original LSPatch
+    # embeds; the splits are patch inputs only. verify() therefore stays on original.
+    original = original_list[0]
     target = TARGETS[args.Target]
     out = (args.OutputDirectory or (ROOT / "output" / f"nonroot-{args.Target}")).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -737,6 +776,10 @@ def main() -> int:
     print(f"scope      : {target['package']}")
     print(f"version    : {version_name} ({version_code})")
     print(f"original   : {original.name} ({original.stat().st_size:,} B)")
+    if len(original_list) > 1:
+        total = sum(p.stat().st_size for p in original_list)
+        print(f"splits     : {len(original_list) - 1} "
+              f"({total:,} B all inputs, bundle install)")
     print(f"build-tools: {build_tools.name}\n")
 
     work = Path(tempfile.mkdtemp(prefix="mak-variant-", dir=out if args.KeepWork else None))
@@ -789,20 +832,52 @@ def main() -> int:
         # nested module APK and handed to the framework at runtime instead; see
         # NativeLabelAssets.askFramework() for the other half of that mechanism.
         print(run([args.Java, "-Xmx2g", "-jar", cli, "-o", patch_dir,
-                   "-l", str(args.SignatureBypass), "-m", slim_apk, original]).strip())
+                   "-l", str(args.SignatureBypass), "-m", slim_apk] + original_list).strip())
         produced = list(patch_dir.glob("*.apk"))
-        if len(produced) != 1:
-            raise ValueError(f"LSPatch produced {len(produced)} APKs, expected 1")
+        if len(produced) != len(original_list):
+            raise ValueError(f"LSPatch produced {len(produced)} APKs, "
+                             f"expected {len(original_list)} (one per input)")
 
         print("\n== 4/4 verify + publish ==")
-        final = out / target["artifact"].format(version=version_name)
-        shutil.copy2(produced[0], final)
-        record = verify(final, original, slim_apk, args.SignatureBypass, build_tools, args.Java, target)
+        artifact = args.ArtifactName or target["artifact"].format(version=version_name)
+        single = len(original_list) == 1
+        if single:
+            final = out / artifact
+            shutil.copy2(produced[0], final)
+        else:
+            # A Play 商店 install is an App Bundle. LSPatch patches each input on its own and
+            # keeps split form (`ApkPatcher.packSplit` writes a *patched* split, it does not
+            # fold it into the base), so the product is a set of APKs installed with
+            # `adb install-multiple`. Folding them into one archive would mean re-writing
+            # resources.arsc across splits -- that is APKEditor's job, and it is deliberately
+            # not a build dependency here: an arsc re-write that drops a configuration is
+            # invisible until the UI comes up in the wrong language or at the wrong density.
+            final = out / (artifact[:-4] if artifact.lower().endswith(".apk") else artifact)
+            if final.exists():
+                shutil.rmtree(final)
+            final.mkdir(parents=True)
+            shutil.copy2(match_produced(produced, original), final / "base.apk")
+            record = verify(final / "base.apk", original, slim_apk, args.SignatureBypass,
+                            build_tools, args.Java, target)
+            record["splits"] = []
+            for src in original_list[1:]:
+                dst = final / src.name
+                shutil.copy2(match_produced(produced, src), dst)
+                record["splits"].append(verify_split(dst, src, build_tools))
+            record["bundle"] = {
+                "install": "adb install-multiple " + " ".join(
+                    [f'"{final.name}/base.apk"']
+                    + [f'"{final.name}/{p.name}"' for p in original_list[1:]])}
+        if single:
+            record = verify(final, original, slim_apk, args.SignatureBypass,
+                            build_tools, args.Java, target)
         record["module"] = info
         record["slimPlan"] = plan
         record["hostWhitelist"] = whitelist
         record["lspatch"] = {"release": RELEASE_URL, "cliSha256": CLI_SHA256,
-                             "source": f"https://github.com/JingMatrix/LSPatch/tree/{SOURCE_COMMIT}"}
+                             "source": f"https://github.com/JingMatrix/LSPatch/tree/{SOURCE_COMMIT}",
+                             "inputs": [{"name": p.name, "sha256": sha256(p)}
+                                        for p in original_list]}
         (out / "variant-verification.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         shutil.copy2(license_file, out / license_file.name)
@@ -814,8 +889,15 @@ def main() -> int:
             encoding="utf-8")
 
         print(f"\n  {final.name}")
-        print(f"  {record['size']:,} B")
-        print(f"  sha256 {record['sha256']}")
+        if single:
+            print(f"  {record['size']:,} B")
+            print(f"  sha256 {record['sha256']}")
+        else:
+            print(f"  base.apk  {record['size']:,} B  sha256 {record['sha256']}")
+            for s in record["splits"]:
+                print(f"  {s['file']}  {s['size']:,} B  sha256 {s['sha256']}"
+                      f"  [{s['split']}]")
+            print(f"\n  {record['bundle']['install']}")
         print(f"\n  settings entry: in-app floating orb (no extra permission)")
         return 0
     finally:
@@ -896,8 +978,45 @@ def badging(apk: Path, build_tools: Path) -> dict:
     if not m:
         raise ValueError(f"cannot read manifest: {apk.name}")
     lo = re.search(r"^(?:minSdkVersion|sdkVersion):'(\d+)'", text, re.M)
+    # A split APK carries `split='config.arm64_v8a'` on the same package line; a base APK
+    # carries nothing. `install-multiple` matches splits by this exact string, so it has to
+    # survive patching unchanged.
+    pkgline = next((ln for ln in text.splitlines() if ln.startswith("package: ")), "")
+    sp = re.search(r"\bsplit='([^']*)'", pkgline)
     return {"package": m[1], "versionCode": m[2], "versionName": m[3],
-            "minSdk": int(lo[1]) if lo else None}
+            "minSdk": int(lo[1]) if lo else None,
+            "split": sp[1] if sp else ""}
+
+
+def match_produced(produced: list, source: Path) -> Path:
+    """Find the patched APK LSPatch wrote for `source`.
+
+    LSPatch names its output `<input-stem>-<build>-lspatched.apk`, keeping one output per
+    input in a bundle install. Match on the stem so the CLI's build number is not baked in.
+    """
+    hits = [p for p in produced if p.name.startswith(source.stem + "-")]
+    if len(hits) != 1:
+        names = ", ".join(p.name for p in produced) or "(none)"
+        raise ValueError(f"cannot map one patched APK to {source.name}; got {names}")
+    return hits[0]
+
+
+def verify_split(patched: Path, source: Path, build_tools: Path) -> dict:
+    """Check a patched *split* APK against the split it came from.
+
+    A split carries no ComponentFactory stub of its own -- it is resources, libs and config
+    only -- so {@link verify}'s base-APK checks do not apply. What must hold is exactly what
+    `install-multiple` enforces: same package, same versionCode, and the *same splitName* as
+    the input. A dropped splitName would install as a base and collide with the real one.
+    """
+    src, out = badging(source, build_tools), badging(patched, build_tools)
+    if not out["split"]:
+        raise ValueError(f"{patched.name}: splitName dropped -- would install as a base")
+    for f in ("package", "versionCode", "split"):
+        if out[f] != src[f]:
+            raise ValueError(f"{patched.name}: {f} {src[f]!r} -> {out[f]!r}")
+    return {"file": patched.name, "size": patched.stat().st_size,
+            "sha256": sha256(patched), "split": out["split"]}
 
 
 def verify(apk: Path, original: Path, module: Path, bypass: int,

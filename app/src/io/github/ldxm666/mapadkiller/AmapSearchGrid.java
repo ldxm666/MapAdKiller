@@ -1128,13 +1128,15 @@ public final class AmapSearchGrid {
     private static int helperLogs;
 
     private static void hookStorageHelper(final ClassLoader cl) {
-        Class<?> helper = H.cls(cl, "wm3");
+        // 混淆名会重排：国内 wm3.c，Play 17.02.2.2014 = lv3.c（候选表 AmapData.PREFS_HELPER）。
+        final String[] helperAt = new String[2];
+        Class<?> helper = H.anchor(cl, AmapData.PREFS_HELPER, helperAt);
         if (helper == null) {
-            H.log(Log.WARN, MainHook.TAG, "event=search_grid_miss what=wm3");
+            H.log(Log.WARN, MainHook.TAG, "event=search_grid_miss what=prefs_helper");
             return;
         }
         // 单键读：c(String key, String def) -> String
-        H.hookSig(helper, "c", "amap_search_grid_helper_get", new XposedInterface.Hooker() {
+        H.hookSig(helper, helperAt[1], "amap_search_grid_helper_get", new XposedInterface.Hooker() {
             @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 Object r = chain.proceed();
                 if (!(r instanceof String)) return r;

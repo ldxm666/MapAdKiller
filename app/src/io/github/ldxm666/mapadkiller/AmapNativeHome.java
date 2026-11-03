@@ -182,8 +182,15 @@ public final class AmapNativeHome {
         //   · `l95` 在 17.02 仍存在，但已被无关类占用（只剩 `public static a(String)I`），
         //     所以它作为候选只会打一条 miss，无副作用。
         // 结论：`kb5` 是第三代锚点。三代全挂，存在哪个挂哪个（hookSig 找不到就空转）。
-        for (String holder : new String[]{"kb5", "l95", "xc5"}) {
-            H.hookSig(H.cls(cl, holder), "preloadAIData", "amap_compact_preload_" + holder, new XposedInterface.Hooker() {
+        // 第四代（Play 17.02.2.2014）：`Len5;` 是 `preloadAIData()V` 除接口外的**唯一**实现，
+        // 且同时实现 IQSNetworkDataProvider 的其余 6 个方法（cancelAIPreloadData /
+        // fetchAIPreloadData / fillReqParams / getAJXLocation / getPreloadLocation /
+        // getPreloadLocationTS）⇒ 身份确认无疑。`kb5` 在 Play 上仍然存在但已被换体
+        // （没有 preloadAIData），所以先筛「类上真有这个方法」再挂，候选落空不刷 miss 行。
+        for (String holder : new String[]{"kb5", "en5", "l95", "xc5"}) {
+            Class<?> preloader = H.cls(cl, holder);
+            if (H.method(preloader, "preloadAIData") == null) continue;
+            H.hookSig(preloader, "preloadAIData", "amap_compact_preload_" + holder, new XposedInterface.Hooker() {
                 @Override public Object intercept(XposedInterface.Chain chain) throws Throwable { return compact() ? null : chain.proceed(); }
             });
         }
@@ -273,14 +280,15 @@ public final class AmapNativeHome {
                 return result;
             }
         }, Context.class, String.class, int.class, boolean.class);
-        // wm3.c(String,String)String 是 V2/V3.init 读 home_and_company_data 的唯一入口
-        // （DEX: classes5.dex 0x4057c0）。只在 IN_TOOLBOX_INIT 线程上替换，别的读取方
-        // （搜索页等）完全不受影响。
-        Class<?> helper = H.cls(cl, "wm3");
+        // c(String,String)String 是 V2/V3.init 读 home_and_company_data 的唯一入口。
+        // 混淆名会重排：国内 = wm3.c，Play 17.02.2.2014 = lv3.c（候选表 AmapData.PREFS_HELPER）。
+        // 只在 IN_TOOLBOX_INIT 线程上替换，别的读取方（搜索页等）完全不受影响。
+        final String[] helperAt = new String[2];
+        Class<?> helper = H.anchor(cl, AmapData.PREFS_HELPER, helperAt);
         if (helper == null) {
-            H.log("event=home_chips_miss reason=no_wm3_helper");
+            H.log("event=home_chips_miss reason=no_prefs_helper");
         } else {
-            H.hookSig(helper, "c", "amap_native_home_chips_payload", new XposedInterface.Hooker() {
+            H.hookSig(helper, helperAt[1], "amap_native_home_chips_payload", new XposedInterface.Hooker() {
                 @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                     Object original = chain.proceed();
                     Object key = chain.getArg(0);
@@ -864,12 +872,14 @@ public final class AmapNativeHome {
                 }
             }, Context.class, String.class, int.class, JSONObject.class, panelDelegate);
         }
-        // 默认工具清单的上游（单字母类名，跨版本会变）。
-        // 抗混淆锚点：认「被 quickservice.toolbox.a.a 与 ToolboxPanelV2/V3.init 调用、
-        //   静态、无参、返回 String、内容是带 id0 的 JSON」——`--InvokeXref 'k84;->f'` 可一次定位。
-        Class<?> raw = H.cls(cl, "k84");
+        // 默认工具清单的上游（混淆名，跨构建会整体重排 —— 只认形状，不认名字）。
+        // 形状：被 quickservice.toolbox.a.a 与 ToolboxPanelV2/V3.init 调用、静态、无参、
+        //   返回 String、内容是带 id0 的 JSON。候选表在 AmapData.TOOL_DEFAULT_RAW，
+        //   两版实测：国内 17.02.0.1541 = k84.f()，Play 17.02.2.2014 = s27.d()。
+        final String[] rawAt = new String[2];
+        Class<?> raw = H.anchor(cl, AmapData.TOOL_DEFAULT_RAW, rawAt);
         if (raw != null) {
-            H.hookSig(raw, "f", "amap_tool_default_raw", new XposedInterface.Hooker() {
+            H.hookSig(raw, rawAt[1], "amap_tool_default_raw", new XposedInterface.Hooker() {
                 @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                     Object result = chain.proceed();
                     if (!(result instanceof String)) return result;
@@ -887,7 +897,7 @@ public final class AmapNativeHome {
                 }
             });
         } else {
-            H.log("event=anchor_miss anchor=k84.f() note=默认工具清单上游缺失，"
+            H.log("event=anchor_miss anchor=tool_default_raw note=默认工具清单上游缺失，"
                     + "工具过滤只剩工厂 + 存储两路");
         }
     }

@@ -121,6 +121,51 @@ public final class H {
         } catch (Throwable t) { return null; }
     }
 
+    /**
+     * 在候选表里取**第一个真能解析到**的 (类, 方法) 对，用于抗混淆名重排。
+     *
+     * <p>混淆名跨构建会整体重排：17.02.0.1541（国内）的工具清单上游是 {@code k84.f()}，
+     * 17.02.2.2014（Play）变成了 {@code s27.d()}。坑在于 {@code k84} 这个名字在两版**都存在**，
+     * 但 Play 的 {@code Lk84;} 已经是另一个无关类（只有 {@code a}/{@code b}，没有 {@code f}）。
+     * 所以判据必须是「类能加载 **且** 类上真有这个方法」；只看类名会把握手点挂到错的类上，
+     * 更糟的是挂上去了却永远不 HIT —— 日志里连 miss 都看不见。
+     *
+     * <p>首个命中即返回，不遍历全部：候选顺序就是优先级，老版本永远命中第一项，
+     * 行为与不加这张表时逐字一致。
+     *
+     * <p>判据是「类上存在**任一**同名方法」，不是「存在某个精确签名」：候选表只负责定位
+     * 类，签名由调用点的 {@code hookSig(..., params)} 决定。混淆后的同名方法在两个构建里
+     * 可能换了参数表（{@code wm3.c(String,String)} 这类），这里一验签名就会把整条候选误杀。
+     *
+     * @param picked 长度 ≥ 2 的出参，回填实际命中的 {类名, 方法名}；未命中不动
+     * @return 命中的 Class；全部候选都解析不到则返回 null
+     */
+    public static Class<?> anchor(ClassLoader cl, String[][] candidates, String[] picked) {
+        if (candidates == null) return null;
+        for (String[] c : candidates) {
+            if (c == null || c.length < 2) continue;
+            Class<?> k = cls(cl, c[0]);
+            if (k == null) continue;
+            if (!declares(k, c[1])) continue;
+            if (picked != null && picked.length >= 2) {
+                picked[0] = c[0];
+                picked[1] = c[1];
+            }
+            return k;
+        }
+        return null;
+    }
+
+    /** 类上是否声明了**任一**同名方法（不论参数表）。 */
+    private static boolean declares(Class<?> c, String name) {
+        if (c == null) return false;
+        try {
+            for (Method m : c.getDeclaredMethods()) if (m.getName().equals(name)) return true;
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
     /** 按名 hook：本类 + 全部父类中同名方法（等价旧 hookAllMethods），返回命中数 */
     public static int hookAll(Class<?> c, String method, String id, XposedInterface.Hooker hooker) {
         if (c == null) return 0;

@@ -681,6 +681,27 @@ public final class AmapData {
     // 不改的后果：用户打开「工具图标统一彩绘」后，每次首页创建都会递归到 StackOverflow
     // 才停，冷启动白白多出 5 秒白屏。
 
+    /**
+     * 默认工具清单上游的混淆名候选，顺序 = 优先级。**唯一事实来源** ——
+     * {@code AmapNativeHome} 挂 hook、本类 {@link #defaultPayload()} 反射取模板，两处都读这张表。
+     *
+     * <p>R8 的类编号跨构建整体重排：国内 17.02.0.1541 是 {@code k84.f()}，
+     * Play 17.02.2.2014 是 {@code s27.d()}。两版都实测过形状 —— static、无参、返回 String、
+     * 内容是带 {@code id0} 的工具 JSON，且被 {@code quickservice.toolbox.a.a} 与
+     * {@code ToolboxPanelV2/V3.init} 调用。
+     *
+     * <p><b>必须连方法一起验。</b>{@code Lk84;} 在 Play 版依然存在，但已经是另一个无关类
+     * （只有 {@code a}/{@code b}）；只按类名解析会拿到一个永远不 HIT 的 hook 点。
+     */
+    public static final String[][] TOOL_DEFAULT_RAW = {{"k84", "f"}, {"s27", "d"}};
+
+    /**
+     * 单键 prefs 读取 helper（{@code c(String key,String def)String}）的混淆名候选。
+     * 同样按序命中：国内 {@code wm3}（8 方法，含 {@code b()HashMap}），Play 是 {@code lv3}
+     * —— 形状逐条一致，纯重命名。Play 的 {@code Lwm3;} 已变成 Kotlin lambda，没有 {@code c}。
+     */
+    public static final String[][] PREFS_HELPER = {{"wm3", "c"}, {"lv3", "c"}};
+
     /** k84.f() 的原厂返回值（未过滤）。volatile：主线程写、其它线程读。 */
     private static volatile String sDefaultRaw;
 
@@ -735,9 +756,18 @@ public final class AmapData {
             try {
                 ClassLoader cl = Thread.currentThread().getContextClassLoader();
                 if (cl == null) cl = AmapData.class.getClassLoader();
-                Class<?> k = cl.loadClass("k84");
-                Object value = k.getMethod("f").invoke(null);
-                if (value instanceof String) raw = (String) value;
+                // 候选表：国内 k84.f()，Play s27.d()。取第一个「类能加载 且 方法真存在」的。
+                // 逐个内层 catch：Play 上 Lk84 存在但没有 f()，那只是候选落空，不是失败。
+                for (String[] c : TOOL_DEFAULT_RAW) {
+                    try {
+                        Object value = cl.loadClass(c[0]).getMethod(c[1]).invoke(null);
+                        if (value instanceof String) {
+                            raw = (String) value;
+                            break;
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
             } catch (Throwable ignored) {
             } finally {
                 IN_DEFAULT.remove();
