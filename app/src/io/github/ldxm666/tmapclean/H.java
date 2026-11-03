@@ -101,7 +101,16 @@ public final class H {
     }
 
     public static Class<?> cls(ClassLoader cl, String name) {
-        try { return cl.loadClass(name); } catch (Throwable t) { return null; }
+        if (cl == null || name == null) return null;
+        try {
+            // ⚠ 2.3.0 防御：描述符分隔符（{@code /}）与二进制名分隔符（{@code .}）混淆过一次，
+            // 直接把「大家都在看」整条数据链变成死代码（见 TmapLookAndLook 的 ATTR）。
+            // loadClass 只认点分形式，这里统一抹平 —— 再写错也不会静默失效。
+            if (name.indexOf('/') >= 0) name = name.replace('/', '.');
+            return cl.loadClass(name);
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /** 挂一个方法；返回是否成功。首火打一条 HIT，便于区分"没挂上"和"没触发"。 */
@@ -126,7 +135,7 @@ public final class H {
                             new io.github.ldxm666.mapclean.HookGuard.Reporter() {
                                 public void disabled(String name, Throwable error) {
                                     log(Log.WARN, MainHook.TAG, "event=hook_disabled id=" + name
-                                            + " reason=" + error.getClass().getSimpleName());
+                                            + " reason=" + error.getClass().getSimpleName() + ": " + error.getMessage());
                                 }
                             });
             mod.hook(m)

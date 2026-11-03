@@ -30,85 +30,129 @@ final class BaiduPanel {
 
     /** 百度's catalogue, mapped onto the panel's view model. */
     static PanelTypes.Group[] groups() {
-        Spec.Cat[] cats = Spec.cats();
-        // chip 顺序：悬浮窗 / 省电 / <百度分类…>（与高德一致）。
-        //
-        // ★ 「悬浮窗」组必须存在且**至少一行**：百度内置版把 MainActivity 裁掉了，没有 tab 入口，
-        // 用户一旦关掉悬浮球就再也回不来 —— 上一轮就是因为「组里没有行 ⇒ 白页」而把整组删掉，
-        // 结果变成功能残缺。现在这一组第一行就是开关，并写清「长按底部『我的』标签 1 秒」的
-        // 找回路径（见 {@code mapclean/BaiduMineEntry}），所以不会再出现空组。
-        PanelTypes.Group[] out = new PanelTypes.Group[cats.length + 2];
-        out[0] = floatGroup();
-        out[1] = powerGroup();
-        for (int i = 0; i < cats.length; i++) {
-            Spec.Cat cat = cats[i];
-            PanelTypes.Item[] items = new PanelTypes.Item[cat.rows.length];
-            for (int j = 0; j < cat.rows.length; j++) {
-                Spec.Row row = cat.rows[j];
-                items[j] = new PanelTypes.Item(row.key, row.title, row.note);
-            }
-            // The category's own subtitle ("改动后重启百度生效" and friends) is shown as the
-            // group's note, the same slot the 高德 tool catalogue uses for its 5-cell warning.
-            out[i + 2] = new PanelTypes.Group(cat.title, items, cat.subtitle);
-        }
-        return out;
+        // ★ 2.3.0 重排：原来「每个 Spec 分类一个 chip」= 底栏 / 首页宫格 / 通勤 / 天气行程 /
+        // 推荐信息流 / 我的页 / 地图标注 / 搜索区 / 路线页 / 诊断 + 悬浮窗 + 省电 = **12 个 chip**，
+        // 横着滑三屏才能找到想调的东西，用户反馈「太臃肿、分类很差」。
+        // 现在按「用户在哪一屏看到它」归并成 6 页，页内用分段标题区分：
+        //   界面（底栏/首页宫格/通勤/我的页）· 内容（天气行程/推荐流/搜索区）
+        //   · 地图（标注，动态列表单列）· 路线 · 省电（含悬浮窗）· 其他（诊断+版本）
+        return new PanelTypes.Group[]{
+            new PanelTypes.Group("界面", sections(
+                    Spec.CAT_BAR, Spec.CAT_TOOLS, Spec.CAT_HC, Spec.CAT_MINE),
+                    "底部入口栏、首页工具宫格、通勤地址、我的页卡片。"),
+
+            new PanelTypes.Group("内容", sections(
+                    Spec.CAT_WX, Spec.CAT_FEED, Spec.CAT_SEARCH),
+                    "天气与行程栏、推荐信息流、搜索框下方快捷入口。"),
+
+            // 地图标注的行是 BaiduLabelSettings 动态生成的（按 POI 类型），几十条，
+            // 混进别的页会把其它开关淹掉，所以单列。
+            new PanelTypes.Group("地图", sections(Spec.CAT_MAP),
+                    "按类型分别控制地图上的兴趣点图标与店名；地名、街道、城市名和路网始终保留。"
+                    + "改动后需彻底关闭再打开百度。"),
+
+            new PanelTypes.Group("路线", sections(Spec.CAT_ROUTE),
+                    "地铁 / 公交方案详情页上的浮层与推荐位。改动后需彻底关闭再打开百度。"),
+
+            new PanelTypes.Group("省电", powerSections(), POWER_NOTE,
+                    new PanelTypes.Action() {
+                        @Override public String label() { return "一键省电（全部开启拦截）"; }
+                        @Override public int run() {
+                            try { return io.github.ldxm666.bmapclean.Cfg.enableAllPower(); }
+                            catch (Throwable t) { return 0; }
+                        }
+                    }),
+
+            // 诊断只剩「调试日志」这一行，并进「其他」，顺带把版本/更新两行挂上
+            // （免 root 内置版没有 MainActivity，这里是它唯一的版本入口）。
+            new PanelTypes.Group("其他", new PanelTypes.Item[]{
+                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_DEBUG, "调试日志",
+                        "把协议适配错误输出到 logcat，排障用。"),
+            }, "百度 22.1.0 (1660) 适配；改动后重启百度生效。", true),
+        };
     }
 
     /**
-     * 「悬浮窗」组 —— 悬浮球开关 + **找回路径说明**。
+     * 把若干个 {@link Spec.Cat} 按 id 取出来，摊成面板的分段（{title, Item[]} 对）。
      *
-     * <p>⚠ 这一组**绝不能为空**（{@code Item[]} 长度为 0 会让整页变白，实测踩过）：
-     * 即使以后精简，也必须至少保留「显示悬浮球」这一行。
-     *
-     * <p>为什么放第一组：用户关掉悬浮球后唯一的入口就是这里，而进入这里的方式是
-     * 「长按底部『我的』标签约 1 秒」（{@link BaiduMineEntry}）。把开关和找回说明写在同一行，
-     * 用户一眼就能看懂「关掉之后怎么回来」。
+     * <p>为什么要按 id 取而不是直接遍历 {@code Spec.cats()}：分类顺序由本文件决定 ——
+     * 面板的 chip 顺序是产品决策，{@code Spec} 只负责「有哪些分类、每类有哪些行」。
+     * 把顺序写在这里，改动分组时不用动 {@code Spec}。
      */
-    private static PanelTypes.Group floatGroup() {
-        return new PanelTypes.Group("悬浮窗", new PanelTypes.Item[]{
+    private static Object[][] sections(int... ids) {
+        Spec.Cat[] all = Spec.cats();
+        java.util.List<Object[]> out = new java.util.ArrayList<Object[]>();
+        for (int id : ids) {
+            for (Spec.Cat c : all) {
+                if (c.id != id) continue;
+                PanelTypes.Item[] items = new PanelTypes.Item[c.rows.length];
+                for (int j = 0; j < c.rows.length; j++) {
+                    Spec.Row row = c.rows[j];
+                    items[j] = new PanelTypes.Item(row.key, row.title, row.note);
+                }
+                out.add(new Object[]{c.title, items});
+            }
+        }
+        return out.toArray(new Object[0][]);
+    }
+
+    /**
+     * 「省电」页的分段。
+     *
+     * <p>⚠ 这些开关都是**安装期门控**（{@code Cfg.installGate}）：关闭时对应实现根本不装进
+     * 方法链 —— 这正是用户要的「关闭 = 不加载、零性能开销」，代价是需要重启宿主。
+     * 每行不再重复这句，统一写在 {@link #POWER_NOTE} 里。
+     */
+    private static Object[][] powerSections() {
+        return new Object[][]{
+            {"悬浮窗", new PanelTypes.Item[]{
                 new PanelTypes.Item(FloatingConfig.K_FLOAT_ENABLED, "显示悬浮球",
                         "关掉后悬浮球和这个面板都会消失。要再打开：**长按底部「我的」标签约 1 秒**，"
-                        + "面板会再次弹出，把这一项拨回开即可。")
-        }, "只影响悬浮球本身，不动其它任何开关。");
+                        + "面板会再次弹出，把这一项拨回开即可。"),
+            }},
+            {"推送", new PanelTypes.Item[]{
+                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_PUSH_HARD_OFF,
+                        "关闭推送长连接（硬档）",
+                        "省电最明显。代价：百度推送消息（活动/提醒）收不到。"),
+                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_PUSH_OFF,
+                        "关闭推送消息处理",
+                        "不建连接、不处理推送消息，但不杀服务。"),
+                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_PUSH_KILL_OFF,
+                        "关闭推送服务（激进档）",
+                        "通道服务起来即退出。若发现耗电反而上升，先关这一项。"),
+            }},
+            {"后台与埋点", new PanelTypes.Item[]{
+                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_BG_SERVICE_OFF,
+                        "关闭后台常驻服务",
+                        "定位/云控/统计等自启动服务不再常驻。"),
+                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_TIMER_OFF,
+                        "关闭后台周期任务",
+                        "AlarmManager / JobScheduler / WorkManager 的定时唤醒不再重排。"),
+                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_WIDGET_OFF,
+                        "关闭桌面小组件刷新",
+                        "只拦 APPWIDGET_UPDATE，添加/删除组件仍正常。"),
+                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_TRACK_OFF,
+                        "关闭第三方埋点",
+                        "统计 SDK 不初始化，不上报。"),
+            }},
+        };
     }
+
+    /** 省电页的说明：这批开关「开 = 已拦截」，和别的页正好相反，不写清一定被误读。 */
+    private static final String POWER_NOTE =
+            "这一页的开关：开 = 该行为已被拦截（默认全开）；关 = 恢复百度原生行为。"
+            + "⚠ 改动后需**强制停止并重开百度地图**才生效（关闭时会彻底不加载对应实现，零性能开销）。";
 
     /**
-     * 「省电」组 —— 与高德 {@code AmapPanel.powerSections()} 对齐。
+     * True when a writable path is available inside the host process.
      *
-     * <p>⚠ **改完必须强制停止并重开百度地图才生效**：这些开关都是**安装期门控**
-     * （{@code Cfg.installGate}），关闭时对应实现根本不装进方法链 —— 这正是用户要的
-     * 「关闭 = 不加载、不消耗性能」，代价就是需要重启宿主。
+     * <p>★ 2.3.0：原来写的是 {@code App.svc() != null} —— 那只是**框架服务通道**，内置版里恒为 null，
+     * 于是面板把一份完全能写的配置显示成「只读」。现在与 {@link FloatingConfig#writePath()} 同源：
+     * 服务在，或者宿主本地预置能真实写入，都算可写。
      */
-    private static PanelTypes.Group powerGroup() {
-        return new PanelTypes.Group("省电", new PanelTypes.Item[]{
-                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_PUSH_HARD_OFF, "关闭推送长连接（硬档）",
-                        "省电最明显。代价：百度推送消息（活动/提醒）收不到。"),
-                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_PUSH_OFF, "关闭推送消息处理",
-                        "不建连接、不处理推送消息，但不杀服务。"),
-                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_PUSH_KILL_OFF, "关闭推送服务（激进档）",
-                        "通道服务起来即退出。若发现耗电反而上升，先关这一项。"),
-                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_BG_SERVICE_OFF, "关闭后台常驻服务",
-                        "定位/云控/统计等自启动服务不再常驻。"),
-                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_TIMER_OFF, "关闭后台周期任务",
-                        "AlarmManager / JobScheduler / WorkManager 的定时唤醒不再重排。"),
-                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_WIDGET_OFF, "关闭桌面小组件刷新",
-                        "只拦 APPWIDGET_UPDATE，添加/删除组件仍正常。"),
-                new PanelTypes.Item(io.github.ldxm666.bmapclean.Cfg.K_TRACK_OFF, "关闭第三方埋点",
-                        "统计 SDK 不初始化，不上报。"),
-        }, "改动后需**强制停止并重开百度地图**才生效（关闭时彻底不加载对应实现，零性能开销）。",
-                new PanelTypes.Action() {
-                    @Override public String label() { return "一键省电（全部开启拦截）"; }
-                    @Override public int run() {
-                        try { return io.github.ldxm666.bmapclean.Cfg.enableAllPower(); }
-                        catch (Throwable t) { return 0; }
-                    }
-                });
-    }
-
-    /** True when a writable path is available inside the host process. */
     static boolean writable() {
         try {
-            return App.svc() != null;
+            return FloatingConfig.writable();
         } catch (Throwable ignored) {
             return false;
         }
@@ -118,11 +162,34 @@ final class BaiduPanel {
         try {
             // 百度's catalogue carries its own defaults (a few rows default to off), and the
             // hook side uses the same table -- so the panel and the hooks cannot disagree.
-            return App.read(key, Spec.defaultVisible(key));
+            boolean v = App.read(key, Spec.defaultVisible(key));
+            tracePanelRead(key, v);
+            return v;
         } catch (Throwable t) {
             return Spec.defaultVisible(key);
         }
     }
+
+    /**
+     * 面板**自己**读到什么 —— 每键每进程一行，上限 40 行。
+     *
+     * <p>存在的理由：{@code Cfg} 的 {@code event=cfg_r} 是读取侧的流水，但一条日志分不清
+     * 是 hook 在读还是面板在读。用户的原话是「面板里关掉、重启又变回开」，所以修完之后
+     * 必须有一条**从面板这一侧发出**的值，否则只能靠截图对账。
+     */
+    private static void tracePanelRead(String key, boolean v) {
+        if (PANEL_LOG.get() >= 40) return;
+        if (!PANEL_SEEN.add(key)) return;
+        if (PANEL_LOG.incrementAndGet() > 40) return;
+        io.github.ldxm666.bmapclean.Cfg.log("event=cfg_panel_r pid="
+                + android.os.Process.myPid() + " key=" + key + " v=" + v
+                + " backend=" + io.github.ldxm666.bmapclean.Cfg.backend());
+    }
+
+    private static final java.util.concurrent.atomic.AtomicInteger PANEL_LOG =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private static final java.util.Set<String> PANEL_SEEN =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
 
     /**
      * The 地图标注 switch, read the way 百度's hooks read it.
@@ -150,8 +217,13 @@ final class BaiduPanel {
     }
 
     static void invalidate() {
-        // 百度's hook side re-reads the group on its own 2 s TTL (see bmapclean.Cfg), so there
-        // is no snapshot to drop here.
+        // ★ 2.3.0：以前这里是空实现，注释说「hook 侧自己按 2 s TTL 重读，没有快照要丢」。
+        // 但 Cfg 现在除了 2 s TTL 快照之外还**缓存了 {@code Flag} 的解析态**（安装期门控、
+        // 省电开关都读它）。写完不 invalidate ⇒ 拨了开关，同一进程内的 Flag 还留着旧值，
+        // 要等下一次 prefs 变更回调才刷 —— 表现就是「拨了没用，重启才好」。
+        try {
+            io.github.ldxm666.bmapclean.Cfg.invalidate();
+        } catch (Throwable ignored) { }
     }
 
     /**

@@ -30,6 +30,18 @@ public final class FloatingHooks {
     /** One 「module mode, floating skipped」 line per process (install can be called per package). */
     private static volatile boolean skippedLogged;
 
+    /**
+     * 幂等标记：本进程是否已经挂过 {@code Application.onCreate}。
+     *
+     * <p>{@code onPackageReady} 在同一个进程里可能被回调多次（真机日志里见过 3 次），而
+     * {@link #install} 的调用点在 {@code H.markInstalled(pkg)} **之前**，没有这个标记就会
+     * 重复 {@code module.hook(Application.onCreate)}、重复
+     * {@code registerActivityLifecycleCallbacks}、重复 {@code registerReceiver}。
+     * 重复的悬浮球目前被 {@code FloatingController} 按 Activity 去重挡住了（所以没炸），
+     * 但每一条重复回调都在白跑，且今后任何一处去掉那个去重就会变成"两个球叠在一起"。
+     */
+    private static volatile boolean installed;
+
     /** One "I looked at this Activity class" line per class, so the log stays readable. */
     private static final java.util.Set<String> reported = java.util.Collections.synchronizedSet(
             new java.util.LinkedHashSet<String>());
@@ -79,6 +91,36 @@ public final class FloatingHooks {
             java.util.Collections.synchronizedMap(
                     new java.util.WeakHashMap<Activity, Integer>());
 
+    /** 三家地图的包名 —— 悬浮层只为它们工作，别的宿主一条钩子都不配。 */
+    private static final String[] FLOATING_HOSTS = {
+            "com.tencent.map",
+            "com.autonavi.minimap",
+            "com.baidu.BaiduMap",
+    };
+
+    private static boolean isFloatingHostPackage(String pkg) {
+        if (pkg == null) return false;
+        for (String host : FLOATING_HOSTS) {
+            if (host.equals(pkg)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 本进程的进程名，取不到返回 {@code null}（调用方按“取不到就不拦”处理）。
+     *
+     * <p>{@code Application.getProcessName()} 自 API 28 起是公开静态方法，本模块
+     * {@code minSdkVersion=28}，直接调即可；仍包 try/catch 是因为某些 ROM 的
+     * ActivityThread 在极早期（onPackageReady 之前）还没把进程名写进去。
+     */
+    private static String currentProcessName() {
+        try {
+            return Application.getProcessName();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
 
     private FloatingHooks() {}
 
@@ -94,6 +136,45 @@ public final class FloatingHooks {
             }
             return;
         }
+        // ★ 2.3.1（性能/正确性）：**安装前**就按宿主包名 + 进程名过滤，绝不“装上再判断”。
+        //
+        //   v2.3.0 之前这里是“先挂 Application.onCreate、进回调再说”，后果有两层：
+        //   1) 腾讯地图有 4 个进程（:ilink.ServiceProcess / :push / :daemon / :sandbox），
+        //      每个进程都白挂一条 Application.onCreate hook、注册一次
+        //      BroadcastReceiver、跑一遍 HostPrefs.diagnose()（反射四条路 + 日志）。
+        //      真机日志：`floating hooks installed for com.tencent.map` 出现 3~5 次/次冷启动，
+        //      而只有主进程有 Activity，其余 4 份完全不工作。
+        //   2) 内置版是把模块**并进宿主**的，LSPatch 会把 onPackageReady 投递给所有加载了
+        //      该包的进程；历史上日志里出现过 host=com.miui.contentcatcher /
+        //      com.google.android.webview —— 那些进程里也照样装了一遍悬浮层钩子。
+        //
+        //   过滤条件是“三重与”：是本厂商的三个地图包之一、且进程名 == 包名（即主进程）。
+        //   不满足 ⇒ 一条 hook 都不装，连日志都只打一行。
+        if (!isFloatingHostPackage(hostPackage)) {
+            if (!skippedLogged) {
+                skippedLogged = true;
+                Log.i(TAG, "event=floating_skipped reason=foreign_package host=" + hostPackage);
+            }
+            return;
+        }
+        final String process = currentProcessName();
+        if (process != null && !hostPackage.equals(process)) {
+            if (!skippedLogged) {
+                skippedLogged = true;
+                Log.i(TAG, "event=floating_skipped reason=subprocess host=" + hostPackage
+                        + " process=" + process);
+            }
+            return;
+        }
+        // 幂等：放在 embedded 判定之后 —— 模块模式下提前 return 不应该占掉这个标记（虽然那种
+        // 进程不会再进来，但把"真的开始挂 hook"作为置位条件是唯一不会骗人的语义）。
+        synchronized (FloatingHooks.class) {
+            if (installed) {
+                Log.i(TAG, "event=floating_install_skipped reason=already_installed");
+                return;
+            }
+            installed = true;
+        }
         try {
             module.hook(Application.class.getDeclaredMethod("onCreate"))
                     .setId("floating.lifecycle")
@@ -108,12 +189,21 @@ public final class FloatingHooks {
                                 }
                             }, new HookGuard.Reporter() {
                                 @Override public void disabled(String id, Throwable error) {
-                                    Log.w(TAG, "lifecycle hook disabled: " + error.getClass().getSimpleName());
+                                    // 带栈顶帧：一条 lifecycle hook 掉了，后面所有悬浮窗逻辑都不工作，
+                                    // 只打类名没法判断是框架不支持还是我们的代码写错了。
+                                    Log.w(TAG, "event=floating_lifecycle_disabled reason="
+                                            + HookGuard.describe(error));
                                 }
                             }));
             Log.i(TAG, "floating hooks installed for " + hostPackage);
+            // 安装时刻的 HostPrefs 状态快照：这时通常还没有 Activity，正好用来证明
+            // 「反射四条路当时是空的」，以及稍后 remember() 补上之后同一条路就通了。
+            HostPrefs.diagnose("install");
         } catch (Throwable t) {
-            Log.w(TAG, "floating hooks unavailable: " + t.getClass().getSimpleName());
+            // 这一条没挂上就把标记放回去：下次 onPackageReady 还有机会（真机上见过宿主把
+            // Application.onCreate 延后到很晚才走到的情况）。
+            synchronized (FloatingHooks.class) { installed = false; }
+            Log.w(TAG, "floating hooks unavailable: " + t.getClass().getSimpleName(), t);
         }
     }
 
@@ -141,17 +231,27 @@ public final class FloatingHooks {
             application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityCreated(Activity activity, Bundle state) {
                     if (!accept(activity, hostPackage)) return;
+                    // ★ 2.3.0：宿主的 Application 就在这里 —— 直给 HostPrefs，别让它去反射。
+                    //   腾讯地图 11.7 里那四条反射路全断（真机逐条日志见 HostPrefs.diagnose），
+                    //   而写入路径本来就拿着这个 Application（DefaultConfig.apply(app) /
+                    //   FloatingConfig.ensureService(application)）—— 两套 Context 就是
+                    //   「配置写得进、面板显示只读」的根因。统一到这一条。
+                    HostPrefs.remember(activity == null ? application : activity.getApplication());
                     FloatingConfig.ensureService(application);
                 }
 
                 @Override public void onActivityStarted(Activity activity) {
                     if (!accept(activity, hostPackage)) return;
+                    HostPrefs.remember(activity == null ? application : activity.getApplication());
                     // The content tree may not exist during onCreate; retry on each start.
                     attachWhenVisible(activity);
                 }
 
                 @Override public void onActivityResumed(Activity activity) {
                     if (!accept(activity, hostPackage)) return;
+                    HostPrefs.remember(activity == null ? application : activity.getApplication());
+                    // 每次 resume 都走一次：attach() 自己按 root 去重，adoptAsHost() 保证
+                    // 「换了 Activity 就搬过去、同一时刻只有一个浮层」。
                     attachWhenVisible(activity);
                     FloatingController.refreshTheme(activity);
                     // 面板点了「抓取云数据」→ 这个进程还活着，必须自己重启一次才能进采集模式。
@@ -166,7 +266,18 @@ public final class FloatingHooks {
 
                 @Override public void onActivitySaveInstanceState(Activity activity, Bundle state) { }
 
-                @Override public void onActivityDestroyed(Activity activity) { }
+                /**
+                 * ★ 2.3.0：先摘层，再让它走。
+                 *
+                 * <p>腾讯地图首启那段：{@code WelcomeActivity.finish()} → 挂在它 DecorView 上的
+                 * 浮层跟着窗口一起没，但 {@code layers} / {@code attached} 里还留着死引用：
+                 * 轻则 {@code WindowLeaked}，重则重建同名 Activity 时被去重闸门挡掉。
+                 * 这里同步摘除，并把重试计数一起清掉。
+                 */
+                @Override public void onActivityDestroyed(Activity activity) {
+                    FloatingController.detachFor(activity, "destroyed");
+                    retries.remove(activity);
+                }
             });
             Log.i(TAG, "activity lifecycle callbacks registered");
         } catch (Throwable t) {
@@ -215,6 +326,12 @@ public final class FloatingHooks {
      */
     private static void attachWhenVisible(final Activity activity) {
         if (activity == null) return;
+        // A finished/destroyed Activity can never gain a window again; retrying there would keep
+        // a dead Activity (and its DecorView) alive for the whole retry budget.
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            retries.remove(activity);
+            return;
+        }
         // Record it even when the window is not up yet: turning the overlay back on has to know
         // which windows to put it into, and that can happen long after the last resume.
         FloatingController.remember(activity);

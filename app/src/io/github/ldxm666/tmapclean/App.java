@@ -38,13 +38,21 @@ public final class App implements XposedServiceHelper.OnServiceListener {
 
     /** 设置页写开关。必须 commit()：apply() 异步落盘，用户切完就退出会丢。 */
     public static boolean write(String key, boolean value) {
+        // ★ 免 root 内置版：服务通道写的是 LSPatch 的 lspatch-xposed-remote.db，
+        //   真机实测会 SQLiteCantOpenDatabaseException —— commit() 返回 true 但读不回来。
+        //   宿主自己的 SharedPreferences（tmapclean_config.xml）永远可写，且 hook 侧读同一个文件。
+        if (Cfg.embedded()) return Cfg.write(key, value);
         XposedService s = service;
-        if (s == null) return false;
-        try {
-            return s.getRemotePreferences(Cfg.GROUP).edit().putBoolean(key, value).commit();
-        } catch (Throwable t) {
-            return false;
+        if (s != null) {
+            try {
+                if (s.getRemotePreferences(Cfg.GROUP).edit().putBoolean(key, value).commit()) {
+                    Cfg.invalidate();
+                    return true;
+                }
+            } catch (Throwable ignored) { }
         }
+        // 服务未连上（模块版首启 / 内置版降级）：本地后端兜底，不再直接返回 false。
+        return Cfg.write(key, value);
     }
 
     /** 设置页读开关（服务未连上时按调用方给的缺省返回，与 hook 侧失效安全一致）。 */
@@ -53,13 +61,14 @@ public final class App implements XposedServiceHelper.OnServiceListener {
     }
 
     public static boolean read(String key, boolean def) {
+        if (Cfg.embedded()) return Cfg.visible(key, def);
         XposedService s = service;
-        if (s == null) return def;
-        try {
-            return s.getRemotePreferences(Cfg.GROUP).getBoolean(key, def);
-        } catch (Throwable t) {
-            return def;
+        if (s != null) {
+            try {
+                return s.getRemotePreferences(Cfg.GROUP).getBoolean(key, def);
+            } catch (Throwable ignored) { }
         }
+        return Cfg.visible(key, def);
     }
 
     // ── 诊断摘要（hook 侧通过广播回报，落在本地 SharedPreferences） ──────

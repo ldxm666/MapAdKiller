@@ -119,11 +119,15 @@ STUB_DIR = ROOT / "tools" / "variant-stubs"
 SHARED_STUBS = (
     "io/github/ldxm666/mapclean/EmbeddedSettings.java",
     "io/github/ldxm666/mapclean/MainActivity.java",
-    # The floating-window code asks "am I an embedded build?" through HostInfo, which lives in
-    # mapadkiller -- a package every vendor variant drops. The stub answers true (an embedded
-    # build IS the embedded form), so 百度/腾讯 内置版 keep their orb.
-    "io/github/ldxm666/mapadkiller/HostInfo.java",
 )
+#
+# ⚠ HostInfo 曾经在这里，2026-10 移出。
+#   它在 mapadkiller 包里，而 **amap target 的 mapadkiller 是保留的** —— 把它放进 SHARED_STUBS
+#   等于连高德也把真件顶成"isEmbedded() 恒 true"。后果不是少挂东西，而是多挂：
+#   FloatingHooks.install / FloatingController.attach / AmapHooks 的 mine_entry 全部无条件走
+#   内置分支，高德进程里平白多出 AmapMineEntry 的四个钩子 + 一个吞触摸的 resume 钩子，
+#   同时"少挂这些钩子也能跑"的对照组被删掉 —— 白屏根本无从二分。
+#   现在它只出现在 baidu / tmap 的 stubs 里（那两个 target 真的把整个包裁掉了）。
 
 # Classes the shared code still names after a vendor package is dropped, so they get a no-op.
 STUBBED_CLASSES = ("MainHook", "App", "Config", "HostInfo", "Baseline", "CaptureLog")
@@ -191,6 +195,10 @@ TARGETS = {
         "required": FLOATING_REQUIRED + (
             b"Lio/github/ldxm666/mapadkiller/AmapHooks;",
             b"Lio/github/ldxm666/mapadkiller/AmapNativeHome;",
+            # HostInfo 在 amap 变体里是**真件**（mapadkiller 包整个保留），它是内置/模块模式的
+            # 唯一判据，也是 FloatingHooks / FloatingController / AmapMineEntry 的总闸。
+            # 一旦有人把它又挪回 SHARED_STUBS，这条 required 会在构建期炸掉而不是等到真机排障。
+            b"Lio/github/ldxm666/mapadkiller/HostInfo;",
             b"Lio/github/ldxm666/mapclean/BaiduPanel;",      # the generated no-op
             b"Lio/github/ldxm666/mapclean/TmapPanel;",       # the generated no-op
             b"Lio/github/ldxm666/bmapclean/MainHook;",       # the forwarding target
@@ -211,6 +219,14 @@ TARGETS = {
             "io/github/ldxm666/mapadkiller/App.java",
             "io/github/ldxm666/mapadkiller/MainHook.java",
                 "io/github/ldxm666/mapadkiller/Baseline.java",
+            # mapadkiller 整包被裁，HostInfo 只能用桩（内置版判据，见 variant-stubs 里的说明）。
+            "io/github/ldxm666/mapadkiller/HostInfo.java",
+            # FloatingPanel 无条件 import 这个类（面板上「日志抓取」按钮）。百度变体靠
+            # keepFiles 保留真件，腾讯变体一直没给 —— 于是 --Target tmap 连编译都过不了
+            # （javac: FloatingPanel.java 找不到符号 CaptureLog，共 7 处）。这里先用空实现
+            # 把构建修通；腾讯要不要像百度那样保留真件（H + CaptureLog + AmapCruise 桩），
+            # 是另一个决定，不该由"能不能编译"倒逼。
+            "io/github/ldxm666/mapadkiller/CaptureLog.java",
             "io/github/ldxm666/bmapclean/App.java",
             "io/github/ldxm666/bmapclean/MainHook.java",
             "io/github/ldxm666/mapclean/AmapPanel.java",
@@ -222,7 +238,8 @@ TARGETS = {
             b"Lio/github/ldxm666/mapclean/TmapPanel;",
             b"Lio/github/ldxm666/mapadkiller/MainHook;",
         ),
-        "banned": vendor_classes("io.github.ldxm666.mapadkiller", STUBBED_CLASSES)
+        "banned": vendor_classes("io.github.ldxm666.mapadkiller",
+                                 STUBBED_CLASSES + ("Perf",))
                   + vendor_classes("io.github.ldxm666.bmapclean", STUBBED_CLASSES) + (
             b"Lcom/autonavi/",
             b"Lcom/baidu/",
@@ -233,13 +250,27 @@ TARGETS = {
         "label": "百度地图",
         "artifact": "百度地图-{version}-免root内置版.apk",
         "slimModule": "MapAdKiller-baidu-slim-{version}.apk",
-        "dropPackages": ("io.github.ldxm666.mapadkiller",),
+        # 百度内置版不带腾讯适配层。
+        #
+        # 2.3.0 之前这里只 drop mapadkiller，tmapclean 整包跟着打进百度 APK（约 15 个类），
+        # 而 banned 里也没有它 —— 于是"产物里不该有腾讯代码"这条约束在百度侧完全没人执行。
+        # 代价不只是体积：mapclean.App 会真的把宿主 Application 转发给 tmapclean.App，
+        # 腾讯那套 RemotePreferences/诊断/token 逻辑在百度进程里照样初始化。
+        #
+        # 能 drop 的前提（已核实）：bmapclean 对 tmapclean 的引用数 = 0；tmapclean 对
+        # bmapclean 的引用数 = 0。唯一的编译期消费者是 mapclean.App / mapclean.MainHook，
+        # 它们只碰 App.attach/onBind/onDied 与 MainHook.onModuleLoaded —— 下面两个桩全覆盖。
+        "dropPackages": ("io.github.ldxm666.mapadkiller", "io.github.ldxm666.tmapclean"),
         # 这两个类与厂商无关（只依赖 android.* 与 libxposed API），但它们是**日志抓取**的全部实现：
         # H 是日志漏斗，CaptureLog 把每条日志抄进环形缓冲、在面板里落盘。整包丢掉会让百度内置版的
         # 面板里「日志抓取」按钮点了没反应（用户反馈问题拿不到日志），所以按文件保留，不用空实现顶掉。
         "keepFiles": (
             "io/github/ldxm666/mapadkiller/H.java",
             "io/github/ldxm666/mapadkiller/CaptureLog.java",
+            # H.java 是两侧共用的日志漏斗，现在它在每个 hook 包装点里调 Perf 计时。
+            # 不把 Perf 一起保留，百度/腾讯变体就会 javac 报「程序包 Perf 不存在」。
+            # 它只有几 KB，不引入任何依赖（只用 android.util.Log + H）。
+            "io/github/ldxm666/mapadkiller/Perf.java",
         ),
         "stubs": SHARED_STUBS + (
             "io/github/ldxm666/mapadkiller/Config.java",
@@ -247,6 +278,11 @@ TARGETS = {
             "io/github/ldxm666/mapadkiller/MainHook.java",
                 "io/github/ldxm666/mapadkiller/Baseline.java",
                 "io/github/ldxm666/mapadkiller/AmapCruise.java",
+            # mapadkiller 整包被裁 ⇒ HostInfo 只能用桩
+            "io/github/ldxm666/mapadkiller/HostInfo.java",
+            # 腾讯包被裁后，mapclean.App / mapclean.MainHook 仍然按名字找这两个类
+            "io/github/ldxm666/tmapclean/App.java",
+            "io/github/ldxm666/tmapclean/MainHook.java",
             "io/github/ldxm666/mapclean/AmapPanel.java",
             "io/github/ldxm666/mapclean/TmapPanel.java",
         ),
@@ -261,14 +297,22 @@ TARGETS = {
         "required": FLOATING_REQUIRED + (
             b"Lio/github/ldxm666/bmapclean/BaiduHooks;",
             b"Lio/github/ldxm666/bmapclean/BaiduPoiLayer;",
+            # 百度侧唯一的配置后端。它没了 ⇒ 面板每个开关都只能退回远端通道 ⇒
+            # 服务没绑上就是"只读"，这正是 2.2.8 用户报的那一条。
+            b"Lio/github/ldxm666/bmapclean/Cfg;",
             b"Lio/github/ldxm666/mapclean/AmapPanel;",       # the generated no-op
             b"Lio/github/ldxm666/mapclean/TmapPanel;",       # the generated no-op
             b"Lio/github/ldxm666/mapadkiller/MainHook;",     # the forwarding target
+            b"Lio/github/ldxm666/tmapclean/App;",            # the generated no-op
+            b"Lio/github/ldxm666/tmapclean/MainHook;",       # the generated no-op
         ),
         "banned": vendor_classes(
             "io.github.ldxm666.mapadkiller",
-            STUBBED_CLASSES + ("H", "AmapCruise"),   # CaptureLog 已在 STUBBED_CLASSES；H/AmapCruise 由 keepFiles 或空实现提供
-        ) + (
+            # Perf 同样是“被 keepFiles 保留但整包被 drop”的情形 ——
+            # 它是 H.java 的开销计时依赖，必须留。不排除就会报
+            # 「slim module still contains dropped vendor code: L.../Perf;」。
+            STUBBED_CLASSES + ("H", "AmapCruise", "Perf"),   # CaptureLog 已在 STUBBED_CLASSES；H/AmapCruise/Perf 由 keepFiles 或空实现提供
+        ) + vendor_classes("io.github.ldxm666.tmapclean", STUBBED_CLASSES) + (
             b"Lcom/autonavi/",
         ),
     },
@@ -420,19 +464,101 @@ def rewrite_native_init(dest: Path) -> None:
         path.write_text("libmapclean_labels.so\n", encoding="utf-8")
 
 
-def rewrite_manifest(dest: Path, version_name: str, version_code: int) -> None:
-    """Point the slim manifest at the floating entry and drop the standalone app surface."""
+def drop_component(text: str, tag: str, name: str) -> tuple:
+    """删除**恰好一个** {@code <tag ... android:name="name" .../>} 或 {@code <tag ...>…</tag>}。
+
+    返回 (新文本, 是否删到)。找不到就原样返回 False —— 调用方负责把"该删的没删到"当错误。
+
+    为什么不用正则：以前这里是
+        re.sub(r"\\s*<!--\\s*百度侧：.*?</receiver>", "", text, flags=re.S)
+    非贪婪匹配从「百度侧」那条注释一路吃到**第一个** `</receiver>`，而那个 `</receiver>`
+    属于「高德侧」的 CaptureReportReceiver —— 于是删掉的是高德的抓取回报接收器，百度那条
+    反倒留了下来（意图和结果正好相反），中间那条「高德侧」注释也一起没了。按注释文字定位组件的
+    写法只要注释改一个字就静默失效，必须换成按组件名定位 + 成对匹配。
+    """
+    needle = f'android:name="{name}"'
+    search = 0
+    while True:
+        hit = text.find(needle, search)
+        if hit < 0:
+            return text, False
+        open_at = text.rfind(f"<{tag}", 0, hit)
+        if open_at < 0:
+            search = hit + len(needle)
+            continue
+        # `<tag` 必须真的开这个标签，不能是更长的标签名前缀（如 activity 之于 activity-alias）。
+        after = open_at + 1 + len(tag)
+        if after < len(text) and (text[after].isalnum() or text[after] in "-_"):
+            search = hit + len(needle)
+            continue
+        tag_end = text.find(">", hit)
+        if tag_end < 0:
+            return text, False
+        if text[tag_end - 1] == "/":
+            end = tag_end + 1
+        else:
+            close = f"</{tag}>"
+            close_at = text.find(close, tag_end)
+            if close_at < 0:
+                return text, False
+            end = close_at + len(close)
+        # 顺带吞掉紧贴在上面的注释块，避免留下「百度侧：…」这种指向已删组件的孤儿注释。
+        # head 已经 rstrip 过 ⇒ head 结尾若是 `-->`，那么 head 里最后一个 `<!--` 就是那条
+        # 紧邻的注释的开头（中间不可能再夹别的内容）。
+        start = open_at
+        head = text[:open_at].rstrip()
+        if head.endswith("-->"):
+            comment_at = head.rfind("<!--")
+            if comment_at >= 0:
+                start = comment_at
+        return text[:start] + text[end:], True
+
+
+def rewrite_manifest(dest: Path, version_name: str, version_code: int, target: dict) -> list:
+    """Point the slim manifest at the floating entry and drop the standalone app surface.
+
+    只改这几样，且每一样都断言：内置版**不许**动宿主 Application / 不许引入 sharedUserId。
+    这份清单只影响内嵌的模块 APK（LSPatch 不会把模块 manifest 并进宿主），但留着错的条目
+    等于给下一个人埋一个"清单里指着一个 dex 里不存在的类"的坑。
+    """
     path = dest / "AndroidManifest.xml"
     text = path.read_text(encoding="utf-8")
     text = re.sub(r'android:versionCode="\d+"', f'android:versionCode="{version_code}"', text)
     text = re.sub(r'android:versionName="[^"]*"', f'android:versionName="{version_name}"', text)
-    text = text.replace('android:label="MapAdKiller"', 'android:label="高德增强"')
-    # Drop the launcher alias and the QS tile / report receiver: an integrated build has no
-    # module launcher of its own, and those components would only add attack surface.
-    text = re.sub(r"\s*<!-- 桌面入口.*?</activity-alias>", "", text, flags=re.S)
-    text = re.sub(r"\s*<!-- 快捷设置磁贴.*?</service>", "", text, flags=re.S)
-    text = re.sub(r"\s*<!--\s*百度侧：.*?</receiver>", "", text, flags=re.S)
+    # label 按 target 走。以前写死「高德增强」，百度变体的内嵌模块也跟着叫高德增强。
+    text = text.replace('android:label="MapAdKiller"',
+                        f'android:label="{target["label"]}增强"')
+
+    # 桌面入口 / QS 磁贴 / 三个回报 receiver：内置版里没有独立的模块 App 进程，
+    # 这些组件只是 exported 面。保留会怎样：只要宿主进程活着，任何应用都能往
+    # MAPADKILLER.CAPTURE_STATUS / bmapclean.REPORT 发广播，触发一次落盘 + 刷新。
+    # 而 baidu 变体里 CaptureReportReceiver 的类根本不在 dex 里（mapadkiller 整包被裁）。
+    drops = (
+        ("activity-alias", ".DesktopAlias"),
+        ("service", "io.github.ldxm666.mapadkiller.SettingsTile"),
+        ("receiver", "io.github.ldxm666.mapadkiller.CaptureReportReceiver"),
+        ("receiver", "io.github.ldxm666.bmapclean.ReportReceiver"),
+        ("receiver", "io.github.ldxm666.tmapclean.ReportReceiver"),
+    )
+    for tag, name in drops:
+        text, ok = drop_component(text, tag, name)
+        if not ok:
+            # 清单结构变了（组件改名/挪位置）。这里报错而不是静默跳过：跳过就等于把
+            # 一个 exported 组件悄悄留在产物里，而那正是本次要收掉的东西。
+            raise ValueError(f"manifest rewrite: <{tag} {name}> not found in {path.name}")
+
+    # ---- 断言：只删上面那五样，别的一律不许动 ------------------------------
+    if "sharedUserId" in text:
+        raise ValueError("slim manifest must not declare sharedUserId")
+    if 'android:name="io.github.ldxm666.mapclean.App"' not in text:
+        raise ValueError("slim manifest lost the module Application class")
+    if 'android:name="io.github.libxposed.service.XposedProvider"' not in text:
+        raise ValueError("slim manifest lost the libxposed service provider")
+    leaked = [name for _, name in drops if name in text]
+    if leaked:
+        raise ValueError("manifest components survived the drop: " + ", ".join(leaked))
     path.write_text(text, encoding="utf-8")
+    return [name for _, name in drops]
 
 
 def rewrite_module_prop(dest: Path, version_name: str, version_code: int, target: dict) -> None:
@@ -490,11 +616,35 @@ def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_to
          "--min-sdk-version", "26", "--target-sdk-version", "34", build / "res.zip"])
 
     # 5) add dex + metadata + native libs (STORED for the libs)
+    #
+    # ⚠ 全部 classes*.dex 都要写进去，不是只有 classes.dex。
+    #   以前这里硬编码只写 classes.dex：d8 一旦因为方法数溢出产出 classes2.dex，那个文件
+    #   会被**静默丢弃** —— 编译成功、签名成功、LSPatch 成功、verify 也成功（它当时只读
+    #   classes.dex），装机后某个类第一次被解析就是 NoClassDefFoundError。
+    #   "构建全绿、运行必崩"是最贵的一类缺陷，宁可在这里炸。
+    def dex_order(p: Path) -> tuple:
+        m = re.fullmatch(r"classes(\d*)\.dex", p.name)
+        return (int(m.group(1)) if m and m.group(1) else 1, p.name)
+
+    dex_files = sorted((build / "dex").glob("classes*.dex"), key=dex_order)
+    if not dex_files:
+        raise ValueError("d8 produced no classes*.dex")
+    dex_names = [p.name for p in dex_files]
+    expected = ["classes.dex"] + [f"classes{i}.dex" for i in range(2, len(dex_names) + 1)]
+    if dex_names != expected:
+        raise ValueError(f"unexpected dex set from d8: {dex_names}")
     with zipfile.ZipFile(build / "out" / "module.apk", "a", zipfile.ZIP_DEFLATED) as z:
-        z.write(build / "dex" / "classes.dex", "classes.dex")
+        for dex in dex_files:
+            z.write(dex, dex.name)
         for p in sorted((slim / "META-INF").rglob("*")):
             if p.is_file():
                 z.write(p, p.relative_to(slim).as_posix())
+    # 断言"写进去的 == d8 产出的"：zipfile 不会替我们检查漏写，重复条目也只在打开时才报。
+    with zipfile.ZipFile(build / "out" / "module.apk") as packed:
+        written = sorted((n for n in packed.namelist() if re.fullmatch(r"classes\d*\.dex", n)),
+                         key=lambda n: dex_order(Path(n)))
+    if written != dex_names:
+        raise ValueError(f"dex packaging mismatch: built {dex_names}, packaged {written}")
     # Native libraries must live at lib/<abi>/ inside the APK.
     #
     # This used to be `jar -C libs <abi>`, which stores the directory itself and lands the
@@ -529,10 +679,15 @@ def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_to
     run([tool(bt, "apksigner"), "verify", "--print-certs", out_apk])
     run([tool(bt, "zipalign"), "-c", "-P", "16", "4", out_apk])
 
+    # 签名之后再数一遍 dex：zipalign/apksigner 都不该动条目集合，这里顺手当成一次回归哨兵。
     with zipfile.ZipFile(out_apk) as z:
-        dex = z.read("classes.dex")
+        signed_dex = sorted((n for n in z.namelist() if re.fullmatch(r"classes\d*\.dex", n)),
+                            key=lambda n: dex_order(Path(n)))
+        dex_bytes = sum(z.getinfo(n).file_size for n in signed_dex)
+    if signed_dex != dex_names:
+        raise ValueError(f"signing changed the dex set: {signed_dex} != {dex_names}")
     return {"file": out_apk.name, "bytes": out_apk.stat().st_size, "sha256": sha256(out_apk),
-            "dexBytes": len(dex)}
+            "dexBytes": dex_bytes, "dexEntries": signed_dex}
 
 
 JAVA_JAVAC = "javac"
@@ -591,7 +746,7 @@ def main() -> int:
         plan = copy_slim_sources(slim, target)
         rewrite_scope(slim, target)
         rewrite_native_init(slim)
-        rewrite_manifest(slim, version_name, version_code)
+        rewrite_manifest(slim, version_name, version_code, target)
         rewrite_module_prop(slim, version_name, version_code, target)
         print(f"  removed {len(plan['removed'])} source files")
         for r in plan["removed"]:
@@ -781,11 +936,26 @@ def verify(apk: Path, original: Path, module: Path, bypass: int,
         # The slim module must keep the 高德 hooks and the floating layer, and must not
         # carry the dropped vendor code. DEX stores type *descriptors* (Lcom/x/Y;), so probe
         # with those rather than with dotted Java names.
+        #
+        # ⚠ required 曾经是死代码：算出来就没人用，present 只对 banned 求值。于是缺
+        #   FloatingPanel / FloatingHooks / BaiduHooks 的包照样发布 —— 用户装上去是"能开、
+        #   但面板/悬浮球/hook 全没有"。banned 只能证明"没有多余的东西"，证明不了
+        #   "该有的东西还在"，两者必须都查。
+        #
+        # 多 dex：build_slim_module 现在会把 classes2.dex… 一起打包，所以这里也要把全部
+        # classes*.dex 拼起来扫，否则被丢进第二个 dex 的类对这两项检查都是隐形的。
         with zipfile.ZipFile(module) as mz:
-            dex = mz.read("classes.dex")
-        required = list(target["required"])
-        banned = list(target["banned"])
-        present = [b for b in banned if b in dex]
+            dex_names = sorted((n for n in mz.namelist()
+                                if re.fullmatch(r"classes\d*\.dex", n)),
+                               key=lambda n: (len(n), n))
+            if not dex_names:
+                raise ValueError("slim module carries no classes*.dex")
+            dex = b"".join(mz.read(n) for n in dex_names)
+        missing = [r for r in target["required"] if r not in dex]
+        if missing:
+            raise ValueError("slim module is missing required classes: "
+                             + ", ".join(m.decode() for m in missing))
+        present = [b for b in target["banned"] if b in dex]
         if present:
             raise ValueError("slim module still contains dropped vendor code: "
                              + ", ".join(p.decode() for p in present))
@@ -794,6 +964,9 @@ def verify(apk: Path, original: Path, module: Path, bypass: int,
             "originalSha256": sha256(original), "embeddedModuleSha256": sha256(module),
             "mode": "integrated", "sigBypassLevel": bypass,
             "nativeRuntimeEntries": so, "deviceRuntimeTested": False,
+            "slimDexEntries": dex_names,
+            "slimRequiredChecked": len(target["required"]),
+            "slimBannedChecked": len(target["banned"]),
             "installation": (f"与原厂签名不同，不能覆盖安装官方{target['label']}；"
                              "需先卸载官方版（会清除登录态与离线地图）。"),
             "target": target["package"]}

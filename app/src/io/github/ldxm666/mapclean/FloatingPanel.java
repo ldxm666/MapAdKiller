@@ -324,28 +324,37 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
      * 只做 UI，不动任何已有逻辑；DonateAsset 解码失败时退化为一行文字，绝不崩。
      */
     private View buildDonateRow() {
+        // ★ 2.3.0：**点击区放大**。
+        // 原来只有「赞赏支持」那一行 13sp 文字可点：高度约 21dp、
+        // 宽度也只有文字那么宽，远低于 Android 无障碍的 48dp 最小触控尺寸，
+        // 用户反馈「点不到」。现在**整块可点**：
+        //   · 最小高度 48dp；上下各 12dp、左右各 20dp 内边距（点击热区随之扩大）；
+        //   · 浪潮背景铺满整行（原来只铺在文字上，看不出哪里能点）；
+        //   · 副标题也要能点（原来它是死的，点它没反应）。
         LinearLayout wrap = new LinearLayout(context);
         wrap.setOrientation(LinearLayout.VERTICAL);
-        wrap.setPadding(UiKit.dp(context, 20), UiKit.dp(context, 6), UiKit.dp(context, 20), 0);
+        wrap.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        wrap.setMinimumHeight(UiKit.dp(context, 48));
+        wrap.setPadding(UiKit.dp(context, 20), UiKit.dp(context, 12),
+                UiKit.dp(context, 20), UiKit.dp(context, 12));
+        wrap.setBackground(UiKit.rippleBare(cRipple(), UiKit.dpf(context, 10f)));
+        wrap.setContentDescription("赞赏支持，感谢投喂");
+        wrap.setOnClickListener(new OnClickListener() {
+            @Override public void onClick(View v) { showDonate(); }
+        });
+        UiKit.pressable(wrap, 0.96f);
 
         final TextView title = new TextView(context);
         title.setText("赞赏支持");
-        title.setTextSize(13f);
+        title.setTextSize(13.5f);
         title.setTextColor(cTxP());
-        title.setContentDescription("赞赏支持，感谢投喂");
-        title.setPadding(UiKit.dp(context, 4), UiKit.dp(context, 3), UiKit.dp(context, 4), 0);
-        title.setBackground(UiKit.rippleBare(cRipple(), UiKit.dpf(context, 8f)));
-        UiKit.pressable(title, 0.96f);
-        title.setOnClickListener(new OnClickListener() {
-            @Override public void onClick(View v) { showDonate(); }
-        });
         wrap.addView(title);
 
         TextView sub = new TextView(context);
-        sub.setText("感谢投喂 · 扫码请作者喝杯咖啡");
-        sub.setTextSize(10.5f);
+        sub.setText("点这里扫码 · 请作者喝杯咖啡");
+        sub.setTextSize(11f);
         sub.setTextColor(cTxS());
-        sub.setPadding(UiKit.dp(context, 4), 0, UiKit.dp(context, 4), 0);
+        sub.setPadding(0, UiKit.dp(context, 2), 0, 0);
         wrap.addView(sub);
         return wrap;
     }
@@ -772,7 +781,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
             @Override public void onClick(View v) {
                 // A known-newer version: the useful action is opening it, not re-checking.
                 if (updateState == U_NEW) {
-                    openUrl(Version.RELEASES);
+                    openUrl(updateDownloadUrl());
                     return;
                 }
                 if (updateState == U_FAILED) {
@@ -849,20 +858,33 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
             // 「镜像下载」 only makes sense when there is something to download, and it names
             // the mirror it will open so the user knows what is about to happen.
             aboutMirrorRow.setVisibility(badge ? VISIBLE : GONE);
-            if (badge) aboutMirrorRow.setText("镜像下载（" + mirrorHost() + "）");
+            if (badge) aboutMirrorRow.setText("从服务器下载（" + mirrorHost() + "）");
         }
     }
 
-    /** Host of the first download mirror, for the 「镜像下载（gh-proxy.com）」 label. */
-    private static String mirrorHost() {
+    /** 下载地址的 host，用于「从服务器下载（47.109.49.93）」这类标签。 */
+    private String mirrorHost() {
         try {
-            String url = Version.DOWNLOAD_MIRRORS[0];
+            String url = UpdateChecker.downloadUrl(context);
+            if (url == null) return "服务器";
             java.net.URL u = new java.net.URL(url);
             String host = u.getHost();
-            return host == null ? "镜像" : host;
+            return host == null ? "服务器" : host;
         } catch (Throwable t) {
-            return "镜像";
+            return "服务器";
         }
+    }
+
+    /**
+     * 新版本的下载地址：优先服务端清单（内置版会自动选宿主对应的那个包），
+     * 拿不到才退回项目发布页 —— 后者需要能访问 GitHub，只作兜底。
+     */
+    private String updateDownloadUrl() {
+        try {
+            String url = UpdateChecker.downloadUrl(context);
+            if (url != null) return url;
+        } catch (Throwable ignored) { }
+        return Version.RELEASES;
     }
 
     /** 12% tint of a state colour, used as the chip's plate. */
@@ -1189,6 +1211,14 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
             renderSearchResults();
         } else {
             Group g = groups[index];
+            // 服务器公告：**第一个 chip 的顶部**细横幅（未读时高亮 + 红点，已读后退成一行常驻）。
+            // ★ 不能用 label=="首页" 判断：高德第一页叫「首页」，百度叫「界面」，腾讯叫「悬浮窗」
+            //   —— 按名字匹配会让百度/腾讯永远看不到横幅（百度真机验证时踩到）。
+            // 「其他」页那两行是兜底入口，主入口在这里 —— 用户不会为了看公告翻进其他页。
+            if (index == 0) {
+                View announce = buildAnnounceBanner();
+                if (announce != null) body.addView(announce);
+            }
             // 首次使用：抓取官方下发数据（只在「首页」分组顶部）
             if ("首页".equals(g.label)) {
                 View capture = buildCaptureBanner();
@@ -1202,10 +1232,6 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
             if (g.note != null) body.addView(groupNote(g.note));
             if (g.items != null) {
                 for (Item item : g.items) body.addView(buildRow(item));
-            } else if (g.metrics != null) {
-                for (Metric m : g.metrics) body.addView(buildMetricRow(m));
-                body.addView(buildAppearanceResetRow());
-                View offRow = buildFloatOffRow(); if (offRow != null) body.addView(offRow);
             } else if (g.sections != null) {
                 for (Object[] section : g.sections) {
                     Item[] items = (Item[]) section[1];
@@ -1214,9 +1240,22 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
                     for (Item item : items) body.addView(buildRow(item));
                 }
             }
+            // 滑块行**独立于 items/sections** 渲染：巡航页要「先开关、后阈值」。
+            // 「恢复默认」和「关闭悬浮窗」只属于纯外观页 —— 巡航页挂上去就是错的，
+            // 所以用 items == null 做判据，别让它跑到别的页面。
+            if (g.metrics != null) {
+                for (Metric m : g.metrics) body.addView(buildMetricRow(m));
+                if (g.items == null) {
+                    body.addView(buildAppearanceResetRow());
+                    View offRow = buildFloatOffRow(); if (offRow != null) body.addView(offRow);
+                }
+            }
             // 当前版本 / 检查更新：挂在「其他」页底部。免 root 内置版没有 MainActivity，
             // 这两行是它唯一的版本信息与更新入口。
             if (g.about) {
+                // 服务器公告：一行开关 + 一行入口。排在版本行上面 —— 公告是作者要用户
+                // 立刻看到的东西，版本号是查资料时才看的。
+                body.addView(buildAnnounceRows());
                 body.addView(buildCaptureLogRow());
                 body.addView(buildAboutRows());
             }
@@ -1392,6 +1431,180 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
         return row;
     }
 
+    /* ------------------------------------------------------------------ 服务器公告 */
+
+    /**
+     * 「首页」顶部那条细横幅 —— 公告的**主入口**。
+     *
+     * <p>两种状态，同一处渲染：
+     * <ul>
+     *   <li><b>有未读</b>：accent 色调底 + 红点 + 「查看 ›」，一眼能看见；</li>
+     *   <li><b>已读</b>：退成一行常驻的「最新公告 ›」，只提供重看。</li>
+     * </ul>
+     *
+     * <p>用的全是这个文件已有的原子：{@link UiKit#plate} 做底色、{@link UiKit#ripple} 做水波、
+     * {@link UiKit#pressable} 做按压反馈，配色取 {@code cAccent/cTxS/cDotBad}，
+     * 和首页「首次使用」卡片是同一套观感。
+     */
+    private View buildAnnounceBanner() {
+        boolean unread = false;
+        String latest = null;
+        try {
+            unread = Announce.hasUnread(context);
+            latest = Announce.latestTitle(context);
+        } catch (Throwable ignored) { }
+
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(UiKit.dp(context, 6), UiKit.dp(context, 8),
+                UiKit.dp(context, 6), 0);
+
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(UiKit.dp(context, 12), UiKit.dp(context, 10),
+                UiKit.dp(context, 12), UiKit.dp(context, 10));
+        int tint = unread ? cAccent() : cTxS();
+        row.setBackground(UiKit.ripple(cRipple(),
+                UiKit.plate((tint & 0x00FFFFFF) | (unread ? 0x1F000000 : 0x0D000000),
+                        UiKit.dpf(context, 14f)), UiKit.dpf(context, 14f)));
+        row.setClickable(true);
+        UiKit.pressable(row, 0.99f);
+
+        if (unread) {
+            View dot = new View(context);
+            dot.setBackground(UiKit.plate(cDotBad(), UiKit.dpf(context, 4f)));
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(
+                    UiKit.dp(context, 8), UiKit.dp(context, 8));
+            dotLp.rightMargin = UiKit.dp(context, 8);
+            row.addView(dot, dotLp);
+        }
+
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(context);
+        title.setText(unread ? "服务器公告" : "最新公告");
+        title.setTextSize(13f);
+        title.setTextColor(unread ? cAccent() : cTxP());
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        texts.addView(title);
+        if (latest != null) {
+            TextView note = new TextView(context);
+            note.setText(latest);
+            note.setTextSize(11f);
+            note.setTextColor(cTxS());
+            note.setSingleLine(true);
+            note.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            texts.addView(note);
+        }
+        row.addView(texts, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView action = new TextView(context);
+        action.setText(unread ? "查看 ›" : "›");
+        action.setTextSize(12f);
+        action.setTextColor(unread ? cAccent() : cTxS());
+        row.addView(action, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        row.setOnClickListener(new OnClickListener() {
+            @Override public void onClick(View v) {
+                try {
+                    Announce.showLatest(context);
+                } catch (Throwable t) {
+                    Log.w(TAG, "event=announce_show_fail err=" + t.getClass().getSimpleName());
+                }
+            }
+        });
+        wrap.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        return wrap;
+    }
+
+    /** 公告读完后的刷新：面板还开着就重建当前页，横幅的红点立刻消失。 */
+    private Runnable announceRefresher() {
+        return new Runnable() {
+            @Override public void run() {
+                if (!open) return;
+                try { select(Math.max(0, selected), false); } catch (Throwable ignored) { }
+            }
+        };
+    }
+
+    /**
+     * 「其他」页顶部的两行：**接收服务器公告**（开关）+ **最新公告**（入口）。
+     *
+     * <p>开关行直接走 {@link #buildRow(Item)} —— 它已经处理了「读 → 拨 → 写 → 写失败回滚 →
+     * 写盘日志」整条链，且注册进 {@code switches}，面板每次 {@link #sync()} 都会重读。
+     * 自己再画一个 GlassSwitch 等于把那条链复制一遍，迟早会和别处不一致。
+     *
+     * <p>入口行是纯动作（没有开关），所以单独画：标题 + 一行「最近一条公告是什么」+ 右侧箭头。
+     * 点它重看缓存的那条；缓存为空时 {@link Announce#showLatest} 会强制查一次。
+     */
+    private View buildAnnounceRows() {
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(UiKit.dp(context, 6), UiKit.dp(context, 4),
+                UiKit.dp(context, 6), 0);
+        wrap.addView(buildRow(new Item(Announce.K_ON, "接收服务器公告",
+                "只在启动后和打开面板时查一次，6 小时内不重复联网；已经是同一条不会再弹。")));
+        wrap.addView(buildAnnounceEntry());
+        return wrap;
+    }
+
+    /** 「最新公告」入口行：动作行，样式对齐 {@link #buildRow} 的左右内边距与字阶。 */
+    private View buildAnnounceEntry() {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(UiKit.dp(context, 14), UiKit.dp(context, 11),
+                UiKit.dp(context, 14), UiKit.dp(context, 11));
+        row.setBackground(UiKit.rippleBare(cRipple(), UiKit.dpf(context, 14f)));
+        row.setClickable(true);
+
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+
+        TextView title = new TextView(context);
+        title.setText("最新公告");
+        title.setTextSize(14.5f);
+        title.setTextColor(cTxP());
+        texts.addView(title);
+
+        TextView note = new TextView(context);
+        String latest = null;
+        try { latest = Announce.latestTitle(context); } catch (Throwable ignored) { }
+        note.setText(latest != null ? latest : "点开查看作者最近发布的一条公告");
+        note.setTextSize(11.5f);
+        note.setTextColor(cTxS());
+        note.setLineSpacing(0, 1.16f);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        nlp.topMargin = UiKit.dp(context, 3);
+        texts.addView(note, nlp);
+
+        row.addView(texts, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView arrow = new TextView(context);
+        arrow.setText("›");
+        arrow.setTextSize(20f);
+        arrow.setTextColor(cTxS());
+        row.addView(arrow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        row.setOnClickListener(new OnClickListener() {
+            @Override public void onClick(View v) {
+                try {
+                    Announce.showLatest(context);
+                } catch (Throwable t) {
+                    Log.w(TAG, "event=announce_show_fail err=" + t.getClass().getSimpleName());
+                }
+            }
+        });
+        return row;
+    }
+
     /* ------------------------------------------------------------------ 关于 / 更新 */
 
     /**
@@ -1433,7 +1646,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
         update.setOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
                 if (updateState == U_NEW) {
-                    openUrl(Version.RELEASES);
+                    openUrl(updateDownloadUrl());
                     return;
                 }
                 startUpdateCheck(true);
@@ -1457,7 +1670,12 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
         UiKit.pressable(aboutMirrorRow, 0.96f);
         aboutMirrorRow.setOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
-                openUrl(Version.DOWNLOAD_MIRRORS[0]);
+                String url = UpdateChecker.downloadUrl(context);
+                if (url == null) {
+                    toast("尚未获取下载地址，请先检查更新");
+                    return;
+                }
+                openUrl(url);
             }
         });
         LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
@@ -2320,6 +2538,13 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
             UpdateChecker.maybeAutoCheck(context);
         } catch (Throwable ignored) {
         }
+        // 服务器公告：面板打开是「用户在前台」的明确信号，也是唯一保证有 Activity 可依附的
+        // 时机。节流（6h）在 Announce 内部；拿不到新公告时它只把之前没弹出去的补弹一次。
+        try {
+            Announce.setOnChanged(announceRefresher());
+            Announce.onPanelOpen(context);
+        } catch (Throwable ignored) {
+        }
         // 每个新版本只提示一次，且只在用户打开面板时提示 —— 不在 App 启动时打扰。
         try {
             if (updateState == U_NEW && UpdateChecker.shouldNotify(context)) {
@@ -2551,6 +2776,10 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
     private static Group[] buildGroups() {
         Group[] vendor = Vendor.tmap() ? TmapPanel.groups()
                 : (Vendor.baidu() ? BaiduPanel.groups() : AmapPanel.groups());
+        // 服务器公告与厂商无关，落点统一收在「其他」页：高德 / 百度的目录自带这一页
+        // （about=true），腾讯的目录里没有，这里补一页。放在厂商目录之外，
+        // 三份目录就不必各维护一遍同样的两行。
+        vendor = withAnnouncePage(vendor);
         // 模块模式（root/LSPosed）**没有悬浮窗** ⇒ 「外观」整页（球大小/透明度/关闭悬浮窗）
         // 不注册，chip 也不出现。内置版保持原样。
         if (!FloatingConfig.isEmbedded()) return vendor;
@@ -2558,6 +2787,22 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
         System.arraycopy(vendor, 0, out, 0, vendor.length);
         out[vendor.length] = new Group("外观", APPEARANCE,
                 "悬浮球与面板的外观。拖动滑块即时预览，松手后保存。");
+        return out;
+    }
+
+    /**
+     * 保证存在一页带 {@code about} 的「其他」。
+     *
+     * <p>这一页承载的东西与厂商无关：<b>服务器公告</b>（开关 + 最新公告入口）和版本行。
+     * 高德 {@code othersItems()} 与百度 {@code groups()} 自己声明了 {@code about=true}；
+     * 腾讯的分类全部来自 {@code Spec.cats()}，没有这一页 —— 于是它的公告入口曾经无处可放。
+     */
+    private static Group[] withAnnouncePage(Group[] vendor) {
+        if (vendor == null) vendor = new Group[0];
+        for (Group g : vendor) if (g.about) return vendor;
+        Group[] out = new Group[vendor.length + 1];
+        System.arraycopy(vendor, 0, out, 0, vendor.length);
+        out[vendor.length] = new Group("其他", new Item[0], "服务器公告与版本信息。", true);
         return out;
     }
 

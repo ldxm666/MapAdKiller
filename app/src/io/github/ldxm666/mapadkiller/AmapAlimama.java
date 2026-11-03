@@ -46,9 +46,22 @@ import io.github.libxposed.api.XposedInterface;
  *   <li>{@code alimama_splash_off} —— 关掉后开屏广告请求照发（与旧版一致）；</li>
  *   <li>{@code alimama_log_off} —— 关掉后广告埋点照传。</li>
  * </ul>
- * 唯一需要真机确认的副作用：拦截开屏广告请求后，若宿主有一个"等广告回调"的开屏容器，
- * 它可能等满超时再放行 ⇒ 冷启动变慢。开屏显示本身已由 {@code canShowSplash=false} 挡掉，
- * 所以理论上不会有容器在等；这一条**必须真机确认**（见 subprocess-impl.md 的验证步骤）。
+ * <h3>与开屏页的关系（2.3.0 改了，白屏修复）</h3>
+ * 2.2.x 另外用 {@code BootBizDataPreloaderImpl.canShowSplash()=false} 把**开屏页整个摘掉**，
+ * 于是冷启首帧没有任何东西盖住还没 ready 的首页 —— 这就是「进入就白屏」的直接来源。
+ * DEX 实查 17.02.0.1541（origin.apk/classes5.dex）该方法返回 {@code Ljava/lang/Boolean;}（装箱），
+ * 而 {@code H.FALSE} 返回的就是 {@code Boolean.FALSE}，**返回类型本来就是匹配的** ——
+ * 所以不存在「类型不对被 HookGuard 抛异常熔断」这回事，那条 hook 在真机上是生效的、正在白屏。
+ *
+ * <p>2.3.0 起不再改 {@code canShowSplash}：开屏页保留，广告请求在本类短路，跳过的只是广告内容
+ * （见 {@code AmapHooks} 的对应注释）。⇒ 结论反过来：现在**一定**有一个开屏容器在等这条请求的
+ * 回调 —— 放锁回调从「保险」变成「硬要求」，所以 {@link #block} 里放锁失败会直接放行请求。
+ *
+ * <p>两个开关都在设置面板里，默认 true（=已拦截）：
+ * <ul>
+ *   <li>{@code alimama_splash_off} —— 关掉后开屏广告请求照发（与旧版一致）；</li>
+ *   <li>{@code alimama_log_off} —— 关掉后广告埋点照传。</li>
+ * </ul>
  */
 final class AmapAlimama {
 
@@ -62,7 +75,12 @@ final class AmapAlimama {
 
     static void install(final ClassLoader cl) {
         // ★ 安装期门控（两条各自独立）：关掉的那条**根本不装**，零成本。
-        final boolean splashOn = Config.installGate(Config.K_ALIMAMA_SPLASH_OFF);
+        // ★ 2.3.0：开屏广告拦截改成**显式开关，默认不拦**。
+        // 用户反馈「开屏页被拦了」—— 开屏**页面**本身是高德自己的界面，
+        // 不是广告；而拦掉它的广告请求会让这张页**拿不到内容又不结束**，
+        // 表现就是「白屏几秒才进去」。所以默认不拦，保持与官方一致。
+        // 要去广告的话在面板里显式打开（那时属于用户知情的取舍）。
+        final boolean splashOn = Boolean.TRUE.equals(Config.explicit(Config.K_ALIMAMA_SPLASH_OFF));
         final boolean logOn = Config.installGate(Config.K_ALIMAMA_LOG_OFF);
         if (!splashOn && !logOn) {
             H.log(Log.INFO, MainHook.TAG, "event=hook_skipped key=alimama_splash_off+alimama_log_off"
@@ -84,14 +102,18 @@ final class AmapAlimama {
             }
             if (splashOn) {
                 H.hookSig(holder, "sendSplashScreen", "amap_alimama_splash",
-                        block("sendSplashScreen", "ws/valueadded/alimama/splash_screen"),
+                        // releaseLock=true：zg5.run() 拿 a76 锁后才发这条请求，锁只在
+                        // Callback#onFailure/onSuccess 里放 ⇒ 吞掉请求前必须补一次失败回调。
+                        block("sendSplashScreen", "ws/valueadded/alimama/splash_screen", true),
                         splash, falcon, callback);
             } else {
                 H.log(Log.INFO, MainHook.TAG, "event=hook_skipped key=alimama_splash_off reason=switch_off");
             }
             if (logOn) {
                 H.hookSig(holder, "sendH5Log", "amap_alimama_h5log",
-                        block("sendH5Log", "ws/h5_log"),
+                        // releaseLock=false：埋点是静态 void 打点函数，调用方不等返回值，也没有锁；
+                        // 对埋点请求补 onFailure 只会让宿主多记一条失败、甚至进重试队列。
+                        block("sendH5Log", "ws/h5_log", false),
                         h5log, falcon, callback);
             } else {
                 H.log(Log.INFO, MainHook.TAG, "event=hook_skipped key=alimama_log_off reason=switch_off");
@@ -102,19 +124,21 @@ final class AmapAlimama {
     }
 
     /**
-     * 两个目标方法都是 {@code void} ⇒ 短路只有一种正确写法：{@code return null}（不 proceed）。
+     * 短路一个 {@code void} 请求方法。
      *
-     * <p>不能"proceed 之后再返回"：请求已经在 {@code proceed} 里发出去了，拦截就没有意义。
+     * <p>两个目标方法都是 {@code void} ⇒ 拦截只有一种正确写法：{@code return null}（不 proceed）。
+     * 不能"proceed 之后再返回"：请求已经在 {@code proceed} 里发出去了，拦了等于没拦。
      *
-     * <p><b>2026-10-27 真机事故修复</b>：只 return 不回调 ⇒ 开屏永久卡死。
-     * 调用方 {@code zg5.run()} 拿到 {@code a76} 锁后把回调
-     * {@code com.autonavi.minimap.net.Callback} 传进来，**锁只在 onSuccess/onFailure 里释放**
-     * （{@code a76.m77b()}）。把请求吞掉就再也没有回调 ⇒ 锁永不释放 ⇒ 宿主一直停在
-     * SplashActivity（实测点图标 4 分钟不进首页）。所以短路后必须补一次
-     * {@code onFailure(request, null)}：Callback.onFailure 只做埋点 + 释放锁，不碰异常对象，
-     * 传 null 安全。
+     * <p><b>拦截与放锁必须成对</b>：{@code zg5.run()} 拿到 {@code a76} 锁后才发这条请求，而锁只在
+     * {@code Callback#onFailure}/{@code onSuccess} 里释放（{@code a76.m77b()}）。把请求吞掉却没有
+     * 回调 ⇒ 锁永不释放 ⇒ 宿主一直停在 SplashActivity（2026-10-27 真机实测：点图标 4 分钟不进
+     * 首页，全程白屏）。所以 {@code releaseLock=true} 的钩子在 return 之前必须先补一次失败回调。
+     *
+     * <p><b>放锁失败就放行</b>：回调对象认不出来时（宿主换混淆形态），宁可放过这一条广告请求，
+     * 也不能把宿主钉在白屏上 —— 请求照发，锁自然会在宿主的真实回调里释放。
      */
-    private static XposedInterface.Hooker block(final String label, final String endpoint) {
+    private static XposedInterface.Hooker block(final String label, final String endpoint,
+                                                final boolean releaseLock) {
         return new XposedInterface.Hooker() {
             private boolean reported;
             @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
@@ -122,13 +146,25 @@ final class AmapAlimama {
                     if (!reported) {
                         reported = true;
                         H.log(Log.INFO, MainHook.TAG, "event=alimama_blocked method=" + label
-                                + " endpoint=" + endpoint);
+                                + " endpoint=" + endpoint + " release_lock=" + releaseLock);
                     }
                 } catch (Throwable ignored) {
                 }
-                try {
-                    releaseCallback(chain.getArgs().toArray());
-                } catch (Throwable ignored) {
+                if (releaseLock) {
+                    boolean released = false;
+                    try {
+                        released = releaseCallback(chain.getArgs().toArray());
+                    } catch (Throwable ignored) {
+                        // releaseCallback 自己已经全包了；这里再兜一层，绝不让放锁逻辑抛出去。
+                    }
+                    if (!released) {
+                        try {
+                            H.log(Log.WARN, MainHook.TAG, "event=alimama_passthrough method=" + label
+                                    + " reason=callback_unreleased");
+                        } catch (Throwable ignored) {
+                        }
+                        return chain.proceed();
+                    }
                 }
                 // 装上就无条件短路（安装期门控已决定装不装），拦截器里零 Config 读。
                 return null;
@@ -137,28 +173,108 @@ final class AmapAlimama {
     }
 
     /**
-     * 补一次 {@code onFailure(AosRequest, AosResponseException)}：释放宿主开屏锁。
-     * 全反射调用，不依赖宿主类在编译期可见。
+     * 补一次 {@code onFailure(...)}，让宿主自己把开屏锁放掉。
+     *
+     * <p>签名实查（17.02.0.1541，origin.apk）：{@code classes6.dex} 里
+     * <pre>
+     *   Lcom/autonavi/minimap/alimama/AlimamaRequestHolder;
+     *     sendSplashScreen(SplashScreenRequest, falcon.base.a, AosResponseCallback)V  ← 实现
+     *     sendSplashScreen(SplashScreenRequest, AosResponseCallback)V                 ← 2 参转发
+     *   Lcom/amap/bundle/aosservice/response/AosResponseCallback;   （接口）
+     *     public abstract onFailure(AosRequest, AosResponseException)V               ← 2 参、void
+     *   Lcom/autonavi/minimap/net/Callback;   （zg5.run() 真正传进来的那个）
+     *     public onFailure(AosRequest, AosResponseException)V                        ← 2 参、void
+     * </pre>
+     * 这两个 onFailure 都是 public、2 参、void —— 但**不能只认 2 参**：宿主每次大版本都可能换混淆
+     * 形态（1 参的 {@code onFailure(Throwable)} 同样常见），所以按「名字 onFailure + 返回 void +
+     * 形参 1~2 个 + 无基本类型」筛，逐个 setAccessible 试，成功一次就停。
+     *
+     * <p>不写死参数下标：3 参实现是 {@code (request, falcon.base.a, callback)}，回调永远在最后一个
+     * （2 参转发时同理），所以从尾往头找。旧写法按正序扫**全部**参数，会先撞上 {@code falcon.base.a}
+     * 那个中间对象，给无关对象也发一次 onFailure。
+     *
+     * <p>永远不抛：放锁失败只影响一条日志，绝不能把宿主搞挂。
+     *
+     * @return true = 失败回调已经发出去（锁会被释放）
      */
-    private static void releaseCallback(Object[] args) {
-        if (args == null || args.length == 0) return;
+    private static boolean releaseCallback(Object[] args) {
+        if (args == null || args.length == 0) return false;
         Object request = args[0];
-        for (Object a : args) {
-            if (a == null) continue;
-            java.lang.reflect.Method m = null;
+        StringBuilder tried = new StringBuilder();
+        for (int i = args.length - 1; i >= 0; i--) {
+            Object cb = args[i];
+            if (cb == null || cb == request) continue;
+            if (fireFailure(cb, request, tried)) return true;
+        }
+        try {
+            H.log(Log.WARN, MainHook.TAG, "event=alimama_callback_lost args=" + describe(args)
+                    + " tried=[" + tried.toString().trim() + "]");
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /** 在一个对象上找 onFailure 发一次。找不到/全失败返回 false，绝不抛。 */
+    private static boolean fireFailure(Object cb, Object request, StringBuilder tried) {
+        for (Class<?> k = cb.getClass(); k != null && k != Object.class; k = k.getSuperclass()) {
+            java.lang.reflect.Method[] methods;
             try {
-                for (java.lang.reflect.Method cand : a.getClass().getMethods()) {
-                    if (!"onFailure".equals(cand.getName())) continue;
-                    Class<?>[] ps = cand.getParameterTypes();
-                    if (ps != null && ps.length == 2) { m = cand; break; }
+                // ★ getDeclaredMethods：混淆后的包私有实现类 / 匿名内部类也拿得到，
+                //   getMethods 只给 public，那正是旧写法在换版后静默失效的地方。
+                methods = k.getDeclaredMethods();
+            } catch (Throwable t) {
+                continue;
+            }
+            for (java.lang.reflect.Method m : methods) {
+                if (!"onFailure".equals(m.getName())) continue;
+                if (m.getReturnType() != void.class) continue;
+                Class<?>[] ps = m.getParameterTypes();
+                if (ps == null || ps.length < 1 || ps.length > 2) continue;
+                if (hasPrimitive(ps)) continue;          // 形参里有 int/boolean ⇒ null 填不进去
+                try {
+                    m.setAccessible(true);
+                    if (ps.length == 1) {
+                        m.invoke(cb, argFor(ps[0], request));
+                    } else {
+                        m.invoke(cb, argFor(ps[0], request), argFor(ps[1], request));
+                    }
+                    H.log(Log.INFO, MainHook.TAG, "event=alimama_callback_released cb="
+                            + cb.getClass().getName() + " via="
+                            + k.getSimpleName() + "#" + ps.length + "arg");
+                    return true;
+                } catch (Throwable t) {
+                    Throwable cause = t.getCause() == null ? t : t.getCause();
+                    tried.append(m.getName()).append('/').append(ps.length).append(':')
+                            .append(cause.getClass().getSimpleName()).append(' ');
                 }
-                if (m == null) continue;
-                m.setAccessible(true);
-                m.invoke(a, request, null);
-                H.log(Log.INFO, MainHook.TAG, "event=alimama_callback_released cb="
-                        + a.getClass().getName());
-            } catch (Throwable ignored) {
             }
         }
+        return false;
+    }
+
+    /** 参数位置填什么：优先宿主自己那个 request；能收 Throwable 的给一个真异常；其余给 null。 */
+    private static Object argFor(Class<?> type, Object request) {
+        if (type.isInstance(request)) return request;
+        if (type.isAssignableFrom(RuntimeException.class)) {
+            return new RuntimeException("mapadkiller: alimama request blocked");
+        }
+        // 只接受具体异常子类时给 null：宿主的 onFailure 只做埋点 + 放锁，不碰异常对象。
+        return null;
+    }
+
+    private static boolean hasPrimitive(Class<?>[] ps) {
+        for (Class<?> p : ps) {
+            if (p.isPrimitive()) return true;
+        }
+        return false;
+    }
+
+    /** 只把参数的类型名打进日志：宿主对象没有可读的 toString，别在日志里踩它的实现。 */
+    private static String describe(Object[] args) {
+        StringBuilder sb = new StringBuilder();
+        for (Object a : args) {
+            sb.append(a == null ? "null" : a.getClass().getName()).append(',');
+        }
+        return sb.toString();
     }
 }

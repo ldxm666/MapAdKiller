@@ -73,29 +73,60 @@ public final class Spec {
     };
 
     /**
-     * 各键的默认「可见」值。
+     * 各键的默认「可见」值 —— **设置页、hook 侧、内置 JSON 三处必须同源**。
      *
-     * <p>三条规则，顺序即优先级：
+     * <p>规则按优先级：
      * <ol>
-     *   <li>{@link Cfg#K_DEBUG} —— 默认关（唯一默认关的非工具键）；</li>
-     *   <li>{@code tool_<id>}（逐项工具开关）—— 交给 {@link #defaultToolVisible}，
-     *       只有 {@link #DEFAULT_ON_TOOLS} 里那批内置工具默认显示，其余默认隐藏；</li>
-     *   <li>其余一律默认显示 —— 这是<b>失效安全</b>的选择：模块挂不上或规则 miss 时
-     *       界面保持原样，用户要的是"能关掉"，不是"默认被关掉"。</li>
+     *   <li>{@link Cfg#K_DEBUG} —— 默认关；</li>
+     *   <li>{@link #K_TOOL_PRESET} —— 默认关（钩子侧 {@code TmapTools#presetOn()} 一直按
+     *       {@code false} 执行，面板曾经显示「开」，两侧漂移）；</li>
+     *   <li>底栏 {@code tab_*} —— <b>首页 / 我的默认显示，探索 / 行程 / 附近默认隐藏</b>。
+     *       后三个是腾讯的运营/推广页，不是地图功能；</li>
+     *   <li>{@link #DEFAULT_OFF} 里的键 —— 推广 / 运营模块，默认隐藏
+     *       （首页推荐流、地点详情「大家都在看」、搜索框上方 chip 行、「我的」页的积分 /
+     *       小程序 / 活动专区）；</li>
+     *   <li>{@code tool_<id>} —— 交给 {@link #defaultToolVisible}，只有
+     *       {@link #DEFAULT_ON_TOOLS} 那批内置工具默认显示；</li>
+     *   <li>其余（首页 / 我的、搜索、导航、地图图标、家/公司、收藏、车辆…）默认显示 ——
+     *       这些是功能位，模块挂不上时界面保持原样。</li>
      * </ol>
      *
-     * <p>{@link #K_TOOL_PRESET} 是个例外，必须默认 <b>false</b>：钩子侧
-     * {@code TmapTools#presetOn()} 读的就是 {@code Cfg.visible(K_TOOL_PRESET, false)}，
-     * 而本方法以前对它返回 true —— 面板显示「开」、钩子按「关」执行，
-     * 用户看到的是"开关是开的，却什么都没发生"。两侧的缺省必须一致。
+     * <p>★ 2.3.1 修复「全新安装底栏仍是四个 tab、chip 行还在」：以前本方法只对
+     * {@code tool_*} / debug 生效，其余一律 true；而内置 JSON 里 {@code tab_*} 根本不存在、
+     * {@code ui_seek_chips} 等又是 {@code null}（跳过不写）。两侧叠加的结果就是干净安装
+     * 等于「什么都没精简」。现在本表与 {@code res/raw/default_config.json} 的
+     * {@code tmapclean_config} 组逐键对齐，hook 侧也统一走 {@link Cfg#visible(String)}。
      */
     public static boolean defaultVisible(String key) {
         if (key == null) return true;
         if (Cfg.K_DEBUG.equals(key)) return false;
         if (K_TOOL_PRESET.equals(key)) return false;
+        if (DEFAULT_OFF.contains(key)) return false;
+        if (key.startsWith(K_TAB)) {
+            // 功能位：首页（返回地图的锚点）与「我的」。
+            return (K_TAB + "homePage").equals(key) || (K_TAB + "mePage").equals(key);
+        }
         if (key.startsWith(K_TOOL)) return defaultToolVisible(key.substring(K_TOOL.length()));
         return true;
     }
+
+    /**
+     * 默认隐藏的推广 / 运营位。
+     *
+     * <p>与 {@code res/raw/default_config.json} 的 {@code tmapclean_config} 组保持一致：
+     * 资源里这些键写的是 {@code false}，这里返回 {@code false}。改任何一边都要同步另一边，
+     * 否则会出现「面板显示关、实际没关」（或反过来）。
+     */
+    private static final java.util.Set<String> DEFAULT_OFF =
+            java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<String>(
+                    java.util.Arrays.asList(
+                            K_SEEK_CHIPS,          // 搜索框上方 chip 行（问一问 / 厕所 / 超市 / 美食）
+                            K_HOME_FEED,           // 首页下方推荐信息流卡片
+                            K_LOOK_AND_LOOK,       // 地点详情「大家都在看」
+                            K_MY_POINTS,           // 我的 · 积分中心
+                            K_MY_MINIPROGRAM,      // 我的 · 小程序
+                            K_MY_ACTIVITY_ZONE     // 我的 · 活动专区
+                    )));
 
     /**
      * 常用预设保留几个入口。

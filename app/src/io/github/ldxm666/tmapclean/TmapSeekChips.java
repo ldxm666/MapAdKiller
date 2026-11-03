@@ -16,7 +16,7 @@ final class TmapSeekChips {
         Class<?> base = H.cls(cl, "com.tencent.map.api.view.MapBaseView");
         H.hookSig(base, "setSeekChipRowHeight", "tmap_seek_row", new XposedInterface.Hooker() {
             @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                boolean hide = !Cfg.visible(Spec.K_SEEK_CHIPS, true);
+                boolean hide = !Cfg.visible(Spec.K_SEEK_CHIPS);
                 Object result = hide ? chain.proceed(new Object[]{Integer.valueOf(0)})
                         : chain.proceed();
                 apply(chain.getThisObject());
@@ -32,7 +32,7 @@ final class TmapSeekChips {
         Object parent = H.call(base, "getSeekParentView");
         if (!(parent instanceof ViewGroup)) return;
         View view = (View) parent;
-        boolean show = Cfg.visible(Spec.K_SEEK_CHIPS, true);
+        boolean show = Cfg.visible(Spec.K_SEEK_CHIPS);
         if (!show) {
             // The host uses this field for the floating row's travel and spacing.
             H.setField(base, "seekChipRowHeight", Integer.valueOf(0));

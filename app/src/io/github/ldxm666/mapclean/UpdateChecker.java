@@ -6,23 +6,48 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import org.json.JSONObject;
+
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 /**
- * 版本检查：打开设置页时自动去 GitHub Releases 拉最新版本号，比本机新就提示更新。
+ * 版本检查：打开设置页 / 面板时去**作者自己的服务器**拉最新版本号，比本机新就提示更新。
  *
- * 设计要点（都是真机/网络环境下必须的）：
- *   - **多源回退**：国内直连 `api.github.com` 常失败，按 {@link Version#UPDATE_SOURCES}
- *     依次尝试（官方 → kkgithub 镜像 → 两个反代），任一成功即止；
- *   - **6 小时节流**：自动检查最多 6 小时一次，手动点版本行可强制刷新；
- *   - **失败不打扰**：全部源都拿不到时只在界面上显示「未获取（点此重试）」，
- *     绝不弹错误弹窗（模块离线也必须完全可用）；
- *   - 结果缓存在本地 SharedPreferences，冷启动先显示上次结果再后台刷新。
+ * <h3>数据源</h3>
+ * {@code <BASE>/mc/version.json}，BASE 与公告**完全同一套**候选列表（{@link ServerFetch}）：
+ * 高端口域名优先、IP 兜底，串行降级、ETag 按 base 分开缓存、3 秒超时。
+ * 这份实现和公告共用同一个 GET，不存在「一边修了另一边没修」的漂移。
+ *
+ * <h3>服务端清单契约</h3>
+ * <pre>
+ * {
+ *   "versionCode": 2301,
+ *   "versionName": "2.3.1",
+ *   "notes": "修复了…",
+ *   "apkUrl": "http://47.109.49.93/mc/MapClean-lsp-2.3.1.apk",
+ *   "apkUrlEmbedded": {
+ *     "com.autonavi.minimap": "...", "com.baidu.BaiduMap": "...", "com.tencent.map": "..."
+ *   },
+ *   "publishedAt": 1767225600,
+ *   "sig": "..."
+ * }
+ * </pre>
+ * 签名：{@code HEX(HMAC-SHA256(SIG_KEY, "<versionCode>|<versionName>|<apkUrl>"))}，
+ * 空 sig 按失败处理。验签失败 = 这一轮失败（不落盘、不提示），绝不把服务器被改过的包
+ * 当成「新版本」推给用户。
+ *
+ * <h3>公开 API</h3>
+ * 与改造前**完全一致**（{@link #latest} / {@link #source} / {@link #isOutdated} /
+ * {@link #check} / {@link #maybeAutoCheck} / {@link #shouldNotify} / {@link #isChecking}），
+ * 所以 {@code FloatingPanel} / {@code MainActivity} 的调用点一行都不用改。
+ * 新增 {@link #downloadUrl(Context)}：按「内置版选宿主包名那条、模块版用 apkUrl」的规则
+ * 给出下载地址，未获取 / 不在白名单时返回 null。
+ *
+ * <h3>不变的部分</h3>
+ * 24 小时自动检查节流、6 小时手动节流、{@code sRunning} 防重入、失败静默（只写一行日志，
+ * 绝不弹错误框）、结果缓存在 prefs（冷启动先显示上次结果再后台刷新）。
  */
 public final class UpdateChecker {
 
@@ -35,31 +60,36 @@ public final class UpdateChecker {
         void onResult(String latest, boolean outdated, String source);
     }
 
+    /** {@link #source(Context)} 在成功时的返回值。UI 上的「via xxx」就是它。 */
+    public static final String SOURCE_NAME = "服务器";
+
     private static final String TAG = "MapCleanUpdate";
     private static final String PREF = io.github.ldxm666.mapadkiller.App.UI_PREFS;
     private static final String K_AT = "ver_check_at";
     private static final String K_VER = "ver_latest";
+    private static final String K_CODE = "ver_code";
+    private static final String K_NOTES = "ver_notes";
+    private static final String K_APK = "ver_apk";
+    private static final String K_EMB = "ver_emb_";
     private static final String K_SRC = "ver_source";
     /** 已经用 Toast 提示过的新版本号，用于「每个新版本只提示一次」。 */
     private static final String K_TOASTED = "ver_toast_shown";
-    private static final long THROTTLE_MS = 6L * 60 * 60 * 1000L;
+    private static final long THROTTLE_MS = 6L * 60L * 60L * 1000L;
     /** 自动检查的间隔：一天一次就够，失败也照样计时（避免每次启动都重试）。 */
-    private static final long AUTO_INTERVAL_MS = 24L * 60 * 60 * 1000L;
-    /**
-     * 整轮检查的总时长上限。
-     *
-     * <p>8 个源是**串行**试的，单源 4s 连接 + 5s 读取，最坏 8×9s ≈ 72s。用户真机就卡在
-     * 「检查中…」不出来。这道闸保证**任何情况下 12 秒内必出终态**。
-     */
-    private static final long DEADLINE_MS = 12L * 1000L;
+    private static final long AUTO_INTERVAL_MS = 24L * 60L * 60L * 1000L;
+
+    /** 内置版的三个宿主包名：{@code apkUrlEmbedded} 的键就是它们。 */
+    private static final String[] HOSTS = {
+            "com.autonavi.minimap", "com.baidu.BaiduMap", "com.tencent.map",
+    };
+
     /**
      * 隐藏的「模拟新版」开关（默认不存在 = 关闭，不出现在任何可见界面）。
      *
      * <p>存在的唯一理由是可测试性：面板首次打开会真的后台查一次，立刻把手写进
      * {@code ver_latest} 的值覆盖回真实版本，于是「红色胶囊 + 新版本小标」这条分支
      * 在真机上**无法**靠改配置复现。置 true 时读取端直接返回 {@link #SIMULATED_VERSION}
-     * 并跳过一切网络请求，让验证者纯靠配置就能测四样东西：红胶囊、小标、一次性 Toast、
-     * 镜像下载按钮。
+     * 并跳过一切网络请求。
      */
     private static final String K_SIMULATE = "ver_simulate_new";
     /** 远高于任何真实版本，保证 {@link #compare} 一定判「有新版」。 */
@@ -85,12 +115,67 @@ public final class UpdateChecker {
         }
     }
 
+    /** 上次查到的线上 versionCode（0 = 未知）。 */
+    public static int latestCode(Context c) {
+        String simulated = simulatedLatest(c);
+        if (simulated != null) return Integer.MAX_VALUE;
+        try {
+            return prefs(c).getInt(K_CODE, 0);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** 线上版本的更新说明（服务端 notes），没有就 null。 */
+    public static String notes(Context c) {
+        try {
+            String v = prefs(c).getString(K_NOTES, null);
+            return v == null || v.length() == 0 ? null : v;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 新版本安装包地址。
+     *
+     * <p>选择规则（服务端契约）：
+     * <ol>
+     *   <li><b>内置版</b>（LSPatch 整合包）⇒ {@code apkUrlEmbedded} 里**当前宿主包名**那一条
+     *       —— 高德用户拿去装百度包是装不上的；</li>
+     *   <li>宿主键缺失 / 值为空 / 宿主包名拿不到 ⇒ 退回 {@code apkUrl}；</li>
+     *   <li><b>模块版</b> ⇒ {@code apkUrl}。</li>
+     * </ol>
+     * 两条路都要过 {@link ServerFetch#allowed} 白名单：**不允许服务器指挥客户端去装任意 URL
+     * 的 APK**。返回 null = 没有可信地址，UI 会退回到「项目发布页」。
+     */
+    public static String downloadUrl(Context c) {
+        if (c == null) return null;
+        try {
+            SharedPreferences p = prefs(c);
+            boolean embedded = false;
+            try { embedded = FloatingConfig.isEmbedded(); } catch (Throwable ignored) { }
+            if (embedded) {
+                String pkg = null;
+                try { pkg = c.getPackageName(); } catch (Throwable ignored) { }
+                if (pkg != null) {
+                    String host = p.getString(K_EMB + pkg, null);
+                    if (host != null && ServerFetch.allowed(host)) return host;
+                }
+            }
+            String apk = p.getString(K_APK, null);
+            if (apk != null && ServerFetch.allowed(apk)) return apk;
+            return null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     /**
      * 隐藏开关是否打开；打开时返回 {@link #SIMULATED_VERSION}，否则 null。
      *
      * <p>两个库都看：嵌入版里 {@code ver_*} 落在 {@code mapclean_embedded_ui}（宿主数据目录），
-     * 独立模块进程里落在 {@code mak_ui}。测试员把同一个键写进任意一个都能复现，
-     * 不必先判断当前是哪一种安装形态。
+     * 独立模块进程里落在 {@code mak_ui}。测试员把同一个键写进任意一个都能复现。
      */
     private static String simulatedLatest(Context c) {
         if (c == null) return null;
@@ -122,7 +207,18 @@ public final class UpdateChecker {
         }
     }
 
+    /**
+     * 线上比本机新？
+     *
+     * <p>优先比 {@code versionCode}（服务端契约里的权威字段）；只有老缓存里没有 code 时
+     * 才退回语义化版本号比较 —— 字符串比较遇到 {@code 2.3.10} 这种会判错。
+     */
     public static boolean isOutdated(Context c) {
+        if (simulatedLatest(c) != null) return true;
+        try {
+            int code = prefs(c).getInt(K_CODE, 0);
+            if (code > 0) return code > Version.CODE;
+        } catch (Throwable ignored) { }
         String v = latest(c);
         return v != null && compare(v, Version.LABEL) > 0;
     }
@@ -149,13 +245,7 @@ public final class UpdateChecker {
      * 每天最多一次的后台自动检查。
      *
      * <p>节流：{@code now - lastCheckAt < 24h} 直接返回，不建线程、不发请求。
-     * 计时用的是 {@code check()} 自己在结束时写入的 {@code K_AT}（成功/失败都写），
-     * 所以「今天查过且失败」⇒ 明天之前不再重试，不会每次开 App 都白等一轮超时。
-     *
-     * <p>线程：复用 {@link #check} 自己的独立线程（{@code mapclean-update}），
-     * 不占主线程、不用 Handler 轮询；重复触发由 {@code check()} 的 {@code sRunning} 兜住。
-     *
-     * <p>失败静默：只在日志里留一行，不 Toast、不改界面。
+     * 失败静默：只在日志里留一行，不 Toast、不改界面。
      */
     public static void maybeAutoCheck(final Context c) {
         if (c == null) return;
@@ -187,9 +277,6 @@ public final class UpdateChecker {
 
     /**
      * 每个新版本只提示一次：返回 true 表示这次该提示（并已把版本号记下）。
-     *
-     * <p>去重键 {@code ver_toast_shown} 与 {@link #latest} 同库，所以清除数据后会重新提示一次，
-     * 这正是期望行为。
      */
     public static boolean shouldNotify(Context c) {
         try {
@@ -213,7 +300,6 @@ public final class UpdateChecker {
     public static void check(final Context c, final boolean force, final Callback cb) {
         final Context app = c.getApplicationContext();
         // 模拟态：绝不发网络请求，直接在主线程把模拟结果交回去。
-        // （不静默 return：那会让界面永远停在「检查中…」，验证者以为卡死了。）
         final String sim = simulatedLatest(app);
         if (sim != null) {
             MAIN.post(new Runnable() {
@@ -227,48 +313,60 @@ public final class UpdateChecker {
         if (cached != null && cb != null) {
             // 先把缓存结果吐出去，界面立刻有内容
             final String cv = cached;
+            final boolean co = isOutdated(app);
             MAIN.post(new Runnable() {
-                @Override public void run() { cb.onResult(cv, compare(cv, Version.LABEL) > 0, "cache"); }
+                @Override public void run() { cb.onResult(cv, co, "cache"); }
             });
         }
         try {
             long at = prefs(app).getLong(K_AT, 0L);
-            // ⚠ 只在同一次运行内节流：v2.0.0 实测「发了新版但用户开着 App 一直不提示」，
-            //   因为 6 小时节流把冷启动的检查也挡掉了。冷启动必须查一次。
+            // ⚠ 只在同一次运行内节流：冷启动必须查一次（旧版 6 小时节流挡住了冷启动检查，
+            //   用户表现为「发了新版但一直不提示」）。
             if (!force && sThisProcess && System.currentTimeMillis() - at < THROTTLE_MS) return;
             sThisProcess = true;
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) { }
         if (sRunning) return;
         sRunning = true;
 
         new Thread(new Runnable() {
             @Override public void run() {
+                final long started = System.currentTimeMillis();
                 String found = null;
                 String src = "";
                 String err = "";
-                final long started = System.currentTimeMillis();
+                String base = "";
                 try {
-                    for (int i = 0; i < Version.UPDATE_SOURCES.length; i++) {
-                        // 总时长上限：8 个源串行，最坏情况必须也能在 DEADLINE_MS 内出终态。
-                        // 少了这道闸，「卡在检查中」就会无限持续（用户真机截图）。
-                        if (System.currentTimeMillis() - started > DEADLINE_MS) {
-                            err = "deadline";
-                            break;
-                        }
-                        String url = Version.UPDATE_SOURCES[i];
-                        try {
-                            String body = httpGet(url);
-                            String v = parse(body);
-                            if (v != null && v.length() > 0) {
-                                found = v;
-                                src = shortUrl(url);
-                                break;
-                            }
-                            err = shortUrl(url) + " 解析失败";
-                        } catch (Throwable t) {
-                            err = shortUrl(url) + " " + t.getClass().getSimpleName();
-                        }
+                    SharedPreferences p = prefs(app);
+                    ServerFetch.Result r = ServerFetch.get(
+                            "update", ServerFetch.PATH_VERSION, p, null);
+                    // 304 但本地没有版本信息（清过数据/换机）：丢掉条件头重发一次。
+                    if (r.ok && r.body == null && p.getString(K_VER, null) == null) {
+                        r = ServerFetch.get("update", ServerFetch.PATH_VERSION, p, null, true);
                     }
+                    base = r.base;
+                    if (r.ok && r.body == null) {
+                        // 304：清单没变，上次落盘的版本信息仍然有效。
+                        found = p.getString(K_VER, null);
+                        if (found == null) err = "stale304";
+                        else src = SOURCE_NAME;
+                    } else if (r.ok) {
+                        Info info = parse(r.body);
+                        if (info == null) {
+                            err = "parse";
+                        } else if (!ServerFetch.verifySig(
+                                info.code + "|" + info.name + "|" + info.apkUrl, info.sig)) {
+                            err = "badsig";
+                            Log.w(TAG, "event=update_badsig code=" + info.code);
+                        } else {
+                            persist(p, info, r.base, r.newEtag);
+                            found = info.name;
+                            src = SOURCE_NAME;
+                        }
+                    } else {
+                        err = r.reason;
+                    }
+                } catch (Throwable t) {
+                    err = t.getClass().getSimpleName();
                 } finally {
                     sRunning = false;
                 }
@@ -279,24 +377,23 @@ public final class UpdateChecker {
                         e.putString(K_VER, found);
                         e.putString(K_SRC, src);
                     } else {
-                        e.putString(K_SRC, err);
+                        e.putString(K_SRC, err.length() > 0 ? err : "failed");
                     }
                     e.commit();
-                } catch (Throwable ignored) {}
-                // 终态一定落地：成功 ⇒ latest/new，全失败/超时 ⇒ failed。
-                // 这一行是「检查中永不结束」的判据：任何一轮都必须留下它。
+                } catch (Throwable ignored) { }
                 final String result = found == null ? "failed"
-                        : (compare(found, Version.LABEL) > 0 ? "new" : "latest");
+                        : (isOutdated(app) ? "new" : "latest");
                 Log.i(TAG, "event=update_check_done result=" + result
                         + " elapsed=" + (System.currentTimeMillis() - started)
-                        + " source=" + (found != null ? src : "none")
+                        + " source=" + (found != null ? (SOURCE_NAME + " " + base) : "none")
                         + (found != null ? (" latest=" + found) : (" err=" + err)));
 
                 final String fv = found;
-                final String fs = found != null ? src : err;
+                final String fs = found != null ? src : (err.length() > 0 ? err : "failed");
+                final boolean outdated = found != null && isOutdated(app);
                 MAIN.post(new Runnable() {
                     @Override public void run() {
-                        if (cb != null) cb.onResult(fv, fv != null && compare(fv, Version.LABEL) > 0, fs);
+                        if (cb != null) cb.onResult(fv, outdated, fs);
                     }
                 });
             }
@@ -305,84 +402,73 @@ public final class UpdateChecker {
 
     // ── 内部实现 ────────────────────────────────────────────────────────
 
+    /** 服务端清单（v2.3.1 起）。 */
+    private static final class Info {
+        int code;
+        String name = "";
+        String notes = "";
+        String apkUrl = "";
+        String sig = "";
+        long publishedAt;
+        final Map<String, String> embedded = new HashMap<String, String>();
+    }
+
+    private static Info parse(String body) {
+        if (body == null || body.length() == 0) return null;
+        try {
+            JSONObject o = new JSONObject(body);
+            Info info = new Info();
+            info.code = o.getInt("versionCode");
+            info.name = o.optString("versionName", "").trim();
+            info.notes = o.optString("notes", "");
+            info.apkUrl = o.optString("apkUrl", "").trim();
+            info.sig = o.optString("sig", "").trim();
+            info.publishedAt = o.optLong("publishedAt", 0L);
+            if (info.code <= 0 || info.name.length() == 0) return null;
+            JSONObject emb = o.optJSONObject("apkUrlEmbedded");
+            if (emb != null) {
+                Iterator<String> keys = emb.keys();
+                while (keys != null && keys.hasNext()) {
+                    String key = keys.next();
+                    String value = emb.optString(key, "");
+                    if (value != null && value.trim().length() > 0) {
+                        info.embedded.put(key, value.trim());
+                    }
+                }
+            }
+            return info;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 落盘。下载地址**逐个过白名单**：不在名单里的直接丢弃（宁可不给下载入口，
+     * 也不让一份被篡改的清单把用户带到任意 APK）。
+     */
+    private static void persist(SharedPreferences p, Info info, String base, String etag) {
+        try {
+            SharedPreferences.Editor e = p.edit();
+            e.putString(K_VER, info.name);
+            e.putInt(K_CODE, info.code);
+            e.putString(K_NOTES, info.notes);
+            if (ServerFetch.allowed(info.apkUrl)) e.putString(K_APK, info.apkUrl);
+            // 先清掉三个宿主键，避免上一版有、这一版没有的条目残留成死链。
+            for (String host : HOSTS) e.remove(K_EMB + host);
+            for (Map.Entry<String, String> entry : info.embedded.entrySet()) {
+                if (ServerFetch.allowed(entry.getValue())) {
+                    e.putString(K_EMB + entry.getKey(), entry.getValue());
+                }
+            }
+            if (etag != null && etag.length() > 0) e.putString("etag::" + base, etag);
+            e.commit();
+        } catch (Throwable ignored) { }
+    }
+
     private static SharedPreferences prefs(Context c) {
         // Always compare Version.LABEL (this module), never the host map's PackageInfo.
         return c.getSharedPreferences(EmbeddedSettingsPolicy.isHostPackage(c.getPackageName())
                 ? EmbeddedSettingsPolicy.UI_PREFS : PREF, Context.MODE_PRIVATE);
-    }
-
-    private static String shortUrl(String u) {
-        try {
-            String h = new URL(u).getHost();
-            return h == null ? u : h;
-        } catch (Throwable t) {
-            return u;
-        }
-    }
-
-    private static String httpGet(String url) throws Exception {
-        HttpURLConnection conn = null;
-        try {
-            conn = (HttpURLConnection) new URL(url).openConnection();
-            // 拉的是 ~300 字节的 module.prop：4s 连接 + 5s 读取绰绰有余。
-            // 原来的 6s/8s 乘以 8 个串行源 = 最坏 112 秒 —— 用户看到的就是「卡在检查中」。
-            conn.setConnectTimeout(4000);
-            conn.setReadTimeout(5000);
-            conn.setInstanceFollowRedirects(true);
-            conn.setRequestProperty("User-Agent", "MapAdKiller/" + Version.NAME);
-            conn.setRequestProperty("Accept", "application/vnd.github+json, */*");
-            int code = conn.getResponseCode();
-            InputStream in = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
-            if (in == null) throw new IllegalStateException("HTTP " + code);
-            ByteArrayOutputStream bos = new ByteArrayOutputStream(8192);
-            byte[] buf = new byte[8192];
-            int n;
-            int total = 0;
-            while ((n = in.read(buf)) > 0) {
-                bos.write(buf, 0, n);
-                total += n;
-                if (total > 512 * 1024) break;      // 防御：任何源都不该返回这么大
-            }
-            in.close();
-            if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code);
-            return new String(bos.toByteArray(), "UTF-8");
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
-    }
-
-    private static final Pattern P_TAG = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
-    private static final Pattern P_NAME = Pattern.compile("\"name\"\\s*:\\s*\"[^\"]*?(\\d+\\.\\d+(?:\\.\\d+)*)\"");
-    private static final Pattern P_VER = Pattern.compile("(?m)^\\s*version\\s*=\\s*([0-9][0-9A-Za-z._\\-]*)\\s*$");
-    private static final Pattern P_ANY = Pattern.compile("(\\d+\\.\\d+(?:\\.\\d+)*)");
-
-    /** 从各种形状的响应里抠出版本号：GitHub JSON（tag_name/name）、module.prop 文本、纯版本号 */
-    static String parse(String body) {
-        if (body == null) return null;
-        Matcher m = P_TAG.matcher(body);
-        if (m.find()) return normalize(m.group(1));
-        m = P_NAME.matcher(body);
-        if (m.find()) return normalize(m.group(1));
-        m = P_VER.matcher(body);
-        if (m.find()) return normalize(m.group(1));
-        String s = body.trim();
-        if (s.length() < 40) {                       // 短响应才敢直接当版本号
-            m = P_ANY.matcher(s);
-            if (m.find()) return normalize(m.group(1));
-        }
-        return null;
-    }
-
-    /** tag 形如 "110-1.1.0" → 取最后一段版本号 */
-    private static String normalize(String raw) {
-        String s = raw.trim();
-        int dash = s.lastIndexOf('-');
-        if (dash >= 0 && dash < s.length() - 1) {
-            String tail = s.substring(dash + 1).trim();
-            if (tail.matches("\\d+(\\.\\d+)*")) s = tail;
-        }
-        if (s.startsWith("v") || s.startsWith("V")) s = s.substring(1);
-        return s;
     }
 
     /** 语义化比较：a>b 返回 1，相等 0，a<b -1（位数不同按 0 补齐） */
@@ -409,19 +495,15 @@ public final class UpdateChecker {
 
     private static int stepOf(String suffix) {
         if (suffix == null || suffix.length() == 0) return 0;
-        Matcher m = Pattern.compile("step(\\d+)", Pattern.CASE_INSENSITIVE).matcher(suffix);
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("step(\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(suffix);
         return m.find() ? toInt(m.group(1)) : 0;
     }
 
     private static int toInt(String s) {
         try {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < s.length(); i++) {
-                char ch = s.charAt(i);
-                if (ch >= '0' && ch <= '9') sb.append(ch);
-                else break;
-            }
-            return sb.length() == 0 ? 0 : Integer.parseInt(sb.toString());
+            return Integer.parseInt(s.trim());
         } catch (Throwable t) {
             return 0;
         }

@@ -23,13 +23,43 @@ public final class BaiduTalos {
         for(String name:new String[]{"loadJSFile","preLoadJSFile"}) {
             BaiduHooks.hook(bridge,name,chain -> {
                 Object map=chain.getArg(0);
-                Method get=pm.getMethod("getString",String.class);
+                // ParamMap 为 null 时 Method.invoke(null, ...) 会抛 NullPointerException；
+                // 这一条会被 mapclean.HookGuard 判死，于是"百度页面脚本适配"整个进程失效
+                // （用户侧看不到任何提示，只是推荐流/我的页突然恢复原样）。先原样放行。
+                if(map==null)return chain.proceed();
+                Method get=paramGet(pm), put=paramPut(pm);
+                if(get==null||put==null)return chain.proceed();
                 String biz=(String)get.invoke(map,"biz_pkg_name"), path=(String)get.invoke(map,"biz_pkg_path");
                 String replacement=adapt(biz,path);
-                if(replacement!=null&&!replacement.equals(path)) pm.getMethod("putString",String.class,String.class).invoke(map,"biz_pkg_path",replacement);
+                if(replacement!=null&&!replacement.equals(path)) put.invoke(map,"biz_pkg_path",replacement);
                 return chain.proceed();
             },pm,callback);
         }
+    }
+    /**
+     * ParamMap.getString / putString 的 Method 缓存。
+     *
+     * <p>原来每次 {@code loadJSFile}/{@code preLoadJSFile} 都各查一次 {@code getMethod}
+     * —— 那要遍历整张方法表并对每个参数类型做比较，而页面加载正是启动期热路径。
+     *
+     * <p>benign race：多个线程同时查就是查两次、结果一样，不加锁也不阻塞。缓存校验
+     * {@code getDeclaringClass()==pm}，万一哪天解析到另一个同类名的 ParamMap 也不会串。
+     */
+    private static volatile Method GET_STRING, PUT_STRING;
+    private static Method paramGet(Class<?> pm) {
+        Method m=GET_STRING;
+        if(m!=null&&m.getDeclaringClass()==pm)return m;
+        // 缓存不命中（或命中别的类）就重查一次。查不到必须返回 **null** 而不是把旧值
+        // 带回去 —— 拿一个属于别的类的 Method 去 invoke 会抛 IllegalArgumentException，
+        // 那又会把整条 hook 拖下水。
+        try { Method fresh=pm.getMethod("getString",String.class); GET_STRING=fresh; return fresh; }
+        catch(Throwable ignored){ return null; }
+    }
+    private static Method paramPut(Class<?> pm) {
+        Method m=PUT_STRING;
+        if(m!=null&&m.getDeclaringClass()==pm)return m;
+        try { Method fresh=pm.getMethod("putString",String.class,String.class); PUT_STRING=fresh; return fresh; }
+        catch(Throwable ignored){ return null; }
     }
     private static synchronized String adapt(String module,String path) {
         if(path==null||module==null)return path;

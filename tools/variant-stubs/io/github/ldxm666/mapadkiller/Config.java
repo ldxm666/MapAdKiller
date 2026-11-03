@@ -17,6 +17,36 @@ public final class Config {
     /** 与真实 Config 同名同值：CaptureLog 的配置快照按这个前缀过滤工具槽位键。 */
     public static final String K_TOOL_PREFIX = "tool_";
 
+    /**
+     * 日志开关。**真件里它读 {@code debug_log} 配置；本变体里
+     * {@code mapadkiller/H.java} 是按文件保留的真件（百度内置版靠它抓日志），
+     * 而 {@code H.logv()} 会读这个方法 —— 缺了就是一个编译错。
+     *
+     * <p>这里返回 {@code false}：本变体没有可读的配置后端（见类注释），
+     * 而 {@code logv} 的语义就是「默认不输出启动期嘈音」。
+     */
+    public static boolean debugLog() {
+        return false;
+    }
+
+    /**
+     * 以下三个是 2.3.0 新增的开关读取器。**本变体里永远返回缺省值**（本变体
+     * 把 {@code mapadkiller} 整包拆了，没有可读的配置后端），但必须存在 ——
+     * 否则哪天有人把引用它们的类加进 {@code keepFiles}，构建就会突然报
+     * 「找不到符号」，而那时候没人会想到根因在一个桩里。
+     */
+    public static boolean splashSkip() {
+        return false;
+    }
+
+    public static boolean cruiseOfficial() {
+        return false;
+    }
+
+    public static Boolean explicit(String key) {
+        return null;
+    }
+
     /** 内置版没有可读的配置后端，快照恒为空 —— CaptureLog 只会把它写进日志文本。 */
     public static java.util.Map<String, Object> snapshot() {
         return java.util.Collections.emptyMap();

@@ -85,6 +85,8 @@ public final class BaiduHooks {
             installPoiListChips(cl);
             installHomeChips(cl);
             BaiduSearchAds.install(cl);
+        // 地点详情页三块推广位（长按地图 / POI 详情）：本地 H5 模板的卡片清单过滤。
+        BaiduPoiAds.install(cl);
         BaiduPanelHeight.install(cl);
         // BMAd 开放封装层在这里就挂（provider 类在 install 时已能解析，实测 voided=2）；
         // commonadprovider 的 ADN loader 走上面的懒挂载，见 hookAdSdkOnRequest。
@@ -130,10 +132,21 @@ public final class BaiduHooks {
         hook(mainCard, "applyCardVisibility", chain -> Spec.effectiveVisible(Spec.K_AI_NOW, Spec.HOOK_READ)
             ? chain.proceed() : chain.proceed(new Object[]{false}), boolean.class);
         Class<?> panel = H.cls(cl, "com.baidu.mapframework.aihome.AIHomePanel");
-        hook(panel, "getAiHomePanel", chain -> {
-            Object result = chain.proceed();
-            tabs(chain.getThisObject()); return result;
-        }, Context.class, String.class);
+        // 22.1.0 实查（dexsql 直读 base.apk 的 methods 表）AIHomePanel 有**两个**同名重载：
+        //   getAiHomePanel(Landroid/content/Context;)Landroid/view/View;
+        //   getAiHomePanel(Landroid/content/Context;Ljava/lang/String;)Landroid/view/View;
+        // 22.0.x 首页只走二参；22.1.0 起一参入口也在用。只挂二参时，走一参的那条路径
+        // 不执行 tabs() ⇒ 底栏 / 工具宫格的可见性要等下一次 updateOtherTab 才被压一遍，
+        // 用户看到的就是「开关关了、图标还在，重进地图才消失」。
+        hook(panel, "getAiHomePanel", aiHomePanelTabs(), Context.class, String.class);
+        // 一参重载单独挂：id 用 baidu_aihome_1，不能走 hook() 的自动 id ——
+        // 那个 helper 用「方法名+类简名」拼 id，两个重载会撞成同一个名字，
+        // logcat 里分不清是哪一条挂上的，ok/miss 计数也失去意义。
+        // 取不到（未来版本删了它 / 参数表变了）只记 miss，绝不抛。
+        try {
+            H.hook(H.method(panel, "getAiHomePanel", 1), "baidu_aihome_1", aiHomePanelTabs());
+        } catch (Throwable ignored) {
+        }
         hook(panel, "updateOtherTab", chain -> {
             Object result = chain.proceed(); tabs(chain.getThisObject()); return result;
         });
@@ -221,7 +234,8 @@ public final class BaiduHooks {
             Object[] args = chain.getArgs().toArray(); args[0] = selected;
             Object r = chain.proceed(args);
             View view = (View) chain.getThisObject();
-            rowCounts.put(view, selected.size()); layoutRow(view, selected.size()); return r;
+            rowCounts.put(view, selected.size()); layoutRow(view, selected.size());
+            return r;
         },List.class,int[].class,String[].class,int.class);
         hook(row,"onSlide",chain -> {
             Integer count=rowCounts.get((View)chain.getThisObject());
@@ -338,6 +352,13 @@ public final class BaiduHooks {
         }
         if(count==0)hide(row);else row.setVisibility(View.VISIBLE);
     }
+
+    // ── 首页工具面板「排成一行」── 已整体回退 ─────────────────────────────
+    // 上一版把承载工具格的 *父容器* 高度直接设成 cell 的测量高度：父容器被压小、
+    // 子 View 仍按原尺寸绘制 ⇒ 图标被裁成一条弧，下面「设置家/设置单位」那行上移压上来。
+    // 那是布局塌了，不是紧凑。整段撤掉；开关 home_tools_compact 保留但默认关，
+    // 重做时只动 cell 内部留白，并加「重叠 / 裁剪」断言。
+
     static void hide(View view){if(view!=null&&view.getVisibility()!=View.GONE)view.setVisibility(View.GONE);}
     static Object field(Object target,String name) throws Exception {
         if(target==null)return null;
@@ -368,6 +389,36 @@ public final class BaiduHooks {
     static void hook(Class<?> c,String name,XposedInterface.Hooker hk,Class<?>...args){
         Method m=null;try{if(c!=null)m=c.getDeclaredMethod(name,args);}catch(Throwable ignored){}
         H.hook(m,"baidu_"+name+(c==null?"":c.getSimpleName()),hk);
+    }
+
+    /**
+     * 同名方法的**第二个重载**专用：与上面唯一的区别是 id 由调用方显式给。
+     *
+     * <p>上面那个 helper 按「方法名 + 类简名」自动拼 id，同一个方法名的两个重载会得到
+     * <b>完全相同的 id</b> —— logcat 里两行 HOOKED 长得一模一样，miss 也不知道是哪条掉的，
+     * {@code install_done ok=/miss=} 的口径也会跟着糊。重载补挂一律走这里，id 各自独立。
+     *
+     * <p>取不到方法（版本漂了 / 参数表变了）时 {@code m == null}，{@link H#hook} 自己记 miss
+     * 并返回 false，不抛 —— 补挂失败绝不允许把后面的 hook 一起带走。
+     */
+    static void hook(Class<?> c,String name,String id,XposedInterface.Hooker hk,Class<?>...args){
+        Method m=null;try{if(c!=null)m=c.getDeclaredMethod(name,args);}catch(Throwable ignored){}
+        H.hook(m,id,hk);
+    }
+
+    /**
+     * {@code AIHomePanel#getAiHomePanel} 两个重载共用的钩子体。
+     *
+     * <p>抽成方法而不是内联两遍：22.1.0 起一参 / 二参并存，两份内联 lambda 只要哪天
+     * 有人只改了其中一份，就会出现「一参路径压了可见性、二参路径没压」的分裂状态，
+     * 而这种分裂极难复现 —— 走哪条重载由宿主调用点决定，不是由开关决定。
+     */
+    private static XposedInterface.Hooker aiHomePanelTabs(){
+        return chain -> {
+            Object result = chain.proceed();
+            tabs(chain.getThisObject());
+            return result;
+        };
     }
 
     /**

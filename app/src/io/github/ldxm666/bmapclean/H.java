@@ -87,7 +87,7 @@ public final class H {
             final io.github.ldxm666.mapclean.HookGuard guarded = new io.github.ldxm666.mapclean.HookGuard(id, inner,
                     new io.github.ldxm666.mapclean.HookGuard.Reporter() {
                         public void disabled(String name, Throwable error) {
-                            log(Log.WARN, MainHook.TAG, "event=hook_disabled id=" + name + " reason=" + error.getClass().getSimpleName());
+                            log(Log.WARN, MainHook.TAG, "event=hook_disabled id=" + name + " reason=" + error.getClass().getSimpleName() + ": " + error.getMessage());
                         }
                     });
             mod.hook(m)

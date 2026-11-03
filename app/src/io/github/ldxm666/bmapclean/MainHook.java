@@ -51,18 +51,29 @@ public final class MainHook {
         }
 
         ClassLoader cl = param.getClassLoader();
+        H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg);
+        // ⚠ 2.3.0：这两个安装器原来共用一个 try —— BaiduHooks.install 抛一次，
+        // BaiduPower 就**整块不装**，而日志里只有一条 install_failed，
+        // 看不出是哪半边死了。各家安装器本来就互相独立（高德侧
+        // mapadkiller/MainHook 就是每条一个 try），这里照同一形态拆开。
         try {
-            H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg);
             BaiduHooks.install(cl);
             // 省电杠杆（推送长连接 / 后台常驻服务 / 定时任务 / 桌面小组件 / 埋点）。
             // 放在 bmapclean 里 ⇒ **百度内置版和模块版共用同一份实现**（模块包含三家），
             // 不必把 mapadkiller 塞进百度内置版（用户要求"不要混包"）。
             // 每一档都是安装期门控：开关关掉 ⇒ 连 hook 都不装 ⇒ 零性能开销。
+        } catch (Throwable t) {
+            H.log(Log.ERROR, TAG, "event=install_failed part=ui pkg=" + pkg, t);
+        }
+        // 省电杠杆（推送长连接 / 后台常驻服务 / 定时任务 / 桌面小组件 / 埋点）。
+        // 放在 bmapclean 里 ⇒ **百度内置版和模块版共用同一份实现**（模块包含三家），
+        // 不必把 mapadkiller 塞进百度内置版（用户要求"不要混包"）。
+        // 每一档都是安装期门控：开关关掉 ⇒ 连 hook 都不装 ⇒ 零性能开销。
+        try {
             BaiduPower.install(cl, pkg);
         } catch (Throwable t) {
-            H.log(Log.ERROR, TAG, "event=install_failed pkg=" + pkg, t);
-        } finally {
-            H.done(pkg);
+            H.log(Log.ERROR, TAG, "event=install_failed part=power pkg=" + pkg, t);
         }
+        H.done(pkg);
     }
 }

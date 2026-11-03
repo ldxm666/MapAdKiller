@@ -1,6 +1,7 @@
 {
   "_app": "io.github.ldxm666.mapadkiller",
   "_ver": 2,
+  "_rev": 2,
   "groups": {
     "amap_enhancer_config": {
       "tab_探索": false,
@@ -200,22 +201,26 @@
       "hide_icon_v2": null
     },
     "tmapclean_config": {
-      "ui_bottom_bar": null,
-      "ui_tool_grid": null,
+      "ui_bottom_bar": true,
+      "tab_homePage": true,
+      "tab_explorePage": false,
+      "tab_planPage": false,
+      "tab_mePage": true,
+      "tab_nearbyPage": false,
+      "ui_tool_grid": true,
       "ui_tools_allowlist": null,
-      "ui_tool_preset": null,
-      "ui_home_fav": null,
-      "ui_home_feed": null,
-      "ui_look_and_look": null,
-      "ui_map_icons": null,
-      "ui_seek_chips": null,
-      "my_points": null,
-      "my_favorites": null,
-      "my_personalization": null,
-      "my_miniprogram": null,
-      "my_vehicle": null,
-      "my_activity_zone": null,
-      "debug_log": null,
+      "ui_tool_preset": false,
+      "ui_home_fav": true,
+      "ui_home_feed": false,
+      "ui_look_and_look": false,
+      "ui_map_icons": true,
+      "ui_seek_chips": false,
+      "my_points": false,
+      "my_favorites": true,
+      "my_personalization": true,
+      "my_miniprogram": false,
+      "my_vehicle": true,
+      "my_activity_zone": false,
       "tool_驾车": true,
       "tool_打车": true,
       "tool_公交地铁": true,
@@ -291,7 +296,8 @@
       "tool_问一问": true,
       "tool_拍照赚钱": false,
       "tool_提取攻略": false,
-      "tool_更多": true
+      "tool_更多": true,
+      "debug_log": false
     }
   }
 }

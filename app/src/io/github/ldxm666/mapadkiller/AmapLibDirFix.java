@@ -2,6 +2,8 @@ package io.github.ldxm666.mapadkiller;
 
 import android.util.Log;
 
+import io.github.libxposed.api.XposedInterface;
+
 import java.io.File;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -63,37 +65,143 @@ public final class AmapLibDirFix {
             "xquic", "cJSON", "opus", "nui", "OSL_MNN"
     };
 
+    /** 已**成功**完成一次闭包预加载。注意语义：不是"已经试过"—— 试失败必须允许重试。 */
     private static volatile boolean sStarted;
+    /** {@code AppInterfaces.setupSoLoader} 的补装钩子只挂一次（同一个 id 不能重复 hook）。 */
+    private static volatile boolean sRetryHooked;
 
     private AmapLibDirFix() {}
 
     /** 同步执行：必须赶在 ContentProvider 之前，所以**不开线程**。总耗时约 30-60ms。 */
     public static void install(ClassLoader cl) {
         if (sStarted) return;
-        sStarted = true;
         try {
             probe(cl);
             Object loader = soLoader(cl);
-            if (loader == null) { H.log("event=libdir_skip reason=no_loader"); return; }
-            Method loadLibrary = loader.getClass().getMethod("loadLibrary", String.class);
-            loadLibrary.setAccessible(true);
-            int ok = 0;
-            long begin = System.currentTimeMillis();
-            for (String name : DEPS) {
-                long one = System.currentTimeMillis();
-                try {
-                    loadLibrary.invoke(loader, name);
-                    ok++;
-                    H.log("event=libdir_dep name=" + name + " ok ms=" + (System.currentTimeMillis() - one));
-                } catch (Throwable error) {
-                    H.log(Log.WARN, MainHook.TAG, "event=libdir_dep name=" + name + " failed", unwrap(error));
+            // ⚠ 2.3.0 修白屏：原来 `sStarted = true` 抢在 `soLoader()` 之前，
+            // 于是只要第一次拿不到高德自己的 ISoLoader（Application 还没建 / 类还没加载完），
+            // 就打一条 `event=libdir_skip reason=no_loader` 然后**永久放弃** ——
+            // 后续每一次调用都被首行的 `if (sStarted) return;` 挡掉。
+            //
+            // 后果：LSPatch 建的 linker namespace（clns-10）里登记的搜索路径仍指向**上一版**
+            // 的 lib/arm64，`libamaptts.so` 的 DT_NEEDED 一个都找不到 →
+            //   dlopen failed: library "libamapkvd.so" not found
+            // → UnsatisfiedLinkError → 高德 kf3.uncaughtException → t30.showErrorActivity
+            //   判成 InstallError → 起 ErrorActivity（「安装包异常」黑框），或被兜底成白屏。
+            //
+            // 这正是「覆盖安装后首次冷启动」的窗口，也正是本修复唯一要覆盖的那一次。
+            // ⇒ 上锁必须**晚于**拿到 loader：拿不到就只记日志、保持未上锁。
+            //
+            // ⚠ 光"不上锁"不够。全树对 install() 只有两个调用点，两个都在 onPackageReady：
+            //   AmapHooks 的 "libdir_fix" feature，和 mapadkiller.MainHook 的 Baseline 透传分支。
+            //   onPackageReady 时宿主 Application 还没建 ⇒ soLoader() 必然为 null
+            //   ⇒ 所谓"下一次调用"根本不存在，白屏照旧。所以第二次机会得由本类自己安排：
+            //   挂 setupSoLoader(ISoLoader) + Application.attachBaseContext(Context)，两枚都是
+            //   proceed() 之后再补装，谁先到谁做（见 armRetry）。
+            if (loader == null) {
+                if (sRetryHooked) {
+                    H.log("event=libdir_skip reason=no_loader retry=waiting");
+                } else {
+                    H.log(Log.WARN, MainHook.TAG, "event=libdir_skip reason=no_loader retry=armed");
+                    armRetry(cl);
                 }
+                return;
             }
-            H.log("event=libdir_preload_done ok=" + ok + "/" + DEPS.length
-                    + " ms=" + (System.currentTimeMillis() - begin));
+            // 拿到 loader 才算真的开始做。此后不重入 —— bionic 按 soname 去重，重入本身无害，
+            // 但没必要重复跑 10 次 invoke。
+            preload(loader);
+            // 只有真的跑完闭包才置位：失败保持未上锁，窗口内再被调到时还能再试。
+            sStarted = true;
         } catch (Throwable error) {
             H.log(Log.WARN, MainHook.TAG, "event=libdir_failed", error);
         }
+    }
+
+    /** 把 DEPS 闭包按依赖顺序灌进高德自己的 SoLoader（内部按 soname 去重，可重入）。 */
+    private static void preload(Object loader) throws Exception {
+        Method loadLibrary = loader.getClass().getMethod("loadLibrary", String.class);
+        loadLibrary.setAccessible(true);
+        int ok = 0;
+        long begin = System.currentTimeMillis();
+        for (String name : DEPS) {
+            long one = System.currentTimeMillis();
+            try {
+                loadLibrary.invoke(loader, name);
+                ok++;
+                H.log("event=libdir_dep name=" + name + " ok ms=" + (System.currentTimeMillis() - one));
+            } catch (Throwable error) {
+                H.log(Log.WARN, MainHook.TAG, "event=libdir_dep name=" + name + " failed", unwrap(error));
+            }
+        }
+        H.log("event=libdir_preload_done ok=" + ok + "/" + DEPS.length
+                + " ms=" + (System.currentTimeMillis() - begin));
+    }
+
+    /**
+     * 第一次失败后的第二次机会：挂两枚"晚一点"的钩子，谁先到谁补装。
+     *
+     * <h3>为什么需要两枚</h3>
+     * <ol>
+     *   <li><b>{@code com.amap.AppInterfaces.setupSoLoader(ISoLoader)}</b> —— 语义最准：
+     *       它由 {@code NewMapApplication.attachBaseContext} 调用，触发时 SoLoader 一定装好了。
+     *       但本类注释里记录过的那次崩溃，日志里**没有** {@code event=so_preload} 行，
+     *       说明真机上它未必赶在第一次 dlopen 之前（高德自己的 provider 期初始化就可能已经
+     *       用过 libamaptts）。只押它一枚不够。</li>
+     *   <li><b>{@code android.app.Application.attachBaseContext(Context)}</b> —— 兜底：
+     *       框架保证每个进程都会调用一次，且我们跑在 {@code chain.proceed()} **之后**，
+     *       宿主自己的 attachBaseContext 体已经执行完 —— 若它把 super 放在末尾，SoLoader
+     *       此刻就绪。两枚都成功后 {@link #sStarted} 置位，第二枚触发时只是一次布尔读。</li>
+     * </ol>
+     *
+     * <h3>为什么同步、为什么只挂一次</h3>
+     * 同步：晚了就没意义 —— 高德第一次 dlopen（voicesqure 线程 → libamaptts.so）发生在
+     * attachBaseContext 之后约 3 秒，补装必须抢在它前面。只挂一次：同一个 hook id 不能重复
+     * 注册，{@link #sRetryHooked} 兜住。
+     *
+     * <p>任何失败只写日志，绝不抛出 —— 这条路径不能把宿主拖下水。
+     */
+    private static void armRetry(final ClassLoader cl) {
+        if (sRetryHooked) return;
+        sRetryHooked = true;
+        int armed = 0;
+        try {
+            Class<?> api = H.cls(cl, "com.amap.AppInterfaces");
+            Class<?> iso = H.cls(cl, "com.amap.main.api.ISoLoader");
+            if (api != null && iso != null) {
+                H.hookSig(api, "setupSoLoader", "libdir.retry.so", new XposedInterface.Hooker() {
+                    @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        Object result = chain.proceed();
+                        try {
+                            install(cl);
+                        } catch (Throwable ignored) {
+                        }
+                        return result;
+                    }
+                }, iso);
+                armed++;
+            } else {
+                H.log(Log.WARN, MainHook.TAG, "event=libdir_retry_skip reason=amap_class_missing");
+            }
+        } catch (Throwable error) {
+            H.log(Log.WARN, MainHook.TAG, "event=libdir_retry_failed what=setupSoLoader", error);
+        }
+        try {
+            H.hookSig(android.app.Application.class, "attachBaseContext", "libdir.retry.app",
+                    new XposedInterface.Hooker() {
+                        @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                            Object result = chain.proceed();
+                            try {
+                                install(cl);
+                            } catch (Throwable ignored) {
+                            }
+                            return result;
+                        }
+                    }, android.content.Context.class);
+            armed++;
+        } catch (Throwable error) {
+            H.log(Log.WARN, MainHook.TAG, "event=libdir_retry_failed what=attachBaseContext", error);
+        }
+        H.log("event=libdir_retry_armed hooks=" + armed);
     }
 
     /** 只读诊断：把三个来源的库目录各打一行，方便对比"应用侧新目录 vs 出问题的 namespace 旧目录"。 */

@@ -1143,7 +1143,7 @@ public final class AmapSearchGrid {
                     String module = moduleOf(chain.getThisObject());
                     if (helperLogs < 40 && HELPER_SEEN.add(module + "|" + chain.getArg(0))) {
                         helperLogs++;
-                        H.log(Log.INFO, MainHook.TAG, "event=search_grid_helper op=get module=" + module
+                        H.logv("event=search_grid_helper op=get module=" + module
                                 + " key=" + chain.getArg(0) + " len=" + value.length()
                                 + " head=" + lsHead(value));
                     }
@@ -1168,7 +1168,7 @@ public final class AmapSearchGrid {
                     String module = moduleOf(chain.getThisObject());
                     if (helperLogs < 40 && HELPER_SEEN.add(module + "|ALL")) {
                         helperLogs++;
-                        H.log(Log.INFO, MainHook.TAG, "event=search_grid_helper op=all module=" + module
+                        H.logv("event=search_grid_helper op=all module=" + module
                                 + " keys=" + (r instanceof java.util.Map
                                 ? ((java.util.Map<?, ?>) r).keySet() : "?"));
                     }

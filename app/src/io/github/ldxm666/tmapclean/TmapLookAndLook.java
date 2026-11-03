@@ -39,8 +39,22 @@ final class TmapLookAndLook {
      */
     private static final String RENDER =
             "com.tencent.map.kuiklyPoi.pages.poidetail.components.render.RenderPeopleStillWatchingKt";
+    /**
+     * ⚠ 2.3.0 修正：这里曾经写成
+     * {@code ...components.LookAndLook/RecommendationViewAttr}（用 {@code /} 当分隔符）。
+     * {@code ClassLoader.loadClass()} 只认**点分**二进制名，{@code /} 是描述符里的分隔符 ——
+     * 于是 {@link H#cls} 恒返回 null，{@code hookAll} 静默返回 0，
+     * 腾讯「大家都在看」的数据层整条死掉（开关拨了毫无反应，日志里连 miss 都没有）。
+     *
+     * <p>实测 11.7.0 {@code classes23.dex}：
+     * {@code Lcom/tencent/map/kuiklyPoi/pages/poidetail/components/LookAndLook/RecommendationViewAttr;}
+     * —— {@code LookAndLook} 是<b>包名</b>，{@code RecommendationViewAttr} 是类名。
+     * 点分形式才是正确的：{@code ...components.LookAndLook.RecommendationViewAttr}。
+     * 被 hook 的方法同 dex 实查存在：
+     * {@code updateFromStillWatchingData(Lcom/tencent/map/kuiklyPoi/pages/poidetail/data/StillWatchingData;)V}。
+     */
     private static final String ATTR =
-            "com.tencent.map.kuiklyPoi.pages.poidetail.components.LookAndLook/RecommendationViewAttr";
+            "com.tencent.map.kuiklyPoi.pages.poidetail.components.LookAndLook.RecommendationViewAttr";
 
     /**
      * 开关变化后的即时生效处理。
@@ -55,7 +69,7 @@ final class TmapLookAndLook {
      */
     static void refresh() {
         Cfg.invalidate();
-        Diag.note("look_switch", Cfg.visible(Spec.K_LOOK_AND_LOOK, true) ? "on" : "off");
+        Diag.note("look_switch", Cfg.visible(Spec.K_LOOK_AND_LOOK) ? "on" : "off");
     }
 
     private TmapLookAndLook() {}
@@ -64,7 +78,7 @@ final class TmapLookAndLook {
         Class<?> render = H.cls(cl, RENDER);
         H.hookAll(render, "a", "tmap_look_render", new XposedInterface.Hooker() {
             @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                if (Cfg.visible(Spec.K_LOOK_AND_LOOK, true)) {
+                if (Cfg.visible(Spec.K_LOOK_AND_LOOK)) {
                     Diag.hit("look_show");
                     return chain.proceed();
                 }
@@ -79,7 +93,7 @@ final class TmapLookAndLook {
                 new XposedInterface.Hooker() {
                     @Override public Object intercept(XposedInterface.Chain chain)
                             throws Throwable {
-                        if (Cfg.visible(Spec.K_LOOK_AND_LOOK, true)) return chain.proceed();
+                        if (Cfg.visible(Spec.K_LOOK_AND_LOOK)) return chain.proceed();
                         Diag.hit("look_data");
                         return null;
                     }

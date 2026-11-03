@@ -396,8 +396,17 @@ public final class AmapNativeHome {
                     Object panel = H.getObjectField(view, "mSplashToolboxPanel");
                     if (panel instanceof View) {
                         View toolbar = (View) panel;
+                        // getLayoutParams() 在视图还没被 addView 时返回 **null**，
+                        // 而 initToolBoxPanel 恰好可能先建面板、稍后才挂进容器。
+                        // 这一句以前直接 NPE → 被 HookGuard 判死 → amap_compact_height
+                        // 整个进程不再工作（"紧凑首页"点了没反应，重启才好）。
                         ViewGroup.LayoutParams lp = toolbar.getLayoutParams();
-                        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT; toolbar.setLayoutParams(lp);
+                        if (lp == null) {
+                            lp = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.WRAP_CONTENT);
+                        }
+                        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                        toolbar.setLayoutParams(lp);
                     }
                     synchronized (attached) {
                         if (attached.add(view)) view.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
@@ -864,6 +873,10 @@ public final class AmapNativeHome {
                 @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                     Object result = chain.proceed();
                     if (!(result instanceof String)) return result;
+                    // **先存后过滤**：缓存的是原厂串。AmapData.defaultSlot() 用它当"默认槽位
+                    // 模板"，如果存的是过滤后的串，模板里会少掉被裁掉的槽位。
+                    // 这一行同时是递归的解药：缓存一旦有了，defaultSlot 就再也不反射调 k84.f()。
+                    AmapData.rememberDefaultRaw((String) result);
                     String filtered = AmapData.toolboxRaw((String) result, AmapData.CURRENT);
                     if (filtered != null && !filtered.equals(result) && !toolDefaultReported) {
                         toolDefaultReported = true;

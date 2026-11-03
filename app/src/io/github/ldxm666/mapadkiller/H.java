@@ -23,11 +23,30 @@ public final class H {
     public static final AtomicInteger ok = new AtomicInteger();
     public static final AtomicInteger fail = new AtomicInteger();
     private static final Set<String> installedPkgs = new HashSet<>();
+    /** 已经撤销过一次的包名：保证「失败重试」每个进程最多发生一次。 */
+    private static final Set<String> retriedPkgs = new HashSet<>();
 
     private H() {}
 
     public static synchronized boolean markInstalled(String pkg) {
         return installedPkgs.add(pkg);
+    }
+
+    /**
+     * 撤销 {@link #markInstalled} 的占位，让下一次 {@code onPackageReady} 能重试安装。
+     *
+     * <p>为什么需要：安装入口是"先占位再安装"，安装中途抛异常时占位不会退回，于是同一个包在
+     * 本进程内之后的每一次 {@code onPackageReady} 都会 `install_skipped` —— 用户看到的就是
+     * 「模块明明装了，整片功能没效果，必须强停重开」。撤销占位把这一次失败变成可重试。
+     *
+     * <p>为什么**只重试一次**：重试会重新跑一遍安装，已经成功的那些 hook 会被再挂一次
+     * （libxposed 对同一方法重复 hook 会抛，被 hookMethod 吞成 hook_error 日志）。一次失败
+     * 大概是宿主版本对不上，反复重试只会把日志刷满；给一次机会就够。
+     */
+    public static synchronized void unmarkInstalled(String pkg) {
+        if (pkg == null) return;
+        if (!retriedPkgs.add(pkg)) return;
+        installedPkgs.remove(pkg);
     }
 
     public static void log(int priority, String tag, String msg) {
@@ -52,6 +71,19 @@ public final class H {
         } else {
             Log.println(priority, tag, msg + " : " + t);
         }
+    }
+
+    /**
+     * 启动期「可关」日志：仅 {@code debug_log} 打开时才输出。
+     *
+     * <p>为什么要有这个：真机抓包发现单次冷启动会打出
+     * {@code amap_tool_keep} ×~​10、{@code amap_tool_fill} ×~40、{@code search_grid_helper} ×~​10、
+     * {@code feature_probe} ×~​20 —— <b>合计 80 多行</b>，全部在宿主启动的主线程上。
+     * 每一行都是一次 logcat 写（binder + 锁 + 格式化），这些对用户没任何价值，
+     * 只在排障时有用。所以默认关。
+     */
+    public static void logv(String msg) {
+        if (io.github.ldxm666.mapadkiller.Config.debugLog()) log(msg);
     }
 
     public static void log(String msg) {
@@ -168,10 +200,21 @@ public final class H {
             final io.github.ldxm666.mapclean.HookGuard guarded = new io.github.ldxm666.mapclean.HookGuard(id, inner,
                     new io.github.ldxm666.mapclean.HookGuard.Reporter() {
                         public void disabled(String name, Throwable error) {
-                            log(Log.WARN, MainHook.TAG, "event=hook_disabled id=" + name + " reason=" + error.getClass().getSimpleName());
+                            // describe() 而不是 getMessage()：旧 Android 上 NPE 的 message 是 null，
+                            // 只有类名等于没线索；describe 会补上栈顶帧（哪个类哪一行），
+                            // 这是判断"是版本漂了还是控件还没 attach"的唯一依据。
+                            log(Log.WARN, MainHook.TAG, "event=hook_disabled id=" + name
+                                    + " reason=" + io.github.ldxm666.mapclean.HookGuard.describe(error));
                         }
                     });
-            // 首火日志包装：每个 Hook 首次触发记一条 HIT，便于诊断"装了没触发"类问题
+            // 首火日志包装 + 冷启动耗时探针。
+            //
+            // 为什么把计时挂在这里、而不是逐个 hook 体里手写：这是全模块**唯一**的 hook
+            // 包装点，挂一处就等于给所有 hook 都装上计时，以后新增 hook 不会再漏。
+            // 代价是每次调用多两次 System.nanoTime()（~20 ns/次），且只有超过
+            // Perf.thresholdNs 的那几次才写日志 —— 冷启动期间 amap_tool_default_raw
+            // 这类 hook 会被调用上千次，任何一次无条件拼接都会把"测量"变成新的瓶颈。
+            final Perf.Slot perf = Perf.slot(id);
             mod.hook(m)
                .setId(id)
                .setExceptionMode(XposedInterface.ExceptionMode.DEFAULT)
@@ -182,7 +225,12 @@ public final class H {
                            hitLogged = true;
                            log(Log.INFO, MainHook.TAG, "HIT " + hid);
                        }
-                       return guarded.intercept(chain);
+                       long t0 = Perf.begin();
+                       try {
+                           return guarded.intercept(chain);
+                       } finally {
+                           Perf.end(perf, t0);
+                       }
                    }
                });
             return true;
@@ -233,6 +281,7 @@ public final class H {
     }
 
     public static void done(String pkg) {
+        Perf.phase("install_done");
         log(Log.INFO, MainHook.TAG, "event=install_done pkg=" + pkg + " ok=" + ok.get() + " miss=" + fail.get());
     }
 }

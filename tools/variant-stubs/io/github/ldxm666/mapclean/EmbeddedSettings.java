@@ -12,11 +12,14 @@ import android.view.View;
  * always-present floating orb, so the Activity-bridge machinery is not compiled in.
  * {@code FloatingHooks} owns the entry point instead.
  *
- * <b>{@link #enabledFor} deliberately returns true.</b> It is the gate
- * {@code mapclean.App.attachEmbedded} uses before attaching the host Application and
- * registering the framework service listener. Returning false would leave
- * {@code App.svc()} permanently null, and every switch in the orb's panel would silently
- * fail to persist -- the panel would look alive but write nothing.
+ * <b>2.3.0：{@link #enabledFor} 从「恒 true」改回委托策略类。</b>它正是
+ * {@code mapclean.App.attachEmbedded} 第一句的闸门，也是
+ * {@code tools/build_variant.py} 的 {@code check_host_whitelist()} 反读 DEX 逐个
+ * const-string 校验的那份名单。以前这里硬编码 {@code true}，等于把
+ * {@code EmbeddedSettingsPolicy.isHostPackage()} 从执行路径里摘掉 —— 那条构建期硬检查
+ * 于是变成空转：名单写错也查不出来。名单现在三家齐全（高德 / 百度 / 腾讯，
+ * 见 {@code EmbeddedSettingsPolicy.java:69-71}），委托回去不会重演 2.1.6「腾讯不在名单里
+ * ⇒ attachEmbedded 在 registerListener 之前抛 ⇒ 腾讯进程没有投递路径 ⇒ 面板恒只读」的旧事故。
  */
 public final class EmbeddedSettings {
     private static final String TAG = "MapCleanEmbedded";
@@ -24,22 +27,15 @@ public final class EmbeddedSettings {
     private EmbeddedSettings() {}
 
     /**
-     * The floating layer takes over the role this gate used to guard, so the gate is
-     * always open.
+     * 谁能挂悬浮层 / 谁能拿到服务投递：与真件同一个判据。
      *
-     * <p>It used to delegate to {@code EmbeddedSettingsPolicy.isHostPackage}, which made
-     * service delivery depend on a vendor allow-list. That list did not name 腾讯, so
-     * {@code mapclean.App.attachEmbedded} threw <i>before</i> its last line
-     * ({@code registerListener}) and the whole process lost its delivery path: the orb's
-     * panel read 只读·服务未连接 and every switch wrote nothing.
-     *
-     * <p>A gate that only guards the floating layer has no business asking which map is
-     * hosting it -- {@code FloatingHooks.accept} already refuses any Activity whose
-     * package is not the variant's own host. Keeping the allow-list out of this decision
-     * is what stops the next vendor from being shipped dead.
+     * <p>名单漏一个厂商，这里就会在 {@code App.attachEmbedded} 的最前面抛
+     * {@code IllegalStateException}，而 {@code FloatingConfig.ensureService()} 把它吞成一条
+     * {@code embedded service gate closed} 日志 —— 那个厂商从此一条投递路径都没有。
+     * 所以这份委托必须有，且名单必须完整：{@code check_host_whitelist()} 在构建期校验的就是它。
      */
     public static boolean enabledFor(String pkg) {
-        return true;
+        return EmbeddedSettingsPolicy.isHostPackage(pkg);
     }
 
     /** No standalone settings Activity in this variant; the orb is the UI. */
@@ -52,6 +48,17 @@ public final class EmbeddedSettings {
     public static boolean consumeEntryTouch(View view, MotionEvent event) { return false; }
 
     public static void install(Object module, Object param, String process) {
-        Log.i(TAG, "embedded settings replaced by the floating entry");
+        // ⚠ 2.3.0：这里只剩一行日志 ⇒ 真件 EmbeddedSettings.install() 里那句
+        // `App.listenEmbedded()` 被吞掉了：框架服务的 registerListener 遂只剩
+        // FloatingHooks 在第一个 Activity 的 onActivityCreated 里那一次——
+        // Binder 是异步的，首启面板注定看到 App.svc()==null，
+        // 药丸恒显「○ 只读·服务未连接」，开关写不进去（=用户反馈的“无法使用”）。
+        // 并且 App.svc() 越早就绪越好：CfgStore.embedded() 的第二条判据也要靠它。
+        try {
+            io.github.ldxm666.mapclean.App.listenEmbedded();
+            Log.i(TAG, "embedded settings replaced by the floating entry (service listener registered)");
+        } catch (Throwable t) {
+            Log.w(TAG, "listenEmbedded failed: " + t);
+        }
     }
 }

@@ -4,7 +4,7 @@
 
 **把高德、百度、腾讯地图里那些不想看的东西关掉 —— 只留地图。**
 
-[![Version](https://img.shields.io/badge/version-2.2.8-2ea44f?style=flat-square)](https://github.com/ldxm666/MapAdKiller/releases)
+[![Version](https://img.shields.io/badge/version-2.3.1-2ea44f?style=flat-square)](https://github.com/ldxm666/MapAdKiller/releases)
 [![libxposed](https://img.shields.io/badge/libxposed-API%20102-0969da?style=flat-square)](https://github.com/libxposed/api)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84?style=flat-square&logo=android&logoColor=white)](https://www.android.com)
@@ -33,7 +33,7 @@
 | 百度地图 | `com.baidu.BaiduMap` |
 | 腾讯地图 | `com.tencent.map` |
 
-> 当前版本 **2.2.8**（versionCode 2280），基于 libxposed **API 102**，最低 Android 8.0。
+> 当前版本 **2.3.1**（versionCode 2301），基于 libxposed **API 102**，最低 Android 8.0。
 
 ---
 
@@ -43,9 +43,10 @@
 
 | 包 | 文件名 | 适合谁 | 需要 root 吗 |
 | --- | --- | --- | --- |
-| **免 root 内置版（高德）** | `Amap-2.2.8-nonroot-embedded.apk` | 普通用户，手机上没装框架 | **不需要** |
-| **免 root 内置版（百度）** | `Baidu-2.2.8-nonroot-embedded.apk` | 同上，百度地图 | **不需要** |
-| **模块版**（推荐） | `MapClean-lsp-v2.2.8.apk` | 已经在用 LSPosed / Vector 的用户 | 需要框架 |
+| **免 root 内置版（高德）** | `Amap-2.3.1-nonroot-embedded.apk` | 普通用户，手机上没装框架 | **不需要** |
+| **免 root 内置版（百度）** | `Baidu-2.3.1-nonroot-embedded.apk` | 同上，百度地图 | **不需要** |
+| **免 root 内置版（腾讯）** | `Tencent-2.3.1-nonroot-embedded.apk` | 同上，腾讯地图 | **不需要** |
+| **模块版**（推荐） | `MapClean-lsp-v2.3.1.apk` | 已经在用 LSPosed / Vector 的用户 | 需要框架 |
 
 **一句话区别**：内置版把模块直接并进了地图本体，装完就是成品，代价是包体大、签名变了；模块版是一个几 MB 的小模块，靠框架注入，三个地图共用一份配置。
 
@@ -84,7 +85,7 @@
 
 ### 免 root 内置版（推荐）
 
-1. 下载 `Amap-2.2.8-nonroot-embedded.apk`（高德免 root 内置版）。
+1. 下载 `Amap-2.3.1-nonroot-embedded.apk`（高德免 root 内置版）。
 2. **先卸载手机上原有的高德地图**（内置版重新签过名，和官方签名冲突，无法覆盖安装）。
    > 卸载会清掉登录状态和已下载的离线地图，装好重新登录即可。
 3. 安装，打开高德地图：第一次是**纯原生**，等它自己抓完数据并弹窗自动重启（见上一节），
@@ -95,7 +96,7 @@
 
 ### 模块版（LSPosed）
 
-1. 安装 `MapClean-lsp-v2.2.8.apk`。
+1. 安装 `MapClean-lsp-v2.3.1.apk`。
 2. 在 LSPosed / Vector 里**启用模块**，并把**需要处理的地图 App 勾进作用域**
    （高德 `com.autonavi.minimap`、百度 `com.baidu.BaiduMap`、腾讯 `com.tencent.map`，勾哪个管哪个）。
 3. **重启目标地图 App**（强制停止后重新打开），然后长按底部「我的」标签约 1 秒。
@@ -234,6 +235,38 @@
 ---
 
 ## 更新日志
+
+### 2.3.1（versionCode 2301）
+
+对比基线：2.2.8。本次修 14 个 bug、加 4 项功能。
+
+#### 高德
+- **冷启动 6.5 秒 → 1 秒以内**：根因是本模块自己的 hook 无限递归（`k84.f()` → `AmapData.defaultSlot` → 反射回调 `k84.f()`），每层重解析 5.5KB JSON，涨到 `StackOverflowError` 被吞掉才停
+- **开屏页恢复显示**：之前误当广告拦截。`SplashActivity` 是 `activity-alias`，那张白底是高德自己的界面
+- **官方自动巡航**可强制进入；模块接管的巡航重做进入判据（速度窗口 / 净距 / 位置跳变 / 心跳）
+- so 预加载修复重做；非首帧安装器推迟到首帧后 3 秒
+
+#### 百度
+- **配置无法保存（三次反馈的顽固问题）**：根因三层叠加 —— 读路径把 LSPatch 只读 remote 永久定案、`DefaultConfig` 因空桩 `service==null` 早退导致默认值灌进 remote、`invalidate()` 不重置后端。已全部修掉，写路径带回读自校验
+- **地点详情页 17 类推广位清理**：猜你想搜 / 周边推荐 / 推荐附近 / 在线房源 / 周边小区 / 社区生活 / 热门服务推荐 / 商户招募 / 流量包 / 好车推荐 / 同类好店 / 房产电话 / 房源价格卡 / 本地购房群 / 咨询顾问 / 周边配套 / 大家都在问 / 房价总览。数据层摘卡，不留白
+- 面板重排为 6 个 chip；「赞赏支持」点击区放大到 48dp
+- 抓取：成功 Toast/通知 + 1.2 秒自动退出；失败不退出可重试
+
+#### 腾讯
+- **悬浮球挂载后消失**：原来挂在首启 `WelcomeActivity` 上，页面结束浮层跟着死。改为跟随宿主所有 Activity 并加布局哨兵
+- **面板「只读」**：`Vendor.host` 被非地图包名覆盖导致厂商判别失效。加白名单 + 定案不改写
+- **配置写进两个存储**：Context 探测统一到「直给优先」，不再同时写 XML 和 lspatch db
+- **性能**：首页视图树转储收进 debug（冷启动日志 443~565 行 → 9~14 行，日志量 -80%）；悬浮钩子只在主进程安装（3 → 1）；布局哨兵 250ms 节流。实测地图帧率官方 39.4 / 内置 40.7 fps —— **掉帧不是本模块造成**
+
+#### 三端通用
+- **新增服务器公告通道**：远程推送、首次必弹可关闭、自绘浮层（无宿主主题黑边）、入场/退场动画、HMAC 签名校验
+- **「检查更新」改从自有服务器读取**，不再依赖 GitHub
+- **全新安装即为精简态**：修掉「JSON 缺键 + 兜底硬编码 true」导致的默认全显；新增 `_defaults_rev` 迁移，只填缺失键，不覆盖用户显式值
+- `HookGuard` 单 hook 连续失败自动停用；`Perf` 全 hook 计时
+
+#### 已知未包含
+- 首页工具面板紧凑排列（原方案会压塌布局，已回退）
+- 腾讯 40fps 上限未动（要 hook SDK 帧率限制器，发热/耗电/版本重推，判断为不划算）
 
 ### 2.2.8（versionCode 2280）
 

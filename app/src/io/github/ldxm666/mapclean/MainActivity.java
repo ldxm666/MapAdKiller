@@ -225,7 +225,33 @@ public final class MainActivity extends Activity {
 
         // 首次进入的强制提示（3 秒后才能点掉）。异常全吞：设置页崩了比少弹一次严重得多。
         // 用户要求：去掉每次打开模块的提示弹窗（FirstRunNotice.maybeShow 调用已移除）
+
+        // 抓取回执独立轮询（v2.3.0）：statusRefresher 只在 onStart~onStop 之间跑，
+        // 而抓取期间用户一定被切到高德去了 —— 那段正是「抓完了」的时刻。要在后台也把
+        // 结果提示（通知栏）发出去，就得有一条 onCreate~onDestroy 的独立心跳。
+        // 它只读一次 prefs，不碰任何 View，代价可以忽略。
+        statusHandler.removeCallbacks(captureResultPoller);
+        statusHandler.post(captureResultPoller);
     }
+
+    /**
+     * 抓取回执轮询：{@code done/failed} 且「没提示过」时给一条明确反馈，
+     * 成功且用户正看着设置页则 1.2 秒后自动退出。
+     */
+    private final Runnable captureResultPoller = new Runnable() {
+        @Override public void run() {
+            try {
+                if (!embedded()) readCaptureReport();
+            } catch (Throwable t) {
+                // 心跳里任何异常都必须留痕：以前就是这里静默吞掉，用户只看到「一直转」。
+                android.util.Log.w("MapCleanCapture", "event=capture_poll_fail err=" + t);
+            }
+            statusHandler.postDelayed(this, CAPTURE_POLL_MS);
+        }
+    };
+
+    /** 回执轮询间隔。宿主发完广播到本地落盘是毫秒级，1.5 秒足够快又不会烧电。 */
+    private static final long CAPTURE_POLL_MS = 1500L;
 
     // ── 状态心跳 ────────────────────────────────────────────────────────────
     // v2.2.0 修复：statusRefresher 此前**只被定义、从未 post**。于是 renderStatus()
@@ -511,7 +537,7 @@ public final class MainActivity extends Activity {
     }
 
     /**
-     * 发现新版本：四个出口 —— **镜像下载**（给没代理的用户）/ GitHub 下载 / Telegram / 稍后更新。
+     * 发现新版本：四个出口 —— **服务器下载**（主）/ GitHub 页（备用）/ Telegram / 稍后更新。
      * 用两行按钮，避免三个按钮塞不下第四个选项。
      */
     private void showUpdateDialog(final String latest) {
@@ -525,8 +551,9 @@ public final class MainActivity extends Activity {
         box.addView(text("发现新版本 v" + latest, 18, Typeface.BOLD, cTxP()));
 
         String msg = "当前版本 v" + Version.LABEL + "　→　最新版本 v" + latest
-                + "\n\n【没有代理也能下载】点「镜像下载」走 gh-proxy 反代打开 Releases 页；"
-                + "「GitHub 下载」是官方直链（需要能访问 GitHub）。"
+                + "\n\n【直接从服务器下载】「服务器下载」取的是作者服务器上的安装包，"
+                + "国内网络可直接打开；内置版会自动选与你当前地图对应的那个包。"
+                + "\n\n「GitHub 页」是项目发布页，需要能访问 GitHub，只作备用。"
                 + "\n\n更新后建议强停三家地图 App 再重新打开。";
         TextView mv = text(msg, 13, Typeface.NORMAL, cTxS());
         mv.setLineSpacing(0, 1.28f);
@@ -540,11 +567,11 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp.topMargin = dp(16);
-        r1.addView(dlgButton("镜像下载", true, new Runnable() {
+        r1.addView(dlgButton("服务器下载", true, new Runnable() {
             @Override public void run() { openUrl(mirrorUrl()); dlg.dismiss(); }
         }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         r1.addView(spacer(dp(10)));
-        r1.addView(dlgButton("GitHub 下载", false, new Runnable() {
+        r1.addView(dlgButton("GitHub 页", false, new Runnable() {
             @Override public void run() { openUrl(Version.RELEASES); dlg.dismiss(); }
         }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         box.addView(r1, rlp);
@@ -571,10 +598,16 @@ public final class MainActivity extends Activity {
         } catch (Throwable ignored) {}
     }
 
-    /** 镜像下载页（按实测可用性排序，取第一个） */
+    /**
+     * 新版本安装包地址：服务端清单优先（内置版自动选宿主对应的包），
+     * 拿不到才退回项目发布页（需要能访问 GitHub，只作兜底）。
+     */
     private String mirrorUrl() {
-        String[] m = Version.DOWNLOAD_MIRRORS;
-        return (m != null && m.length > 0) ? m[0] : Version.RELEASES;
+        try {
+            String url = UpdateChecker.downloadUrl(this);
+            if (url != null) return url;
+        } catch (Throwable ignored) { }
+        return Version.RELEASES;
     }
 
     /** 圆角纯色背景（更新按钮用） */
@@ -1326,6 +1359,14 @@ public final class MainActivity extends Activity {
         list = mount;
         try {
             Sec sec = newDrawer("入口与调试");
+            // 服务器公告（模块版）：「其他」页的兜底入口。开关走 Config/App.writeBoolean
+            // 的同一条路（模块版 remote / 内置版 local 已分流），不另写 SharedPreferences。
+            addSwitch(sec.card, "接收服务器公告", Announce.K_ON);
+            addActionButton(sec.card, "最新公告", new Runnable() {
+                @Override public void run() {
+                    Announce.showLatest(MainActivity.this);
+                }
+            });
             if (embedded()) {
                 addNoteRow(sec.card, "当前整合版设置仅控制本地图，配置保存在本地图的嵌入式模块服务中。修改后彻底退出并重开地图生效。");
                 addNoteRow(sec.card, "返回可继续使用地图。更新整合版时，请下载对应地图的新版安装包。");
@@ -2701,6 +2742,93 @@ public final class MainActivity extends Activity {
 
     /* ────────────────────────────────────────────────────────────── 首页 */
 
+    // ══════════════════════════════════════════════════════════════ 首页 · 服务器公告
+
+    /**
+     * 首页顶部的公告卡 —— 模块版的**主入口**（内置版的主入口在悬浮面板首页的横幅上）。
+     *
+     * <p>两种状态：有未读公告时整卡走 accent 着色 + 右侧红点，已读后退回普通玻璃卡，
+     * 仍可点开重看。视觉原子全部来自 {@link Skin}（{@code card/glassFor/tintedGlass/rowTitle/
+     * text/iconTile}），不新造圆角与字号。
+     *
+     * <p>卡片只建一次，内容用 {@link #renderAnnounceCard} 重建：这样点击事件不会随着公告
+     * 状态变化丢失，也避免每次刷新往 root 里再塞一张卡。
+     */
+    private LinearLayout announceCard;
+
+    private LinearLayout buildAnnounceCard() {
+        final LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(skin.dp(Skin.S4), skin.dp(Skin.S4), skin.dp(Skin.S4), skin.dp(Skin.S4));
+        UiKit.clipRounded(card, skin.dp(Skin.R_CARD));
+        skin.shadow(card, 7f);
+        card.setClickable(true);
+        UiKit.pressable(card, 0.995f);
+        card.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Announce.showLatest(MainActivity.this);
+            }
+        });
+        renderAnnounceCard(card);
+
+        // 读完公告后把红点去掉。Weak 引用，Activity 没了回调自动失效。
+        final java.lang.ref.WeakReference<MainActivity> self =
+                new java.lang.ref.WeakReference<MainActivity>(this);
+        Announce.setOnChanged(new Runnable() {
+            @Override public void run() {
+                MainActivity activity = self.get();
+                if (activity != null && activity.announceCard != null) {
+                    activity.renderAnnounceCard(activity.announceCard);
+                }
+            }
+        });
+        return card;
+    }
+
+    /** 重画卡片内容（不改卡片本身）。未读 ⇒ 着色 + 红点；已读 ⇒ 普通卡 + 标题即最近一条。 */
+    private void renderAnnounceCard(LinearLayout card) {
+        if (card == null) return;
+        boolean unread = false;
+        String latest = null;
+        try {
+            unread = Announce.hasUnread(this);
+            latest = Announce.latestTitle(this);
+        } catch (Throwable ignored) { }
+        card.setBackground(unread
+                ? skin.tintedGlass(skin.accent, Skin.R_CARD)
+                : skin.glassFor(card, Skin.R_CARD));
+        card.removeAllViews();
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(iconTile(Icon.INFO, skin.accent, skin.accentSoft), fixed(skin, 38, 38));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(skin.rowTitle(unread ? "服务器公告" : "最新公告"));
+        TextView line = skin.text(latest != null ? latest : "暂无公告",
+                Skin.T_CAPTION, Skin.REGULAR, skin.text2);
+        line.setSingleLine(true);
+        line.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams lineLp = skin.matchWrap();
+        lineLp.topMargin = skin.dp(2);
+        texts.addView(line, lineLp);
+        LinearLayout.LayoutParams textsLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        textsLp.leftMargin = skin.dp(12);
+        row.addView(texts, textsLp);
+
+        if (unread) {
+            LinearLayout.LayoutParams dotLp = fixed(skin, 8, 8);
+            dotLp.rightMargin = skin.dp(6);
+            row.addView(dot(skin.danger, 8), dotLp);
+        }
+        row.addView(new Icon(this, Icon.CHEVRON, unread ? skin.accent : skin.text3),
+                fixed(skin, 18, 18));
+        card.addView(row, skin.matchWrap());
+    }
+
     private ScrollView buildHomePage() {
         ScrollView sv = new ScrollView(this);
         sv.setFillViewport(true);
@@ -2732,6 +2860,9 @@ public final class MainActivity extends Activity {
         top.setPadding(skin.dp(Skin.S2), skin.dp(Skin.S1), skin.dp(Skin.S2), skin.dp(Skin.S2));
         top.setBackground(skin.headerScrim());
         root.addView(top, skin.matchWrap());
+
+        announceCard = buildAnnounceCard();
+        root.addView(announceCard, withTop(skin, Skin.S4));
 
         // 状态卡：这一块就是原来屏幕顶部的那一整块，只是挪到了首页
         LinearLayout status = new LinearLayout(this);
@@ -2899,6 +3030,18 @@ public final class MainActivity extends Activity {
     private long cloudAt;
     private TextView cloudSub;
     private TextView logSub;
+
+    /**
+     * 已经提示过的抓取回执时间戳，**持久化**在 {@code capture_report} prefs 的 {@code ack_at}。
+     *
+     * <p>为什么要落盘：不落盘就只剩「本 Activity 实例内」的记忆，用户杀掉后台再打开，
+     * 上一次的结果会被当成新结果再弹一遍 —— 而这正是「重复点击/重进页面叠加提示」的来源。
+     * 只在收到没提示过的 done/failed 回执时才写；pending/state 不写。
+     */
+    private static final String K_ACK_AT = "ack_at";
+    private long ackAtCache = -1L;
+    /** 用户点「开始抓取 / 重新抓取」的时刻，用来算 {@code event=capture_done} 里的 ms=。 */
+    private long captureAskedAt;
 
     /** 「抓取云数据」一行：官方云端下发的首页卡片 / 金刚位 / 工具宫格 / 云控开关，按版本抓一份基线。 */
     private LinearLayout cloudDataRow() {
@@ -3070,7 +3213,105 @@ public final class MainActivity extends Activity {
                 // 「已请求、等宿主回报」：即便手里还有上一次的成功结果，也要先显示等待中。
                 cloudPending = true;
             }
-        } catch (Throwable ignored) { }
+            // v2.3.0：状态读完顺手做一次「结果反馈」判定。放在这里（而不是广播接收器里）
+            // 有个硬理由：接收器只负责落盘，它没有 Activity，判定不了「用户到底看没看屏幕」，
+            // 也就分不出该弹 Toast（看完自动退出）还是该发通知栏（用户在高德里）。
+            checkCaptureResult(stage, captured,
+                    sp.getInt(io.github.ldxm666.mapadkiller.CaptureReport.K_FILES, 0),
+                    sp.getLong(io.github.ldxm666.mapadkiller.CaptureReport.K_AT, 0L),
+                    sp.getString(io.github.ldxm666.mapadkiller.CaptureReport.K_ERROR, null));
+        } catch (Throwable t) {
+            // 不许静默：读回执失败 = 首页那行永远停在旧文案，没有日志就只能靠猜。
+            android.util.Log.w("MapCleanCapture", "event=capture_report_read_fail err=" + t);
+        }
+    }
+
+    // ══════════════════════════════════════════════ 抓取结果反馈 + 自动退出（v2.3.0）
+
+    /** 已提示过的回执时间戳（读一次就缓存，心跳不反复碰磁盘）。 */
+    private long ackAt() {
+        if (ackAtCache >= 0L) return ackAtCache;
+        try {
+            ackAtCache = getSharedPreferences(
+                    io.github.ldxm666.mapadkiller.CaptureReport.P, MODE_PRIVATE)
+                    .getLong(K_ACK_AT, 0L);
+        } catch (Throwable t) {
+            android.util.Log.w("MapCleanCapture", "event=capture_ack_read_fail err=" + t);
+            ackAtCache = 0L;
+        }
+        return ackAtCache;
+    }
+
+    /** 记下「这条回执已经提示过」，落盘，避免重进页面/重启进程重复弹。 */
+    private void markAck(long at) {
+        ackAtCache = at;
+        try {
+            getSharedPreferences(io.github.ldxm666.mapadkiller.CaptureReport.P, MODE_PRIVATE)
+                    .edit().putLong(K_ACK_AT, at).commit();
+        } catch (Throwable t) {
+            // 落盘失败只影响「下次还会提示一次」，不影响本次反馈，所以只记日志不中断。
+            android.util.Log.w("MapCleanCapture", "event=capture_ack_write_fail err=" + t);
+        }
+    }
+
+    /**
+     * 抓取结果的唯一出口：成功/失败各一条明确提示，成功且用户正看着本页时自动退出。
+     *
+     * <p><b>成功</b>：Toast（前台）或通知栏（后台），文案带抓到多少项；1.2 秒后 {@code finish()}，
+     * 把界面还给地图。摘要留在首页那行（「已抓取 N 个配置文件 · 今天 03:47」），
+     * 所以退出后用户回来仍然找得到结果，不会「一关就什么都不知道了」。
+     *
+     * <p><b>失败</b>：只提示、**绝不自动退出**。用户要停在这一页看到原因并重试；
+     * 自动退出会把「失败」变成「什么都没发生」，那正是这次要修的老毛病。
+     */
+    private void checkCaptureResult(String stage, boolean captured, int files, long at, String error) {
+        final boolean done = io.github.ldxm666.mapadkiller.CaptureReport.S_DONE.equals(stage) && captured;
+        final boolean failed = io.github.ldxm666.mapadkiller.CaptureReport.S_FAILED.equals(stage);
+        if (!done && !failed) return;
+        final long stamp = at > 0L ? at : System.currentTimeMillis();
+        if (stamp <= ackAt()) return;      // 这条回执已经提示过（含冷启动时的历史结果）
+        final long age = System.currentTimeMillis() - stamp;
+        if (age > 10L * 60L * 1000L) {
+            // 隔了太久的旧结果（比如进程被杀、第二天才打开）只更新列表，不再打扰。
+            android.util.Log.i("MapCleanCapture", "event=capture_feedback_skip reason=stale age_ms=" + age);
+            markAck(stamp);
+            return;
+        }
+        boolean fg = false;
+        try {
+            fg = !isFinishing() && hasWindowFocus();
+        } catch (Throwable t) {
+            android.util.Log.w("MapCleanCapture", "event=capture_fg_probe_fail err=" + t);
+        }
+        final boolean toasted;
+        try {
+            toasted = io.github.ldxm666.mapadkiller.CaptureLog.notifyResult(
+                    this, fg, done, files, done ? ("amap:" + files) : "",
+                    captureAskedAt > 0L ? stamp - captureAskedAt : 0L,
+                    stamp, done ? null : reasonText(error));
+        } catch (Throwable t) {
+            // 提示这条路整个挂了：记下来并**记账**，否则心跳每 1.5 秒重试一次，
+            // logcat 会被同一条异常刷满。抓取结果本身已经落盘，首页那行仍然是对的。
+            android.util.Log.w("MapCleanCapture", "event=capture_feedback_fail err=" + t);
+            markAck(stamp);
+            return;
+        }
+        // 提示真的发出去了才记账：先记账再提示的话，提示一失败就永久丢了，
+        // 用户永远等不到那条「抓取完成」。
+        markAck(stamp);
+        if (!done || !toasted) return;    // 失败 / 走的是通知栏（用户不在本页）⇒ 不退出
+        // 成功且用户正看着设置页：留 1.2 秒让 Toast 被看见，然后自动退出。
+        statusHandler.postDelayed(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (!isFinishing()) finish();
+                    android.util.Log.i("MapCleanCapture", "event=capture_finish ok=true");
+                } catch (Throwable t) {
+                    android.util.Log.w("MapCleanCapture", "event=capture_finish_fail err=" + t);
+                }
+            }
+        }, 1200L);
+        android.util.Log.i("MapCleanCapture", "event=capture_finish scheduled_ms=1200");
     }
 
     /** 抓取时间显示：「今天 14:32」/「10-27 14:32」。 */
@@ -3232,6 +3473,11 @@ public final class MainActivity extends Activity {
 
     private void doStartCloudCapture(boolean isEmbedded) {
         try {
+            // 记下起点：成功回执要打 event=capture_done ms=…，没有起点这个字段永远是 0。
+            captureAskedAt = System.currentTimeMillis();
+            // 抓取期间用户基本都在高德里，结果只能靠通知栏送达 —— 顺手把权限要了。
+            // 不申请的话 Android 13+ 会静默丢掉 notify()，用户又变成「抓完了也没提示」。
+            ensureNotifyPermission();
             if (isEmbedded) {
                 if (!CaptureGate.setCaptureMode(this, true)) {
                     toast("写入采集标记失败，请检查存储权限");
@@ -3280,6 +3526,29 @@ public final class MainActivity extends Activity {
             }, "mapclean-cloud-request").start();
         } catch (Throwable t) {
             toast("操作失败：" + t.getMessage());
+        }
+    }
+
+    /**
+     * Android 13+ 的通知权限（POST_NOTIFICATIONS）。
+     *
+     * <p>为什么在「开始抓取」这一刻要：后台抓取完成时设置页一定不在前台，通知栏是唯一
+     * 还能看见「抓完了」的通道；没授权时 {@code notify()} 会被系统静默丢弃 —— 用户看到
+     * 的仍然是「抓完没反应」。在用户主动点抓取的瞬间申请，上下文最自然，也不会一启动
+     * 就弹权限框。已授权 / 低版本直接返回。
+     */
+    private void ensureNotifyPermission() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT < 33) return;
+            if (checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 0x4D43);
+            android.util.Log.i("MapCleanCapture", "event=capture_notify_permission_requested");
+        } catch (Throwable t) {
+            // 申请失败不算错误：提示会退回 Toast，抓取本身一点不受影响。
+            android.util.Log.w("MapCleanCapture", "event=capture_notify_permission_fail err=" + t);
         }
     }
 

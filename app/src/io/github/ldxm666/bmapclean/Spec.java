@@ -21,6 +21,8 @@ public final class Spec {
     public static final String K_TAB = "tab_";
     /** 工具宫格 整块总开关 */
     public static final String K_TOOLS = "ui_tool_grid";
+    /** 首页工具面板排成一行、压掉第二行空白。true = 已优化。 */
+    public static final String K_HOME_TOOLS_COMPACT = "home_tools_compact";
     /** 单格：K_TOOL + 文案 */
     public static final String K_TOOL = "tool_";
     /** 回家/去公司 整行总开关 */
@@ -91,6 +93,24 @@ public final class Spec {
     public static final String K_MINE_APPLY = "mine_apply";
 
     /**
+     * 地点详情页（长按地图 / POI 详情）三块推广位。默认**已移除**。
+     *
+     * <p>这一页是本地 H5 模板（{@code cards/*.umd.min.js} 一张卡一块），
+     * 摘除点在 {@code js/app.*.js} 的 Vuex {@code setPageData} 入参上，
+     * 见 {@link BaiduPoiAds}。等价于原生列表的 {@code getItemCount}：
+     * 卡片不进 groupDataList ⇒ {@code v-for} 连占位壳都不生成，天然不留白。
+     */
+    public static final String K_POI_GUESS = "poi_guess_search";
+    public static final String K_POI_REC = "poi_nearby_rec";
+    public static final String K_POI_CARDS = "poi_nearby_cards";
+    /** 第二排：在线房源 / 周边小区·周边新楼盘 / 社区生活 */
+    public static final String K_POI_HOUSE = "poi_house_listing";
+    public static final String K_POI_ESTATE = "poi_nearby_estate";
+    public static final String K_POI_LIFE = "poi_community_life";
+    /** 第三排：详情页里零散的运营/推广位（带「广告」角标的那类）。 */
+    public static final String K_POI_MISC = "poi_misc_promo";
+
+    /**
      * 各键的默认「可见」值。
      *
      * v0.4.0 起默认值跟着**能力**走：
@@ -99,11 +119,18 @@ public final class Spec {
      *     —— 用户要的就是它们消失，其余区块默认保持原样。
      */
     public static boolean defaultVisible(String key) {
+        // 首页工具面板紧凑排列：默认**关**。上一版把父容器高度压塌过（图标被裁、压到下一行），
+        // 真机确认干净之前不上线。
+        if (K_HOME_TOOLS_COMPACT.equals(key)) return false;
         if (K_MINE_OPS.equals(key) || K_MINE_AD.equals(key) || K_AI_NOW.equals(key)) return false;
         // 路线页的浮层/推荐位：用户要的就是它们消失，默认关（隐藏）。
         if (K_ROUTE_WIDGET.equals(key) || K_ROUTE_AD.equals(key)
                 || K_ROUTE_EXPLORE.equals(key) || K_ROUTE_TAXI.equals(key)
                 || K_ROUTE_GUJIN.equals(key)) return false;
+        // 地点详情页的推广位：用户要的就是它们消失，默认关（隐藏）。
+        if (K_POI_GUESS.equals(key) || K_POI_REC.equals(key) || K_POI_CARDS.equals(key)
+                || K_POI_HOUSE.equals(key) || K_POI_ESTATE.equals(key)
+                || K_POI_LIFE.equals(key) || K_POI_MISC.equals(key)) return false;
         // 地图标注：总开关 + 13 个分类 + 长尾桶，默认全部「关（隐藏）」。
         // 这里必须和 BaiduLabelSettings.rows() 的默认值、BaiduPoiLayer.hiddenCategories()
         // 的缺省值保持一致 —— 三处任何一处不同，设置页显示「开」而实际在隐藏。
@@ -174,6 +201,7 @@ public final class Spec {
     public static final int CAT_MAP = 7;
     public static final int CAT_SEARCH = 8;
     public static final int CAT_ROUTE = 9;
+    public static final int CAT_POI = 10;
 
     /** 频道栏文案锚点（需同一容器内同时命中 ≥2 个才算频道栏，避免误伤卡片文案） */
     public static final String[] CHIP_ANCHORS = {"推荐", "看世界", "成都市"};
@@ -336,9 +364,10 @@ public final class Spec {
         bar[0]=new Row(K_BAR,"显示底部入口栏","开关勾选表示显示；关闭表示隐藏。",true);
         for(int i=0;i<TABS.length;i++)bar[i+1]=new Row(K_TAB+TABS[i],TABS[i],i==0?"整栏显示时保留首页，确保可以返回地图。":null,false);
         String[] toolList = allToolLabels();
-        Row[] tools=new Row[1+toolList.length];
+        Row[] tools=new Row[2+toolList.length];
         tools[0]=new Row(K_TOOLS,"显示首页工具宫格","关闭整块时，所有工具入口一起隐藏。",true);
-        for(int i=0;i<toolList.length;i++)tools[i+1]=new Row(K_TOOL+toolList[i],toolList[i],null,false);
+        tools[1]=new Row(K_HOME_TOOLS_COMPACT,"紧凑排列（一行放下）","把「驾车 / 公共交通 / 更多…」收进同一行并压掉第二行空白；入口个数变化时自动适配。",false);
+        for(int i=0;i<toolList.length;i++)tools[i+2]=new Row(K_TOOL+toolList[i],toolList[i],null,false);
         CATS=new Cat[]{
             new Cat(CAT_BAR,"底部入口栏","勾选为显示；隐藏后剩余入口均分。",bar),
             new Cat(CAT_TOOLS,"首页工具宫格","单独控制工具；保留原有点击功能。",tools),
@@ -364,6 +393,14 @@ public final class Spec {
                 new Row(K_ROUTE_EXPLORE,"探索周边","路线页底部「探索××周边」的三图推荐卡片。",false),
                 new Row(K_ROUTE_TAXI,"特惠打车","路线页底部的「特惠打车」领券横幅。",false),
                 new Row(K_ROUTE_GUJIN,"古今地图入口","首页出行方式快捷格里的「古今地图」那一格（与步行/骑行同一排）。",false)}),
+            new Cat(CAT_POI,"地点详情页","长按地图 / 点开地点后的详情页里的推广位。摘除发生在页面数据层（卡片清单），不留空白。改动后需彻底关闭再打开百度。",new Row[]{
+                new Row(K_POI_GUESS,"猜你想搜","搜索框下面那一整块：圆角词条 + 「问一问」。",false),
+                new Row(K_POI_REC,"周边推荐","带分类 tab（推荐 / 美食 / 休闲娱乐…）的双列大图卡片，含「查看更多」。",false),
+                new Row(K_POI_CARDS,"底部推荐附近","页面最下方那条推荐信息流连它的分类 tab 一起摘掉。",false),
+                new Row(K_POI_HOUSE,"在线房源","带「咨询 / 电话」的房源卡片流和底部「查看全部 ›」。",false),
+                new Row(K_POI_ESTATE,"周边小区 / 周边新楼盘","两个 tab 连切换条整块摘掉（不留一条空 tab）。",false),
+                new Row(K_POI_LIFE,"社区生活","保洁清洗 / 家电维修 这一排两列入口卡。",false),
+                new Row(K_POI_MISC,"其它运营 / 推广位","带「广告」角标的热门服务推荐、商户招募、流量包、好车推荐、同类好店。",false)}),
             new Cat(CAT_DIAG,"诊断","百度 22.1.0 (1660) 适配；改动后重启百度生效。",new Row[]{new Row(Cfg.K_DEBUG,"调试日志",null,false)})
         };return CATS;
     }

@@ -29,6 +29,12 @@ public final class MainHook {
     public static void onModuleLoaded(XposedModule mod, XposedModuleInterface.ModuleLoadedParam param) {
         sProcess = param.getProcessName();
         H.module = mod;
+        // Perf.START 在这里被第一次读到（类初始化）⇒ 后续所有 event=phase 的 at_ms
+        // 都相对"模块拿到回调"这一刻，正好对齐 logcat 里的 event=module_loaded。
+        Perf.phase("module_loaded");
+        // 冷启动探针：20 s 后打一份 hook 耗时排行榜。只在本进程起一条守护线程，
+        // 只用 sleep + 一次日志输出，不碰宿主任何状态。
+        Perf.startDumper(20000L);
         H.log(Log.INFO, TAG, "event=module_loaded process=" + sProcess
                 + " api=" + mod.getApiVersion() + " framework=" + mod.getFrameworkName());
     }
@@ -37,6 +43,7 @@ public final class MainHook {
         final String pkg = param.getPackageName();
         final String process = sProcess;
         if (pkg == null) return;
+        Perf.phase("package_ready");
 
         // 一次性宿主身份诊断：签名 DN + 嵌入/模块模式。
         // 用于快速识别"用户装错了包"（官方 CN=minimap / 内置版 CN=xiawanli）。
@@ -113,6 +120,9 @@ public final class MainHook {
                 } catch (Throwable t) {
                     H.log(Log.ERROR, TAG, "event=install_failed pkg=" + pkg
                             + " process=" + process, t);
+                    // 撤销占位，让本进程后续的 onPackageReady 能重试（每个进程只重试一次）。
+                    // 不撤销的话这个子进程在本进程内永远 install_skipped，等于模块没装。
+                    H.unmarkInstalled(pkg);
                 }
             } else {
                 H.log(Log.INFO, TAG, "event=skip_subprocess pkg=" + pkg + " process=" + process);
@@ -131,6 +141,16 @@ public final class MainHook {
                     H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg
                             + " process=" + process + " mode=main");
                     AmapHooks.install(cl);   // 去广告基线
+                    // 冷启动四段探针（只量不改）。放在去广告基线之后：它一条行为都不改，
+                    // 只把 InterfaceAppImpl.init / IComponentManager.init / NewMapActivity.o
+                    // / F() 这四段的耗时钉到同一条时间轴上，用来回答
+                    // 「startLaunch() 之后到首帧之间到底花在哪」。
+                    // 关掉：adb shell setprop debug.mapclean.start_probe 0
+                    try {
+                        AmapStartProbe.install(cl);
+                    } catch (Throwable t) {
+                        H.log(Log.WARN, TAG, "event=start_probe_install_failed", t);
+                    }
                     // 阿里妈妈广告请求层（开屏广告请求 + 广告埋点上报）。
                     // 刻意放在 AmapHooks **之外**：AmapHooks 是"高德自有界面/数据层"的总入口，
                     // 而这一层是 SDK 形态的广告通道（ws/valueadded/alimama/splash_screen、
@@ -193,6 +213,9 @@ public final class MainHook {
             if (PKG_TMAP.equals(pkg)) SdkAutoBlock.install(cl, pkg);
         } catch (Throwable t) {
             H.log(Log.ERROR, TAG, "event=install_failed pkg=" + pkg, t);
+            // 同上：占位必须先退回。这里 catch 的是"整个包的安装"，任何一处抛出都会让
+            // 剩下的 hook 一条都装不上；不撤销的话本进程内不会再有机会补齐。
+            H.unmarkInstalled(pkg);
         }
     }
 }

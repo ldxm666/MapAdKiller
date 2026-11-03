@@ -131,6 +131,27 @@ static final class Group {
         this.link = null;
         this.about = false;
     }
+    /**
+     * 开关行 + 滑块行共存：**巡航**页。
+     *
+     * <p>为什么需要这个重载：巡航的「总开关」和「触发速度 / 持续时间」必须出现在同一页。
+     * 分成两个 chip 是上一版的真实问题 —— 用户在「巡航」chip 里只看到两个滑块，
+     * 找不到开关，以为功能没开；而开关藏在「首页」里，更没人会去那儿找。
+     *
+     * <p>渲染顺序固定：先 items，后 metrics（见 {@code FloatingPanel}），
+     * 于是「开 → 调阈值」的阅读顺序天然成立。
+     */
+    Group(String label, Item[] items, Metric[] metrics, String note) {
+        this.label = label;
+        this.items = items;
+        this.sections = null;
+        this.metrics = metrics;
+        this.note = note;
+        this.action = null;
+        this.link = null;
+        this.about = false;
+    }
+
     /** Numeric rows: the 外观 page. */
     Group(String label, Metric[] metrics, String note) {
         this.label = label;

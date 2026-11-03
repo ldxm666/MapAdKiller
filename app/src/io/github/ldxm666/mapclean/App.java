@@ -41,7 +41,14 @@ public final class App extends Application implements XposedServiceHelper.OnServ
     private static FrameworkStatus.Source boundStatusSource;
     private static boolean listenerRegistered;
     private static volatile boolean embedded;
-    /** 默认配置的自动应用每次进程只触发一次（真正的「是否已应用」判断在 DefaultConfig）。 */
+    /**
+     * 防重入标记：worker 正在跑的时候不重复起线程。
+     *
+     * <p>**不是**「本进程只做一次」的标记 —— 那个语义由 {@code DefaultConfig} 的
+     * {@code _defaults_applied} 键保证。这里跑完就放开，是为了让"第一次因为服务刚起、
+     * 资源还读不到而失败"的那次能够在后续的服务绑定里再试一次；否则一次失败就等于
+     * 整批内置默认配置在本进程内永久不生效，用户看到的是"装了模块但全是默认值"。
+     */
     private static boolean defaultsRequested;
 
     private static final XposedServiceHelper.OnServiceListener embeddedListener =
@@ -76,6 +83,11 @@ public final class App extends Application implements XposedServiceHelper.OnServ
         if (self == host && embedded && listenerRegistered) return;
         self = host;
         embedded = true;
+        // ★ 2.3.0：把宿主 Application 直接交给 HostPrefs —— 与写入路径同源。
+        //   必须在 applyDefaultsOnce() 之前：否则首次默认配置会落到 LSPatch 的 remote 库
+        //   （真机证据：同一次安装，12:43 那次写进了 shared_prefs/tmapclean_config.xml，
+        //   12:44 那次落进了 databases/lspatch-xposed-remote.db —— 两次走的是两条 Context 路）。
+        HostPrefs.remember(host);
         io.github.ldxm666.mapadkiller.App.attach(host);
         // In an integrated build this method -- not onCreate -- is what runs, because the host
         // Application is the map's own, never the module's. So every vendor holder has to be
@@ -91,7 +103,15 @@ public final class App extends Application implements XposedServiceHelper.OnServ
         registerListener(embeddedListener);
         // 免 root 内置模式下服务可能先到、宿主 Application 后到：这条路径同样要把默认配置
         // 应用一次，否则 attachEmbedded 之后就没有第二次机会了（标记键保证不会重复应用）。
-        if (service != null) applyDefaultsOnce();
+        //
+        // ★ 2.3.0：**不再要求 service != null**。LSPatch 内置版的服务通道本来就起不来，
+        //   而默认配置在那一形态下的正确落点是宿主本地 prefs（见 DefaultConfig.groupPrefs）。
+        //   以前这个 if 让它一次都没跑过 —— 真机日志「no framework service yet」就是它。
+        applyDefaultsOnce();
+        // 服务器公告：宿主 Application 已就绪，注册 Activity 观察者并在 3 秒后查一次。
+        // 内置版这条路径不会经过 mapclean.App.onCreate（跑的是地图自己的 Application），
+        // 所以这里是**唯一**的启动挂点。
+        try { Announce.onAppStart(host); } catch (Throwable ignored) { }
     }
 
     private static synchronized void registerListener(XposedServiceHelper.OnServiceListener listener) {
@@ -138,6 +158,9 @@ public final class App extends Application implements XposedServiceHelper.OnServ
                     .invoke(null, getPackageName());
         } catch (Throwable ignored) {
         }
+        // 服务器公告：3 秒后查一次（避开冷启动），并注册 Activity 观察者决定弹窗依附谁。
+        // 模块版（LSPosed）走的就是这条路径 —— 模块 App 自己就是那个宿主进程。
+        try { Announce.onAppStart(this); } catch (Throwable ignored) { }
     }
 
     @Override
@@ -178,6 +201,9 @@ public final class App extends Application implements XposedServiceHelper.OnServ
      * <p>只在服务可用之后调用（见 {@link #bindService} 与 {@link #attachEmbedded}）。
      * 真正的判断与写入在 {@link DefaultConfig}：标记键 {@code _defaults_applied} 存在即跳过。
      * 放到后台线程是因为 {@code commit()} 是同步落盘，不能占住主线程。
+     *
+     * <p>标记只在 worker 运行期间有效，跑完就放开（见字段注释）。放开是安全的：
+     * 重复进入时 {@code DefaultConfig} 的标记会把整组跳过，代价只是一次 JSON 读取。
      */
     static void applyDefaultsOnce() {
         synchronized (App.class) {
@@ -187,12 +213,23 @@ public final class App extends Application implements XposedServiceHelper.OnServ
         try {
             Thread worker = new Thread(new Runnable() {
                 @Override public void run() {
-                    try { DefaultConfig.applyOnce(); } catch (Throwable ignored) { }
+                    try {
+                        DefaultConfig.applyOnce();
+                    } catch (Throwable t) {
+                        // applyOnce 内部已经把异常吞掉了，这里只是兜住"万一"。
+                        Log.w(TAG, "defaults apply failed", t);
+                    } finally {
+                        // 关键：不在这里放开，一次失败就等于本进程永不重试 ——
+                        // 内置默认配置整批不生效，而用户完全看不出是"没应用"还是"应用错了"。
+                        synchronized (App.class) { defaultsRequested = false; }
+                    }
                 }
             }, "MapClean-defaults");
             worker.setDaemon(true);
             worker.start();
         } catch (Throwable t) {
+            // 线程都没起来（OOM / 线程数上限）：立刻放开，别把这一次也算成"做过了"。
+            synchronized (App.class) { defaultsRequested = false; }
             Log.w(TAG, "defaults worker failed to start", t);
         }
     }

@@ -1,14 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.ldxm666.mapadkiller"
-    android:versionCode="2280"
-    android:versionName="2.2.8">
+    android:versionCode="2301"
+    android:versionName="2.3.1">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
 
     <!-- 版本检查：去 GitHub Releases 拉最新版本号（多源回退，失败不打扰） -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+        抓取结果通知（v2.3.0）：抓取跑在高德进程里，完成时设置页一定不在前台，
+        通知栏是唯一还能看见「抓完了 / 抓了多少项」的通道。
+        Android 13+ 不声明这条 → requestPermissions() 直接 DENIED、notify() 被系统静默丢弃，
+        用户看到的就是「抓完什么都不提示」。运行时申请在 MainActivity#ensureNotifyPermission()。
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Android 11+ 包可见性：设置页要读三家地图的版本号/作用域做状态自检 -->
     <queries>

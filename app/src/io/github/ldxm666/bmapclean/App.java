@@ -25,13 +25,22 @@ public final class App extends Application implements XposedServiceHelper.OnServ
 
     /** 设置页写开关。必须 commit()：apply() 异步落盘，用户切完就退出会丢。 */
     public static boolean write(String key, boolean value) {
+        // ★ 免 root 内置版：服务通道写的是 LSPatch 的 lspatch-xposed-remote.db，
+        //   真机实测会 SQLiteCantOpenDatabaseException —— commit() 返回 true 但读不回来，
+        //   这就是用户反馈的「开关拨了、重开又变回去」。宿主自己的 SharedPreferences
+        //   （bmapclean_config.xml）永远可写，且 hook 侧读的就是同一个文件，所以直接走本地。
+        if (Cfg.embedded()) return Cfg.write(key, value);
         XposedService s = service;
-        if (s == null) return false;
-        try {
-            return s.getRemotePreferences(Cfg.GROUP).edit().putBoolean(key, value).commit();
-        } catch (Throwable t) {
-            return false;
+        if (s != null) {
+            try {
+                if (s.getRemotePreferences(Cfg.GROUP).edit().putBoolean(key, value).commit()) {
+                    Cfg.invalidate();
+                    return true;
+                }
+            } catch (Throwable ignored) { }
         }
+        // 服务未连上（模块版首启 / 内置版降级）：本地后端兜底，不再直接返回 false。
+        return Cfg.write(key, value);
     }
 
     /** 设置页读开关（服务未连上时按「可见」返回，与 hook 侧失效安全一致）。 */
@@ -41,13 +50,14 @@ public final class App extends Application implements XposedServiceHelper.OnServ
 
     /** 缺省值由调用方指定（默认「关」的键，如 mine_apply） */
     public static boolean read(String key, boolean def) {
+        if (Cfg.embedded()) return Cfg.visible(key, def);
         XposedService s = service;
-        if (s == null) return def;
-        try {
-            return s.getRemotePreferences(Cfg.GROUP).getBoolean(key, def);
-        } catch (Throwable t) {
-            return def;
+        if (s != null) {
+            try {
+                return s.getRemotePreferences(Cfg.GROUP).getBoolean(key, def);
+            } catch (Throwable ignored) { }
         }
+        return Cfg.visible(key, def);
     }
 
     /** 诊断摘要（hook 侧通过广播回报，落在本地 SharedPreferences） */
@@ -147,6 +157,9 @@ public final class App extends Application implements XposedServiceHelper.OnServ
     public static final String K_TOKEN = "app_token";
 
     public static String token() {
+        // 内置版 remote 读不到 ⇒ 回落到宿主本地（hook 侧就是从那里读的，两边必须同一个源）
+        String local = Cfg.token();
+        if (local != null && local.length() > 0) return local;
         XposedService s = service;
         if (s == null) return "";
         try {
@@ -156,12 +169,28 @@ public final class App extends Application implements XposedServiceHelper.OnServ
         }
     }
 
-    /** 首次运行时生成 token 并写进 RemotePreferences（hook 侧只读得到它） */
+    /** 首次运行时生成 token 并写进配置（hook 侧只读得到它）。 */
     public static void ensureToken() {
+        // 内置版写 remote 是坏库；token 必须落在 hook 侧读得到的地方（宿主本地 prefs）。
+        try {
+            android.content.SharedPreferences lp = Cfg.prefs();
+            if (lp != null) {
+                String cur = lp.getString(K_TOKEN, "");
+                if (cur == null || cur.length() == 0) {
+                    Cfg.writeString(K_TOKEN, java.util.UUID.randomUUID().toString());
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "ensureToken local failed: " + t);
+        }
         XposedService s = service;
         if (s == null) return;
         try {
-            android.content.SharedPreferences p = s.getRemotePreferences(Cfg.GROUP);
+            // 内置版：remote 是只读代理，写进去也读不回来。
+            // 迁移标记必须落在 hook 侧真正读的那个后端上。
+            android.content.SharedPreferences p = Cfg.embedded()
+                    ? Cfg.prefs() : s.getRemotePreferences(Cfg.GROUP);
+            if (p == null) return;
             String cur = p.getString(K_TOKEN, "");
             if (cur == null || cur.length() == 0) {
                 p.edit().putString(K_TOKEN, java.util.UUID.randomUUID().toString()).commit();
@@ -172,16 +201,29 @@ public final class App extends Application implements XposedServiceHelper.OnServ
     }
 
     public static boolean resetAll() {
-        XposedService s = service;
-        if (s == null) return false;
+        boolean ok = false;
+        String tk = token();
+        // 本地后端先清（内置版只有这一条通道）
         try {
-            String tk = token();
+            android.content.SharedPreferences lp = Cfg.prefs();
+            if (lp != null) {
+                android.content.SharedPreferences.Editor e = lp.edit().clear();
+                if (tk != null && tk.length() > 0) e.putString(K_TOKEN, tk);   // token 保留
+                ok = e.commit();
+                Cfg.invalidate();
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "resetAll local failed: " + t);
+        }
+        XposedService s = service;
+        if (s == null) return ok;
+        try {
             android.content.SharedPreferences.Editor e =
                     s.getRemotePreferences(Cfg.GROUP).edit().clear();
-            if (tk != null && tk.length() > 0) e.putString(K_TOKEN, tk); // token 保留
-            return e.commit();
+            if (tk != null && tk.length() > 0) e.putString(K_TOKEN, tk);       // token 保留
+            return e.commit() || ok;
         } catch (Throwable t) {
-            return false;
+            return ok;
         }
     }
 

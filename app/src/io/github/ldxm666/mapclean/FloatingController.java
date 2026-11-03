@@ -49,6 +49,33 @@ public final class FloatingController {
             Collections.newSetFromMap(new WeakHashMap<Activity, Boolean>()));
 
     /**
+     * Activities whose window we already watch with an {@code OnGlobalLayoutListener}.
+     *
+     * <p>Weak and one-shot per Activity: the listener lives exactly as long as the window it is
+     * registered on, so this only prevents registering the same watch twice.
+     */
+    private static final Set<Activity> watching = Collections.synchronizedSet(
+            Collections.newSetFromMap(new WeakHashMap<Activity, Boolean>()));
+
+    /**
+     * ★ 2.3.1：哨兵每次 layout 都可能想补挂一次，这里给每个 Activity 记一个“上次尝试时刻”，
+     * 250 ms 内不重复尝试。
+     *
+     * <p>为什么必须有这个闸门：{@link #watchContentRoot} 挂在 {@code decor} 上，
+     * {@code onGlobalLayout} 是**每次布局**都回调（拖动面板/软键盘/卡片滑动时一帧一次）。
+     * 补挂失败的情形是真实存在的 —— {@code contentRoot()} 已经量到尺寸但
+     * {@code host.isAttachedToWindow()} 还是 false、{@code isEnabled()} 关着、
+     * Activity 正在 finish。没有节流的话每一次布局都会 {@code decor.post()} 一个
+     * {@code attach()} 任务，一帧一个 Runnable，主线程消息队列被这些注定失败的重试灌满，
+     * 表现就是“滑一下卡一下”。有节流后最坏 4 次/秒，且不会随帧率放大。
+     */
+    private static final java.util.Map<Activity, Long> watchAttempt =
+            Collections.synchronizedMap(new WeakHashMap<Activity, Long>());
+
+    /** 同一个 Activity 两次补挂尝试的最小间隔。 */
+    private static final long WATCH_RETRY_MS = 250L;
+
+    /**
      * The 悬浮窗 switch, resolved from storage on first use.
      *
      * <p>{@code null} means "not read yet". It is a tri-state on purpose: {@link #setEnabled}
@@ -58,6 +85,23 @@ public final class FloatingController {
 
     /** Set by {@link #setEnabled(boolean)} when turning on, so the ball shows up right away. */
     private static volatile boolean revealOnAttach;
+
+    /**
+     * ★ 2.3.0：**当前唯一的浮层宿主 Activity**。
+     *
+     * <p>腾讯地图的首个 Activity 是隐私页 {@code WelcomeActivity}。用户点「同意并继续」后它
+     * {@code finish()}，挂在其 DecorView 上的浮层跟着窗口一起消失；主地图 Activity 起来时
+     * 旧代码什么都不做（{@code onActivityResumed} 只认「这个 root 还没挂过」），于是球再也不出现。
+     * 真机日志：
+     * <pre>
+     *   floating layer attached to com.tencent.map.WelcomeActivity
+     *   ... 用户点同意 ...
+     *   (此后没有任何 attach 记录)
+     * </pre>
+     *
+     * <p>所以记一个「谁现在是宿主」：新 Activity 接管时先把旧宿主摘掉，同一时刻只留一个浮层。
+     */
+    private static volatile Activity currentHost;
 
     private FloatingController() {}
 
@@ -171,6 +215,7 @@ public final class FloatingController {
             snapshot = layers.toArray(new Layer[0]);
             layers.clear();
         }
+        currentHost = null;
         for (final Layer layer : snapshot) {
             Runnable task = new Runnable() {
                 @Override public void run() {
@@ -199,6 +244,158 @@ public final class FloatingController {
         if (snapshot.length > 0) Log.i(TAG, "floating layers removed: " + snapshot.length);
     }
 
+    /**
+     * ★ 2.3.0：宿主 Activity 正在销毁 —— **先摘层，再让它走**。
+     *
+     * <p>腾讯地图 {@code WelcomeActivity.finish()} 那一刻，挂在其 content root 上的
+     * {@code host} 还活着；不主动 removeView，窗口与 View 的引用链会在
+     * {@code WindowManager} 那边留下一条 {@code WindowLeaked}，而 {@code attached} 里还记着
+     * 那个 root，重建同名 Activity 时会被去重闸门误挡。
+     *
+     * <p>必须在 {@code onDestroy} 里同步做完：{@code post()} 到已销毁窗口的队列不会再跑。
+     * 主线程直接执行，非主线程退回 {@code runOnUiThread}（那时窗口已经不可靠，尽力而为）。
+     */
+    static void detachFor(final Activity activity, final String reason) {
+        if (activity == null) return;
+        // ★ 2.3.1：Activity 真的销毁了才清哨兵登记 —— 这个登记是“这扇窗口已经挂过监听”的
+        //   去重表，用的是 WeakHashMap，但 key 只有在没有其它强引用时才回收；Activity 进
+        //   回退栈后长时间存活，探测表会跟着窗口一起长。销毁时同步摘掉，语义也正确：
+        //   下一个复用的 Activity 实例是新的对象，本来就该重新挂一次。
+        watching.remove(activity);
+        watchAttempt.remove(activity);
+        final Layer layer = layerOf(activity);
+        if (layer == null) {
+            synchronized (hosts) { hosts.remove(activity); }
+            if (currentHost == activity) currentHost = null;
+            return;
+        }
+        removeLayer(layer, reason);
+    }
+
+    /** Remove one layer right now: main thread inline, otherwise hop to it. */
+    private static void removeLayer(final Layer layer, final String reason) {
+        if (layer == null) return;
+        Runnable task = new Runnable() {
+            @Override public void run() {
+                synchronized (layers) { layers.remove(layer); }
+                attached.remove(layer.root);
+                synchronized (hosts) { hosts.remove(layer.activity); }
+                if (currentHost == layer.activity) currentHost = null;
+                try {
+                    if (layer.host.getParent() instanceof ViewGroup) {
+                        ((ViewGroup) layer.host.getParent()).removeView(layer.host);
+                    }
+                    layer.host.removeAllViews();
+                } catch (Throwable t) {
+                    Log.w(TAG, "float detach failed: " + t.getClass().getName());
+                }
+                Log.i(TAG, "event=float_detach reason=" + reason
+                        + " activity=" + simpleName(layer.activity));
+            }
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            task.run();
+        } else {
+            try {
+                layer.activity.runOnUiThread(task);
+            } catch (Throwable t) {
+                task.run();
+            }
+        }
+    }
+
+    /**
+     * ★ 2.3.0：把 {@code activity} 立为**唯一**浮层宿主，先摘掉其它还活着的层。
+     *
+     * <p>这就是「换成新 Activity ⇒ 重新挂载」与「不能每次 resume 叠一层」的同一条闸门：
+     * 同一时刻只有一个 {@link #currentHost}，同一棵 root 只会被 {@code attached} 放行一次。
+     * 旧宿主若已经 finish/destroy/没有可见窗口，它的层在这里被同步摘掉；若它仍然可见
+     * （高德 17.02 的双 Activity 边界：resume 的那个和真正绘制窗口的那个不是同一个），
+     * 摘掉也没什么可丢的 —— 用户看的是刚 resume 的这一屏。
+     */
+    private static void adoptAsHost(final Activity activity) {
+        if (activity == null) return;
+        if (currentHost == activity && layerOf(activity) != null) return;
+        final Layer[] snapshot;
+        synchronized (layers) {
+            snapshot = layers.toArray(new Layer[0]);
+        }
+        for (Layer other : snapshot) {
+            if (other == null || other.activity == activity) continue;
+            removeLayer(other, "host_switch");
+        }
+        Activity previous = currentHost;
+        currentHost = activity;
+        if (previous != activity) {
+            Log.i(TAG, "event=float_host switch from=" + simpleName(previous)
+                    + " to=" + simpleName(activity));
+        }
+    }
+
+    /**
+     * ★ 2.3.0：给这扇窗口挂一个「层还在不在」的哨兵。
+     *
+     * <p>为什么不能用生命周期回调代替：腾讯地图首启是**同一个 Activity 换内容**
+     * （隐私页 → 主地图），走的是再调 {@code setContentView()}；
+     * {@code PhoneWindow.setContentView()} 里那句 {@code mContentParent.removeAllViews()}
+     * 会把我们的 host 从树上摘掉，而 Activity 的 {@code onResume} 不会再发一次。
+     * 真机证据（2.3.0 修复前）：
+     * <pre>
+     *   12:54:39.311 floating layer attached to com.tencent.map.WelcomeActivity
+     *   —— 用户点「同意并继续」——
+     *   (再无任何 attach 记录；点球没反应，视图树里也没有 FloatingBall)
+     * </pre>
+     *
+     * <p>哨兵只做一件事：每次 layout 时看一眼「这个 Activity 的层还在树上吗」，不在就补挂。
+     * 判断成本是一次集合查找，挂载走 {@link #attach(Activity)} 的去重闸门，重复调用无副作用。
+     */
+    private static void watchContentRoot(final Activity activity) {
+        if (activity == null) return;
+        if (!watching.add(activity)) return;
+        try {
+            final View decor = activity.getWindow() == null
+                    ? null : activity.getWindow().getDecorView();
+            if (decor == null) return;
+            decor.getViewTreeObserver().addOnGlobalLayoutListener(
+                    new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                        @Override public void onGlobalLayout() {
+                            try {
+                                Layer layer = layerOf(activity);
+                                if (layer != null && layer.host.isAttachedToWindow()) return;
+                                if (!isEnabled()) return;
+                                if (activity.isFinishing() || activity.isDestroyed()) return;
+                                ViewGroup root = contentRoot(activity);
+                                if (root == null || !root.isAttachedToWindow()
+                                        || root.getWidth() <= 0 || root.getHeight() <= 0) return;
+                                // ★ 2.3.1（性能）：节流。见 watchAttempt 的注释 ——
+                                //   没有这一句，一次布局就可能压一个 attach() 到主线程队列。
+                                long now = android.os.SystemClock.uptimeMillis();
+                                Long last = watchAttempt.get(activity);
+                                if (last != null && now - last.longValue() < WATCH_RETRY_MS) return;
+                                watchAttempt.put(activity, Long.valueOf(now));
+                                decor.post(new Runnable() {
+                                    @Override public void run() { attach(activity); }
+                                });
+                            } catch (Throwable t) {
+                                // 一次异常不能把 layout 拖垮：摘掉哨兵，等下一次 resume 重挂。
+                                Log.w(TAG, "float watch failed: " + t.getClass().getName());
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            Log.w(TAG, "float watch unavailable: " + t.getClass().getName());
+        }
+    }
+
+    private static String simpleName(Activity activity) {
+        if (activity == null) return "null";
+        try {
+            return activity.getClass().getName();
+        } catch (Throwable t) {
+            return "?";
+        }
+    }
+
     /** Public recovery entry: re-attach the orb to every remembered window. */
     public static void reattachAll() { reattach(); }
 
@@ -218,7 +415,9 @@ public final class FloatingController {
             try {
                 activity.runOnUiThread(new Runnable() {
                     @Override public void run() {
-                        attach(activity);
+                        // 「把球打开」要恢复的是**每一扇记住过的窗口**，不是接管：
+                        // 这里不走 adoptAsHost，否则多窗口设备上会把先挂的那个摘掉。
+                        attach(activity, false);
                         reveal(activity);
                     }
                 });
@@ -394,8 +593,19 @@ public final class FloatingController {
      *
      * Safe to call repeatedly (onResume, onConfigurationChanged, after a layout pass); the
      * {@code attached} set makes it idempotent.
+     *
+     * <p>★ 2.3.0：这条入口同时是**宿主移交**：新 Activity 接管时旧宿主的层会被摘掉，
+     * 所以「用户点完首启隐私页 → 主地图起来」必然重新挂载，且不会叠层。
      */
     public static void attach(final Activity activity) {
+        attach(activity, true);
+    }
+
+    /**
+     * @param exclusiveHost true = 接管为唯一宿主（生命周期路径）；
+     *                      false = 只补挂、不动别人（{@link #reattach()} 恢复开关时用）
+     */
+    private static void attach(final Activity activity, boolean exclusiveHost) {
         if (activity == null) return;
         // 双保险：模块模式（root/LSPosed）永不挂载悬浮层，即使有人从别处调进来。
         try {
@@ -407,6 +617,11 @@ public final class FloatingController {
         // back on, reattach() needs to know which windows to put it into, and by then the
         // switch has been off for the whole session.
         hosts.add(activity);
+        // ★ 2.3.0：盯住这扇窗口的每一次 layout。腾讯地图首启是「同一个 Activity 换内容」——
+        //   隐私页 → 主地图走的是再调一次 setContentView()，而 PhoneWindow.setContentView()
+        //   会 mContentParent.removeAllViews()，把我们的 host 连同旧页面一起清掉；
+        //   这不触发任何 Activity 生命周期回调，所以只靠 onResume 永远补不回来。
+        watchContentRoot(activity);
         if (!isEnabled() || activity.isFinishing()) return;
         final ViewGroup root = contentRoot(activity);
         if (root == null) {
@@ -423,7 +638,24 @@ public final class FloatingController {
             Log.i(TAG, "skip attach, no visible root: " + activity.getClass().getSimpleName());
             return;
         }
-        if (!attached.add(root)) return;
+        // 只在真的要挂的时候才接管：没有可见窗口的 Activity 不该把上一个宿主挤掉
+        // （高德的 resume 无窗口边界就是靠这条保住的）。
+        if (exclusiveHost) adoptAsHost(activity);
+        // ★ 2.3.0：去重闸门必须能分辨「挂过」和「还挂着」。
+        //   宿主 setContentView() 会把我们的 host 一起 removeAllViews() 掉，但 content root
+        //   这个对象没变 —— 只认 root 的集合从此永久误判「已经挂过」，球再也回不来。
+        Layer existing = layerOf(activity);
+        if (existing != null && existing.host.isAttachedToWindow()) return;
+        if (existing != null) {
+            removeLayer(existing, "stale_root");
+        }
+        if (!attached.add(root)) {
+            // 记录还在、层已经不在树上：清掉记录，重建一次。
+            attached.remove(root);
+            if (!attached.add(root)) return;
+            Log.i(TAG, "event=float_reattach reason=root_replaced activity="
+                    + activity.getClass().getName());
+        }
 
         try {
             boolean dark = isDark(activity);

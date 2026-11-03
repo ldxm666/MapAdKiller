@@ -1,0 +1,13 @@
+{
+  "versionCode": 0,
+  "versionName": "",
+  "notes": "",
+  "apkUrl": "",
+  "apkUrlEmbedded": {
+    "com.autonavi.minimap": "",
+    "com.baidu.BaiduMap": "",
+    "com.tencent.map": ""
+  },
+  "publishedAt": 0,
+  "sig": ""
+}

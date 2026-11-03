@@ -1,5 +1,7 @@
 package io.github.ldxm666.mapclean;
 
+import android.util.Log;
+
 import io.github.libxposed.service.XposedService;
 
 /**
@@ -189,18 +191,21 @@ public final class FloatingConfig {
             // 判据是宿主 APK 内是否有 assets/lspatch/config.json。
             value = io.github.ldxm666.mapadkiller.HostInfo.isEmbedded();
         } catch (Throwable t) {
-            // 兜底：万一 HostInfo 被挪走或改签名，再走一次反射（含 mapclean.App 的同名入口）。
-            value = reflectBool("io.github.ldxm666.mapadkiller.HostInfo")
-                    || reflectBool("io.github.ldxm666.mapclean.App");
+            // 兜底：万一 HostInfo 被挪走或改签名，再走一次反射。
+            // ⚠ 2.3.0 修正：原来写的是 mapclean.App 的 "isEmbedded" —— 那个方法名不存在
+            // （真名是 embedded()，见 App.java），所以这条兜底从写上那天起就恒返回 false。
+            // 一旦 HostInfo 真的缺席，内置版会被误判成模块版 ⇒ 悬浮球默认关 ⇒ 用户失去唯一入口。
+            value = reflectBool("io.github.ldxm666.mapadkiller.HostInfo", "isEmbedded")
+                    || reflectBool("io.github.ldxm666.mapclean.App", "embedded");
         }
         embeddedState = value ? 1 : 0;
         return value;
     }
 
-    /** 反射调用 {@code isEmbedded()}；类或方法不存在一律返回 false，不抛。 */
-    private static boolean reflectBool(String className) {
+    /** 反射调用无参静态布尔方法；类或方法不存在一律返回 false，不抛。 */
+    private static boolean reflectBool(String className, String method) {
         try {
-            Object r = Class.forName(className).getMethod("isEmbedded").invoke(null);
+            Object r = Class.forName(className).getMethod(method).invoke(null);
             return r instanceof Boolean && ((Boolean) r).booleanValue();
         } catch (Throwable ignored) {
             return false;
@@ -302,11 +307,14 @@ public final class FloatingConfig {
     public static int writePath() {
         try {
             if (Vendor.tmap() || Vendor.baidu()) {
+                // ★ 2.3.0：**先实测再下结论**。内置版（LSPatch）里服务通道常常是通的，
+                //   但那条通道读的是只读代理；真正能落盘的是宿主本地 prefs。
+                //   所以顺序改成：本地实测写得进 ⇒ LOCAL；否则服务在 ⇒ REMOTE；都没有 ⇒ NONE。
+                //   反过来（先看 service）就会把一份完全能写的配置标成「○ 只读」——
+                //   真机日志：`event=svc_null where=status path=0` 出现在 Cfg 明明能写的时候。
+                if (probeVendorPrefs()) return WRITE_PREFS;
                 if (App.service() != null) return WRITE_SVC;
-                // 框架服务没绑上不等于写不进去：内置版 / NPatch 这类打过补丁的宿主里，服务通道
-                // 经常起不来，但宿主的 RemotePreferences 是可写的。只认服务会把能写的面板显示成
-                // 「只读 · 无法写入配置」—— 用户反馈的「第二次打开一直只读」就是这条。
-                return probeVendorPrefs() ? WRITE_PREFS : WRITE_NONE;
+                return WRITE_NONE;
             }
             return AmapPanel.writePath();
         } catch (Throwable t) {
@@ -314,7 +322,7 @@ public final class FloatingConfig {
         }
     }
 
-    /** -1 未探测 / 0 写不进 / 1 可写。只在本进程内缓存，进程重启后重新探测。 */
+    /** -1 未探测 / 0 写不进 / 1 可写。**只缓存成功**（见 {@link #probeVendorPrefs()}）。 */
     private static volatile int vendorPrefsProbe = -1;
 
     /**
@@ -322,29 +330,52 @@ public final class FloatingConfig {
      *
      * <p>走反射是因为 {@code bmapclean.Cfg} / {@code tmapclean.Cfg} 在别的变体里整个包都被裁掉，
      * 编译期不能直接引用。写一个临时键、立刻删掉，不污染配置。
+     *
+     * <p>★ 2.3.0 的两处修正：
+     * <ol>
+     *   <li><b>只缓存成功</b>。原来失败也写进 {@link #vendorPrefsProbe} 并永久生效 ——
+     *       只要第一次探测恰好赶在「框架服务还没绑上 / 宿主 Context 还没就绪」的那一刻，
+     *       整个进程就恒判 {@link #WRITE_NONE}，面板从此死死显示「只读」。
+     *       这正是用户说的「第二次打开一直只读」。</li>
+     *   <li><b>探测对象换成 {@code Cfg.prefs()} 的解析结果</b>。它现在在内置版里返回宿主的
+     *       本地 SharedPreferences（永远可写），不再是那个 {@code commit()} 必抛
+     *       {@code UnsupportedOperationException} 的只读代理。</li>
+     * </ol>
      */
     private static boolean probeVendorPrefs() {
-        int known = vendorPrefsProbe;
-        if (known >= 0) return known == 1;
+        if (vendorPrefsProbe == 1) return true;
         boolean ok = false;
+        Object sp = null;
+        String cls = null;
         try {
-            String cls = Vendor.baidu() ? "io.github.ldxm666.bmapclean.Cfg"
+            cls = Vendor.baidu() ? "io.github.ldxm666.bmapclean.Cfg"
                     : Vendor.tmap() ? "io.github.ldxm666.tmapclean.Cfg" : null;
             if (cls != null) {
-                Object sp = Class.forName(cls).getMethod("prefs").invoke(null);
+                sp = Class.forName(cls).getMethod("prefs").invoke(null);
                 if (sp instanceof android.content.SharedPreferences) {
-                    android.content.SharedPreferences p = (android.content.SharedPreferences) sp;
-                    android.content.SharedPreferences.Editor e = p.edit();
-                    e.putLong("__write_probe", System.currentTimeMillis());
-                    ok = e.commit();
-                    if (ok) {
-                        try { p.edit().remove("__write_probe").commit(); } catch (Throwable ignored) {}
-                    }
+                    ok = io.github.ldxm666.mapclean.HostPrefs
+                            .writable((android.content.SharedPreferences) sp);
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            Log.w(TAG, "event=cfg_probe threw cls=" + cls + ": " + t.getClass().getSimpleName()
+                    + ": " + t.getMessage());
         }
-        vendorPrefsProbe = ok ? 1 : 0;
+        // 只在成功时定案；失败留给下次（面板每次 refreshStatus 都会再试一次）。
+        if (ok) {
+            vendorPrefsProbe = 1;
+        } else {
+            // 失败必须留下证据：哪条后端、拿到的是什么对象、四条 Context 路各自给了什么。
+            // 没有这三行，「写得进但显示只读」就永远只能靠猜。
+            Log.w(TAG, "event=cfg_probe fail cls=" + cls
+                    + " tmap=" + Vendor.tmap() + " baidu=" + Vendor.baidu()
+                    + " prefs=" + io.github.ldxm666.mapclean.HostPrefs.describe(sp)
+                    + " remembered=" + io.github.ldxm666.mapclean.HostPrefs.hasRemembered());
+            Class<?> c = null;
+            if (sp != null) c = sp.getClass();
+            Log.w(TAG, "event=cfg_probe impl=" + (c == null ? "null" : c.getName()));
+            io.github.ldxm666.mapclean.HostPrefs.diagnose("probe");
+        }
         return ok;
     }
 
@@ -370,7 +401,12 @@ public final class FloatingConfig {
     public static int backend() {
         try {
             if (Vendor.tmap() || Vendor.baidu()) {
-                return App.service() != null ? BACKEND_REMOTE : BACKEND_NONE;
+                // 与 writePath() 同源、同顺序：实测能写 ⇒ 本地；服务在 ⇒ 远程；都没有 ⇒ NONE。
+                // 只认 service() 会把一份完全能写的配置显示成「○ 只读」
+                // （FloatingPanel 把这个分支直接印成「只读」）。
+                if (probeVendorPrefs()) return BACKEND_LOCAL;
+                if (App.service() != null) return BACKEND_REMOTE;
+                return BACKEND_NONE;
             }
             return AmapPanel.effectiveBackend();
         } catch (Throwable t) {
@@ -388,15 +424,23 @@ public final class FloatingConfig {
     /**
      * Result of the last write attempt, so the header pill can stop claiming 「可写入」 while
      * every tap is being refused. Never polled -- it is set by the write itself.
+     *
+     * <p>★ 2.3.0：原来百度/腾讯分支是「{@code App.service() == null} 即 {@link #W_REFUSED}」。
+     * 内置版的服务通道本来就起不来，于是**连接完全正常也被判成「● 本地 · 写入被拒」**，
+     * 而用户实际能写（本地后端）。现在只认 {@link #vLastWrite} —— 由 {@link #write(String, boolean)}
+     * 的真实 commit 结果更新，没写过就是 {@link #W_UNTRIED}。
      */
     public static int lastWriteState() {
         try {
-            if (Vendor.tmap() || Vendor.baidu()) return App.service() != null ? W_UNTRIED : W_REFUSED;
+            if (Vendor.tmap() || Vendor.baidu()) return vLastWrite;
             return AmapPanel.lastWriteState();
         } catch (Throwable t) {
             return W_UNTRIED;
         }
     }
+
+    /** 百度/腾讯分支最近一次真实写入的结果。{@link #W_UNTRIED} = 本次进程还没写过。 */
+    private static volatile int vLastWrite = W_UNTRIED;
 
     /** {@code svc_null} / {@code prefs_null} / {@code commit_false} / {@code io}. */
     public static String lastWriteReason() {
@@ -452,6 +496,9 @@ public final class FloatingConfig {
         boolean ok;
         if (Vendor.tmap()) ok = TmapPanel.write(key, value);
         else ok = Vendor.baidu() ? BaiduPanel.write(key, value) : AmapPanel.write(key, value);
+        // 记下真实结果：药丸（FloatingPanel）据此显示「● 本地 · 写入被拒」，而不是像以前那样
+        // 拿「服务有没有绑上」当写入成败的替身 —— 内置版服务恒 null，会一直谎报被拒。
+        if (Vendor.tmap() || Vendor.baidu()) vLastWrite = ok ? W_OK : W_REFUSED;
         // The 悬浮窗 key is the one switch whose "apply" step is not a vendor action but the
         // controller itself: without this, flipping it in the sheet would only take effect on
         // the next resume, which reads as "the switch does nothing".
@@ -473,6 +520,8 @@ public final class FloatingConfig {
 
     /** Drop the cached snapshot after a write so the panel and the hooks agree at once. */
     public static void invalidate() {
+        // 后端可能刚变过（服务迟绑 / 宿主 Context 就绪）⇒ 允许重新探测，别让旧的失败结论卡住。
+        vendorPrefsProbe = -1;
         if (Vendor.tmap()) TmapPanel.invalidate();
         else if (Vendor.baidu()) BaiduPanel.invalidate();
         else AmapPanel.invalidate();

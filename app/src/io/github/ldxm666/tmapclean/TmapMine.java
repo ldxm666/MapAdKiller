@@ -174,7 +174,7 @@ final class TmapMine {
             @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 Object[] args = argsOf(chain);
                 int dataAt = args.length - 1;
-                if (Cfg.visible(key, true)) return chain.proceed();
+                if (Cfg.visible(key)) return chain.proceed();
                 if (dataAt < 0 || args[dataAt] == null) return chain.proceed();
                 Diag.count(tag, args.length, 1);
                 if (Cfg.debug()) H.log(Log.INFO, MainHook.TAG, "tmap_mine: suppress " + key);

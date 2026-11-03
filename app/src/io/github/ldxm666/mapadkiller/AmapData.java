@@ -212,7 +212,7 @@ public final class AmapData {
         try {
             if (FILL_REPORTED.size() >= TOOL_REPORT_MAX) return;
             if (!FILL_REPORTED.add(id)) return;
-            H.log("event=amap_tool_fill id=" + id + " key=" + key + " filled=" + filled
+            H.logv("event=amap_tool_fill id=" + id + " key=" + key + " filled=" + filled
                     + " selected=" + selected);
         } catch (Throwable ignored) {
         }
@@ -226,7 +226,7 @@ public final class AmapData {
         try {
             if (KEEP_REPORTED.size() >= TOOL_REPORT_MAX) return;
             if (!KEEP_REPORTED.add(id)) return;
-            H.log("event=amap_tool_keep id=" + id + " key=" + key + " kept=" + kept + " why=" + why);
+            H.logv("event=amap_tool_keep id=" + id + " key=" + key + " kept=" + kept + " why=" + why);
         } catch (Throwable ignored) {
         }
     }
@@ -290,12 +290,18 @@ public final class AmapData {
      */
     public static String toolboxRaw(String raw, Settings s) {
         if (raw == null || raw.length() == 0 || raw.length() > 4 * 1024 * 1024) return raw;
+        // 重入闸：本线程已经在这条路径上 ⇒ 说明是自我递归（hook 里又调到被 hook 的方法）。
+        // 这时**原样放行**，绝不往下走 —— 见 defaultPayload() 上方那段现场栈。
+        if (IN_RAW.get() != null) return raw;
+        IN_RAW.set(Boolean.TRUE);
         try {
             JSONObject source = new JSONObject(raw);
             JSONObject out = toolbox(source, s, false);
             return out == source ? raw : out.toString();
         } catch (Throwable t) {
             return raw;   // 解析不了就原样放行，绝不因为诊断/过滤把面板搞崩
+        } finally {
+            IN_RAW.remove();
         }
     }
 
@@ -657,15 +663,51 @@ public final class AmapData {
         }
     }
 
-    /** 从宿主默认工具清单 {@code k84.f()} 里取某个 id 的原始 slot 对象（只读）。 */
+    // ── 原厂默认工具清单缓存 + 重入闸（2026-11 冷启动修复）────────────────────────────
+    //
+    // 现场证据（MIUI AppScout HANG self-trace，pid 主线程）：
+    //     AmapNativeHome$19.intercept (hook k84.f)          ← 我们
+    //       → AmapData.toolboxRaw → toolbox → applyColorIcons
+    //         → colorIconUrl → defaultSlot → k84.f() 反射调用 ← 又打回自己的 hook
+    //           → AmapNativeHome$19.intercept ...            ← 无限自我递归
+    // 每一层都要 new JSONObject(5.5 KB) + copySlot 拼字符串，主线程被吃掉 1.3 s + 4.3 s，
+    // SplashActivity.onCreate 实测 6538 ms，系统直接判 APP_SCOUT_HANG。
+    //
+    // 修法：k84.f() 的返回值是**进程内恒定**的常量清单，取一次就够。
+    //   1. rememberDefaultRaw() 由 hook 在**过滤之前**回填原厂串（保证拿到的是未被裁剪的）；
+    //   2. defaultSlot() 只读缓存，缓存没有才反射取一次；
+    //   3. 取数期间置线程本地闸门，闸门已置位时**绝不**再反射调用 —— 这一条是兜底，
+    //      即使将来有人把 hook 改成别的顺序，也不会再出现递归。
+    // 不改的后果：用户打开「工具图标统一彩绘」后，每次首页创建都会递归到 StackOverflow
+    // 才停，冷启动白白多出 5 秒白屏。
+
+    /** k84.f() 的原厂返回值（未过滤）。volatile：主线程写、其它线程读。 */
+    private static volatile String sDefaultRaw;
+
+    /** 解析后的默认清单。同样只建一次。 */
+    private static volatile JSONObject sDefaultPayload;
+
+    /** 取数闸门：非 null = 当前线程已经在 defaultSlot 的反射取数路径上。 */
+    private static final ThreadLocal<Boolean> IN_DEFAULT = new ThreadLocal<Boolean>();
+
+    /** 取数闸门：非 null = 当前线程已经在 toolboxRaw 里。用于挡住任何形式的自我重入。 */
+    private static final ThreadLocal<Boolean> IN_RAW = new ThreadLocal<Boolean>();
+
+    /**
+     * 由 {@code k84.f()} 的 hook 在**过滤之前**调用，把原厂串存下来。
+     *
+     * <p>必须"先存再过滤"：hook 的返回值是过滤后的串，拿它当"默认清单模板"会缺槽位。
+     */
+    public static void rememberDefaultRaw(String raw) {
+        if (raw == null || raw.length() == 0 || sDefaultRaw != null) return;
+        sDefaultRaw = raw;
+    }
+
+    /** 从宿主默认工具清单 {@code k84.f()} 里取某个 id 的原始 slot 对象（只读，走缓存）。 */
     private static JSONObject defaultSlot(String id) {
         try {
-            ClassLoader cl = Thread.currentThread().getContextClassLoader();
-            if (cl == null) cl = AmapData.class.getClassLoader();
-            Class<?> k = cl.loadClass("k84");
-            Object raw = k.getMethod("f").invoke(null);
-            if (!(raw instanceof String)) return null;
-            JSONObject d = new JSONObject((String) raw);
+            JSONObject d = defaultPayload();
+            if (d == null) return null;
             for (int i = 0; i < 16; i++) {
                 if (!id.equals(d.optString("id" + i))) continue;
                 JSONObject slot = new JSONObject();
@@ -675,6 +717,44 @@ public final class AmapData {
         } catch (Throwable ignored) {
         }
         return null;
+    }
+
+    /**
+     * 默认清单 JSON：缓存优先；没有缓存时反射调用一次 {@code k84.f()}。
+     *
+     * <p>闸门已置位（= 本线程正处在 {@code k84.f()} 的 hook 里）时直接返回 null，
+     * 让调用方降级为"没有默认模板"，而不是再递归一层。
+     */
+    private static JSONObject defaultPayload() {
+        JSONObject cached = sDefaultPayload;
+        if (cached != null) return cached;
+        String raw = sDefaultRaw;
+        if (raw == null) {
+            if (IN_DEFAULT.get() != null) return null;
+            IN_DEFAULT.set(Boolean.TRUE);
+            try {
+                ClassLoader cl = Thread.currentThread().getContextClassLoader();
+                if (cl == null) cl = AmapData.class.getClassLoader();
+                Class<?> k = cl.loadClass("k84");
+                Object value = k.getMethod("f").invoke(null);
+                if (value instanceof String) raw = (String) value;
+            } catch (Throwable ignored) {
+            } finally {
+                IN_DEFAULT.remove();
+            }
+            // hook 里回填的原厂串优先于上面这次 invoke 的返回值（后者已被过滤）。
+            String pristine = sDefaultRaw;
+            if (pristine != null) raw = pristine;
+            if (raw == null) return null;
+            sDefaultRaw = raw;
+        }
+        try {
+            JSONObject parsed = new JSONObject(raw);
+            sDefaultPayload = parsed;
+            return parsed;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /** Write one cell from a host catalogue item (all ids/schemas/icons are the app's own). */

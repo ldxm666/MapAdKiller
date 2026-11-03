@@ -37,56 +37,71 @@ final class AmapPanel {
 
     static PanelTypes.Group[] groups() {
         return new PanelTypes.Group[]{
-            // 自动巡航的触发条件给用户自己调。默认值 = 2.2.7 之前写死的那套，升级后行为不变；
-            // 想更灵敏就把速度下限和持续时间一起调低（高德官方云控是 15 km/h / 5 秒）。
-            new PanelTypes.Group("自动巡航", new PanelTypes.Metric[]{
-                new PanelTypes.Metric(Config.K_CRUISE_KMH, "触发速度下限",
-                        "速度持续超过这个值才认为在开车。调低更容易进巡航，代价是骑车、坐车也可能被算进来。",
-                        "km/h", steps(Config.CRUISE_KMH_MIN, Config.CRUISE_KMH_MAX, 1), null,
-                        Config.CRUISE_KMH_DEFAULT),
-                new PanelTypes.Metric(Config.K_CRUISE_SEC, "触发持续时间",
-                        "速度持续达标多少秒后进入巡航。高德官方是 5 秒，默认 15 秒偏保守。",
-                        "秒", steps(Config.CRUISE_SEC_MIN, Config.CRUISE_SEC_MAX, 1), null,
-                        Config.CRUISE_SEC_DEFAULT),
-            }, "只影响高德。松手即生效，不用重启。"),
+            // ── 1 首页 ────────────────────────────────────────────────────
+            // 只放「首页这一屏上能看见的东西」。自动巡航不在这里了 —— 它有自己的一页
+            // （见下面第 5 项），开关和阈值放在一起用户才找得到。
             new PanelTypes.Group("首页", new PanelTypes.Item[]{
                 new PanelTypes.Item(Config.K_TOOLS_VISIBLE, "首页工具宫格",
                         "关闭后首页不再显示驾车 / 公交等工具入口。"),
                 new PanelTypes.Item(Config.K_TOOLS_ALLOWLIST, "仅显示已开启的工具",
-                        "开启后未设置和新增的推广工具一律不进入首页。"),
+                        "开启后未设置和新增的推广工具一律不进入首页。逐项开关在「首页工具」页。"),
                 new PanelTypes.Item(Config.K_TOOL_COLOR_ICON, "工具图标统一彩绘（实验）",
-                        "开启后首页工具栏全部使用高德「更多工具」目录里的彩色圆底图标；默认关闭，保持原生「第一行彩绘 + 第二行线条」设计。"),
-                // 「更多工具」 is the app's own fixed cell, so it is not part of the tool
-                // catalogue's groups; keeping it here gives it the one obviously-placed
-                // switch it never had (it used to be buried at the end of 工具 → 其他).
+                        "开启后首页工具栏全部使用高德「更多工具」目录里的彩色圆底图标；"
+                        + "默认关闭，保持原生「第一行彩绘 + 第二行线条」设计。"),
                 new PanelTypes.Item(moreToolsKey(), "更多工具入口",
                         "首页那格「更多工具」。关掉后工具栏只剩你开启的工具。"),
                 new PanelTypes.Item(Config.K_HOME_CHIPS, "设置家 / 设置单位 / 常去地点",
                         "控制首页那排回家与公司的快捷入口；改动立即生效。"),
+                new PanelTypes.Item(Config.K_SPLASH_SKIP, "跳过高德开屏页（不推荐）",
+                        "高德自带的开屏页**不是广告**，属于它自己的界面，"
+                        + "所以默认不拦。真机实测：拦掉之后并不会变快（拖慢首帧的是"
+                        + "高德自己的初始化，不是这张页），反而会少掉一屏。", true),
                 new PanelTypes.Item(Config.K_HOTWORD_OFF, "关闭搜索框热词轮播",
                         "把搜索框文字钉死为默认提示词，去掉运营广告词。"),
-                // 搜索页（不是首页）搜索框下方那一排彩色金刚位。关掉后整排真删掉，
-                // 下方内容随之上移；不会留白，也不会只剩页码指示器。
                 new PanelTypes.Item(Config.K_SEARCH_GRID, "搜索页快捷金刚位（实验）",
-                        "搜索框下方那一排彩色入口（美食 / 酒店 / 景点门票 / 加油充电 / 超划算 / 扫街榜 等，随版本变化）。" +
-                        "关掉后整排会消失；但进入搜索页时会先闪现约 0.3 秒再消失，且每次进入都会重演一次，原位还会留一条空白 —— 该排由高德页面运行时绘制、容器高度写死在页面里，模块只能隐藏无法回收空间。如实告知。"),
-                new PanelTypes.Item(Config.K_CRUISE_AUTO, "自动进入巡航（模块接管）", "高德自带开关失效，本项由模块接管：高德在前台且不在导航/巡航中时，车速连续 15 秒保持在 18–200km/h，且这段时间真的跑出 60 米（净位移 45 米以上、至少 6 次可信定位）、定位精度不差于 45 米才会自动进入巡航（走路、拿手机晃、室内跳点都不触发）。"),
-            }, null, POWER_CHIP),
-            // 「省电」放在 chip 行**第 2 位**：第 1 位留给默认选中的「首页」，第 2 位保证任何
-            // 屏宽都一眼可见。用户两次反馈「模块里没有省电开关入口」—— 藏在第 N 个 chip 里、
-            // 或者需要横向滚动才看得到，就等于没有。
+                        "搜索框下方那一排彩色入口（美食 / 酒店 / 景点门票 / 加油充电 / 超划算 / 扫街榜 等，"
+                        + "随版本变化）。关掉后整排会消失；但进入搜索页时会先闪现约 0.3 秒再消失，"
+                        + "且每次进入都会重演一次，原位还会留一条空白 —— 该排由高德页面运行时绘制、"
+                        + "容器高度写死在页面里，模块只能隐藏无法回收空间。如实告知。"),
+            }, (String) null, POWER_CHIP),
+
+            // ── 2 省电 ────────────────────────────────────────────────────
+            // 必须停在第 2 位：chip 行是横滚的，用户已经两次因为「看不到入口」报障。
             new PanelTypes.Group(POWER_CHIP, powerSections(), POWER_NOTE,
                     new PanelTypes.Action() {
                         @Override public String label() { return "一键省电（全部开启拦截）"; }
                         @Override public int run() { return powerAllOn(); }
                     }),
-            new PanelTypes.Group("工具", toolSections(), TOOL_NOTE),
-            new PanelTypes.Group("内容", new PanelTypes.Item[]{
-                new PanelTypes.Item(Config.K_FEED_WEATHER, "天气卡片"),
-                new PanelTypes.Item(Config.K_FEED_BOARD, "扫街榜 / 周边精选榜单"),
-                new PanelTypes.Item(Config.K_FEED_CONTENT, "攻略 / 内容流卡片"),
-                new PanelTypes.Item(Config.K_FEED_FESTIVAL, "出行节 / 促销活动接口"),
-            }),
+
+            // ── 3 界面 ────────────────────────────────────────────────────
+            // 原来「底栏」「我的」「内容」是三个 chip，各自 4~6 行 —— 横滚三屏就为了
+            // 调几个同类的东西。合并成一页用分段标题区分，chip 数直接少两个。
+            new PanelTypes.Group("界面", new Object[][]{
+                {"底栏", new PanelTypes.Item[]{
+                    new PanelTypes.Item(Config.K_TAB_PREFIX + "探索", "显示标签「探索」"),
+                    new PanelTypes.Item(Config.K_TAB_PREFIX + "长按说话", "显示标签「长按说话」"),
+                    new PanelTypes.Item(Config.K_TAB_PREFIX + "打车", "显示标签「打车」"),
+                    new PanelTypes.Item(Config.K_TAB_PREFIX + "我的", "显示标签「我的」"),
+                }},
+                {"我的页", new PanelTypes.Item[]{
+                    new PanelTypes.Item(Config.K_MY_ORDER_ROW, "订单 / 收藏 / 待评价"),
+                    new PanelTypes.Item(Config.K_MY_SERVICE_ROW, "车辆服务 / 高德运动"),
+                    new PanelTypes.Item(Config.K_MY_TASK, "达人任务卡片"),
+                    new PanelTypes.Item(Config.K_MY_PROMO_ROW, "热门活动卡"),
+                    new PanelTypes.Item(Config.K_MY_GUESS, "猜你喜欢"),
+                    new PanelTypes.Item(Config.K_MY_FRIENDS, "好友动态"),
+                }},
+                {"内容卡片", new PanelTypes.Item[]{
+                    new PanelTypes.Item(Config.K_FEED_WEATHER, "天气卡片"),
+                    new PanelTypes.Item(Config.K_FEED_BOARD, "扫街榜 / 周边精选榜单"),
+                    new PanelTypes.Item(Config.K_FEED_CONTENT, "攻略 / 内容流卡片"),
+                    new PanelTypes.Item(Config.K_FEED_FESTIVAL, "出行节 / 促销活动接口"),
+                }},
+            }, "底栏是常驻的；「我的页」「内容卡片」要滚动进去才看得到。"
+                    + "四个标签全部关闭时只剩「首页」，此时整条底栏会整体隐藏；"
+                    + "重新打开标签后，被移除的标签需首页重建（退出再进）才回来。"),
+
+            // ── 4 地图 ────────────────────────────────────────────────────
             new PanelTypes.Group("地图", new PanelTypes.Item[]{
                 // 真正的实现在原生层：libmapclean_labels.so 改写 map_assets/style_*X_Main
                 // 样式 protobuf，只把兴趣点要素置不可见，道路 / 水域 / 地名全部保留。
@@ -96,27 +111,44 @@ final class AmapPanel {
                         "扫街榜和活动入口。"),
                 new PanelTypes.Item(Config.K_PLACE_RECOMMEND, "地点详情「发现好去处」",
                         "长按选点详情里的照片推荐流。"),
+                new PanelTypes.Item(Config.K_LABELS_ON,
+                        "启用第三方标注过滤",
+                        "默认关闭；开启会恢复第三方标注过滤，但可能影响地图帧率。",
+                        true),
             }),
-            new PanelTypes.Group("我的", new PanelTypes.Item[]{
-                new PanelTypes.Item(Config.K_MY_ORDER_ROW, "订单 / 收藏 / 待评价"),
-                new PanelTypes.Item(Config.K_MY_SERVICE_ROW, "车辆服务 / 高德运动"),
-                new PanelTypes.Item(Config.K_MY_TASK, "达人任务卡片"),
-                new PanelTypes.Item(Config.K_MY_PROMO_ROW, "热门活动卡"),
-                new PanelTypes.Item(Config.K_MY_GUESS, "猜你喜欢"),
-                new PanelTypes.Item(Config.K_MY_FRIENDS, "好友动态"),
-            }),
-            // 省电 —— 已前移到 chip 行第 2 位（见文件顶部 POWER_CHIP），这里不再重复注册。
-            // 底栏分组：四个标签全部关闭后只剩不可隐藏的「首页」，此时整条底栏整体隐藏。
-            // 这条 note 是必需的 —— 用户看到「底栏消失」时必须知道是自己关出来的，不是坏了。
-            new PanelTypes.Group("底栏", new PanelTypes.Item[]{
-                new PanelTypes.Item(Config.K_TAB_PREFIX + "探索", "显示标签「探索」"),
-                new PanelTypes.Item(Config.K_TAB_PREFIX + "长按说话", "显示标签「长按说话」"),
-                new PanelTypes.Item(Config.K_TAB_PREFIX + "打车", "显示标签「打车」"),
-                new PanelTypes.Item(Config.K_TAB_PREFIX + "我的", "显示标签「我的」"),
-            }, "四个标签全部关闭时只剩「首页」，此时整条底栏会整体隐藏。"
-                    + "重新打开标签后，被移除的标签需首页重建（退出再进）才回来。"),
-            // 「其他」页：`true` = 底部渲染「当前版本 / 检查更新」两行（免 root 内置版没有
-            // MainActivity，悬浮面板是它唯一的设置界面，所以版本与更新入口必须在这里）。
+
+            // ── 5 巡航 ────────────────────────────────────────────────────
+            // 开关 + 阈值同页。2.2.8 之前开关在「首页」、滑块在这里，用户反馈「开了没反应」
+            // 有一半是根本没找到开关。默认值由 Config 决定，模块接管的判据见 AmapCruise。
+            new PanelTypes.Group("巡航", new PanelTypes.Item[]{
+                new PanelTypes.Item(Config.K_CRUISE_OFFICIAL, "使用高德原生自动进入巡航（推荐）",
+                        "恢复高德自己的那条链路：官方状态机本来就在，只是没人布防。"
+                        + "开启后由高德自己判（车速 20km/h 持续 10 秒），进入动作走官方 JS 桥，"
+                        + "巡航播报、红绿灯、退出都由官方处理。默认开。"),
+                new PanelTypes.Item(Config.K_CRUISE_AUTO, "自动进入巡航（模块接管 · 兜底）",
+                        "高德自带开关在 17.02 上点击不落盘、官方状态机不启动，所以由模块接管："
+                        + "高德在前台且不在导航/巡航中时，车速持续达到下面的「触发速度下限」"
+                        + "满「触发持续时间」，并且真的跑出去一段距离（净位移判据，原地抖动不算），"
+                        + "就自动进入巡航。走路、拿手机晃、室内跳点都不会触发。"),
+            }, new PanelTypes.Metric[]{
+                new PanelTypes.Metric(Config.K_CRUISE_KMH, "触发速度下限",
+                        "速度持续超过这个值才认为在开车。调低更容易进巡航，代价是骑车、坐车也可能被算进来。",
+                        "km/h", steps(Config.CRUISE_KMH_MIN, Config.CRUISE_KMH_MAX, 1), null,
+                        Config.CRUISE_KMH_DEFAULT),
+                new PanelTypes.Metric(Config.K_CRUISE_SEC, "触发持续时间",
+                        "速度持续达标多少秒后进入巡航。高德官方云控是 5 秒，这个值调小会更灵敏。",
+                        "秒", steps(Config.CRUISE_SEC_MIN, Config.CRUISE_SEC_MAX, 1), null,
+                        Config.CRUISE_SEC_DEFAULT),
+            }, "只影响高德。松手即生效，不用重启。改完开车走一段即可验证；"
+                    + "可在 logcat 搜 event=cruise_tick 看实时判据。"),
+
+            // ── 6 首页工具（逐项） ────────────────────────────────────────
+            // 目录是「学」出来的（首启扫描首页宫格），行数几十条，所以单列一页放最后。
+            new PanelTypes.Group("首页工具", toolSections(), TOOL_NOTE),
+
+            // ── 7 其他 ────────────────────────────────────────────────────
+            // `true` = 底部渲染「当前版本 / 检查更新」两行（免 root 内置版没有 MainActivity，
+            // 悬浮面板是它唯一的设置界面，所以版本与更新入口必须在这里）。
             new PanelTypes.Group("其他", othersItems(), null, true),
         };
     }
@@ -221,8 +253,11 @@ final class AmapPanel {
                         "关闭阿里埋点 Analytics",
                         "关掉后阿里 UT 埋点会恢复上报。真机出现无法归因的异常时，第一个关它。"),
                 new PanelTypes.Item(Config.K_ALIMAMA_SPLASH_OFF,
-                        "关闭开屏广告请求",
-                        "关掉后开屏广告会恢复请求（有广告、也耗流量）。"),
+                        "拦截开屏广告请求（默认关）",
+                        "高德的开屏**页面**不是广告，所以默认不拦。"
+                        + "真机实测：拦掉这条请求反而会让开屏页拿不到内容又不结束，"
+                        + "表现就是「白屏几秒」。确实不想看广告再打开，代价是首屏变慢。",
+                        true),
                 new PanelTypes.Item(Config.K_ALIMAMA_LOG_OFF,
                         "关闭广告曝光上报",
                         "只关上报，不影响广告本身是否展示。"),

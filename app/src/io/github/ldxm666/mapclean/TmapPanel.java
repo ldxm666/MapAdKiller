@@ -35,8 +35,16 @@ final class TmapPanel {
         // Leading group for the 悬浮窗 master switch; see BaiduPanel#groups for why it is not
         // part of Spec's catalogue (that table is 腾讯's own switches).
         PanelTypes.Group[] out = new PanelTypes.Group[cats.length + 1];
+        // ★ 2.3.0 修白页：这里原来是 `new PanelTypes.Item[]{}` —— **长度为 0 的 Item 数组**。
+        // 面板渲染到空组时整页直接变白（导航 chip 有、内容区全空），百度侧同一个坑在
+        // BaiduPanel#floatGroup 的注释里已经记过一次「实测踩过」。腾讯这一份漏了。
+        // 这一组还必须至少留一行：腾讯内置版既没有独立设置页、也没有长按找回入口，
+        // 悬浮球一关就再也打不开面板 —— 把开关和说明放在同一行，用户至少知道自己关了什么。
         out[0] = new PanelTypes.Group("悬浮窗", new PanelTypes.Item[]{
-            });
+                new PanelTypes.Item(FloatingConfig.K_FLOAT_ENABLED, "显示悬浮球",
+                        "关掉后悬浮球和这个面板都会消失，且腾讯内置版没有其它入口可以再打开 ——"
+                        + "需要重装内置版才会恢复。正常使用请保持开启。")
+        }, "只影响悬浮球本身，不动其它任何开关。");
         for (int i = 0; i < cats.length; i++) {
             Spec.Cat cat = cats[i];
             PanelTypes.Item[] items = new PanelTypes.Item[cat.rows.length];

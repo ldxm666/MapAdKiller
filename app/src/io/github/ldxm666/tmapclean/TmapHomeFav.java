@@ -335,7 +335,7 @@ final class TmapHomeFav {
      */
     private static void onCardLayout(View card) {
         if (card == null) return;
-        if (Cfg.visible(Spec.K_HOME_FAV, true) && Cfg.visible(Spec.K_HOME_FEED, true)) {
+        if (Cfg.visible(Spec.K_HOME_FAV, true) && Cfg.visible(Spec.K_HOME_FEED)) {
             return;                                    // 常见情况：零开销
         }
         if (SECTIONS.isEmpty()) {
@@ -358,7 +358,7 @@ final class TmapHomeFav {
             if (v == null || kind == null) continue;
             boolean want = SEC_FAV.equals(kind)
                     ? Cfg.visible(Spec.K_HOME_FAV, true)
-                    : Cfg.visible(Spec.K_HOME_FEED, true);
+                    : Cfg.visible(Spec.K_HOME_FEED);
             int vis = v.getVisibility();
             if (want && vis != View.VISIBLE) return true;
             if (!want && vis != View.GONE) return true;
@@ -402,7 +402,7 @@ final class TmapHomeFav {
             resolveBudget = RESOLVE_BUDGET;
         }
         boolean favOn = Cfg.visible(Spec.K_HOME_FAV, true);
-        boolean feedOn = Cfg.visible(Spec.K_HOME_FEED, true);
+        boolean feedOn = Cfg.visible(Spec.K_HOME_FEED);
 
         // ① 没什么要藏的：只做"恢复"，而且只在真的藏过东西时才做。
         if (favOn && feedOn) {
@@ -622,7 +622,7 @@ final class TmapHomeFav {
                         Object result = chain.proceed();
                         if (!(result instanceof Integer)) return result;
                         if (Cfg.visible(Spec.K_HOME_FAV, true)
-                                && Cfg.visible(Spec.K_HOME_FEED, true)) {
+                                && Cfg.visible(Spec.K_HOME_FEED)) {
                             return result;                       // 两个都显示：原样
                         }
                         int limit = dragTopLimit;
@@ -646,7 +646,7 @@ final class TmapHomeFav {
                         Object result = chain.proceed();
                         if (!(result instanceof Integer) ||
                                 (Cfg.visible(Spec.K_HOME_FAV, true) &&
-                                 Cfg.visible(Spec.K_HOME_FEED, true))) return result;
+                                 Cfg.visible(Spec.K_HOME_FEED))) return result;
                         int limit = dragTopLimit;
                         if (limit == Integer.MIN_VALUE) return result;
                         Object moving = chain.getArg(0);
@@ -956,7 +956,7 @@ final class TmapHomeFav {
                 @Override public void run() {
                     applySections(headerOf(self));
                     if (Cfg.visible(Spec.K_HOME_FAV, true)
-                            && Cfg.visible(Spec.K_HOME_FEED, true)) return;
+                            && Cfg.visible(Spec.K_HOME_FEED)) return;
                     int[] hits = new int[1];
                     hideByLca(root, hits);
                     if (hits[0] > 0) {
@@ -1195,7 +1195,7 @@ final class TmapHomeFav {
         H.hookSig(g, "a", "tmap_homefeed", new XposedInterface.Hooker() {
             @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 Object result = chain.proceed();
-                if (Cfg.visible(Spec.K_HOME_FEED, true)) return result;
+                if (Cfg.visible(Spec.K_HOME_FEED)) return result;
                 if (!(result instanceof List)) return result;
                 int dropped = dropFeedCards((List<?>) result);
                 if (dropped > 0) {
@@ -1213,7 +1213,7 @@ final class TmapHomeFav {
         H.hookSig(p, "e", "tmap_homefeed_ui", new XposedInterface.Hooker() {
             @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 Object arg = chain.getArg(0);
-                if (!Cfg.visible(Spec.K_HOME_FEED, true) && arg instanceof List) {
+                if (!Cfg.visible(Spec.K_HOME_FEED) && arg instanceof List) {
                     int dropped = dropFeedCards((List<?>) arg);
                     if (dropped > 0) {
                         H.log(Log.INFO, MainHook.TAG, "homefeed_ui dropped=" + dropped);
@@ -1260,7 +1260,7 @@ final class TmapHomeFav {
 
     static void refresh() {
         boolean favOn = Cfg.visible(Spec.K_HOME_FAV, true);
-        boolean feedOn = Cfg.visible(Spec.K_HOME_FEED, true);
+        boolean feedOn = Cfg.visible(Spec.K_HOME_FEED);
         // 两个都开 → 先恢复，再按区块收口；只要有一个关着就走 applySections 的收口分支。
         if (favOn && feedOn) restoreSections();
         View header = lastHeader.get();

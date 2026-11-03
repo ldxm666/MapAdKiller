@@ -23,3 +23,15 @@ work/
 /output/.build-tools/
 __pycache__/
 *.pyc
+
+# 本地工作区（不入库）
+.agent_work/
+.scratch/
+*.log
+
+# 构建产物
+output/
+
+# 服务器密钥：绝不能入库（含公告签名密钥）
+tools/announce/secret.txt
+tools/announce/*.key

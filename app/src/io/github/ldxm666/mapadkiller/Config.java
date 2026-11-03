@@ -12,14 +12,46 @@ public final class Config {
 
     /* ------------------------------------------------------------------ 自动巡航触发值
      * 面板「自动巡航」页的两个滑块写的就是这两个 key，AmapCruise 每次判定时读一次。
-     * 默认值 = 2.2.7 之前写死的那套（18 km/h、15 秒），所以老用户升级后行为不变。
-     * 高德自己的云控参数是 minSpeed=15 / driveTime=5 —— 我们之前比官方严得多，
-     * 这就是「自动巡航不够灵敏」的来源。
+     *
+     * <p>2.3.0 默认值从 18 km/h / 15 秒放宽到 <b>12 km/h / 8 秒</b>。为什么：
+     * 老默认下一次判定要求「连续 15 个 1Hz 采样全部过 6 道串联 gate」，
+     * 城市里单帧通过率大约 0.8（精度超 45m、红绿灯掉速、GNSS 速度抖动各占一部分），
+     * 0.8^15 ≈ 3.5% ——「开了等于没开」的真正原因是这个乘出来的乘积，不是车主不开车。
+     * 12 km/h × 8 秒，配合 AmapCruise 里新加的「容忍 3 帧抖动」，实际通过率才落到可用量级；
+     * 同时仍然挡得住步行（5 km/h）和原地抖（净位移那一关）。
+     *
+     * <p>高德自己的云控参数是 minSpeed=15 / driveTime=5。取 12/8 是在它上下浮动，
+     * 属于同一档严格度，不会比官方更敏感。
      */
     public static final String K_CRUISE_KMH = "cruise_min_kmh";
     public static final String K_CRUISE_SEC = "cruise_drive_sec";
-    public static final int CRUISE_KMH_MIN = 2, CRUISE_KMH_MAX = 30, CRUISE_KMH_DEFAULT = 18;
-    public static final int CRUISE_SEC_MIN = 2, CRUISE_SEC_MAX = 30, CRUISE_SEC_DEFAULT = 15;
+    public static final int CRUISE_KMH_MIN = 2, CRUISE_KMH_MAX = 30, CRUISE_KMH_DEFAULT = 12;
+    public static final int CRUISE_SEC_MIN = 2, CRUISE_SEC_MAX = 30, CRUISE_SEC_DEFAULT = 8;
+
+    /**
+     * 「立即测试」隐藏键（不进任何可见列表）：写入 true ⇒ AmapCruise 下一次 1s tick 里
+     * **跳过全部速度/位移门槛，直接尝试进入一次巡航，并立刻把本键清回 false**。
+     *
+     * <p>为什么需要：「链接不通（scheme 被吞 / SchemeHandleActivity 类名漂移）」和
+     * 「判定过不去（门槛太严 / 拿不到速度）」在日志里长得一模一样。
+     * 有这个键，用户坐在家里点一下按钮就能把两条路分开，不用真开一趟车。
+     *
+     * <p>读取必须走 {@link #explicit}（只有显式写过才非 null）——
+     * 走 {@link #visible} 会落到 {@link #defaultVisible} 的兜底 true，等于每次启动都强进一次。
+     */
+    public static final String K_CRUISE_FORCE_ONCE = "cruise_force_once";
+
+    /** 是否按下了「立即测试」：只有显式写入 true 才算。 */
+    public static boolean cruiseForceOnce() {
+        try { return Boolean.TRUE.equals(explicit(K_CRUISE_FORCE_ONCE)); }
+        catch (Throwable t) { return false; }
+    }
+
+    /** 消费掉「立即测试」：写回 false。拿不到后端时返回 false，绝不抛。 */
+    public static boolean clearCruiseForceOnce() {
+        try { return put(K_CRUISE_FORCE_ONCE, false); }
+        catch (Throwable t) { return false; }
+    }
 
     /** 触发速度下限（km/h），越界钳到 [CRUISE_KMH_MIN, CRUISE_KMH_MAX]。 */
     public static int cruiseMinKmh() {
@@ -115,6 +147,55 @@ public final class Config {
     public static final String K_PLACE_RECOMMEND = "place_recommend";
     /** 「自动进入巡航」模块接管（默认 false：老用户行为不变，需在模块面板主动打开）。 */
     public static final String K_CRUISE_AUTO = "cruise_auto";
+
+    /**
+     * 「恢复高德官方自动进入巡航」。默认 <b>true</b>。
+     *
+     * <p>为什么默认开：这不是新功能，而是把高德自己就有、只是没被布防的
+     * 状态机接回去。行为与官方一致：20 km/h × 10 秒。不喜欢可以关。
+     *
+     * <p>与 {@link #K_CRUISE_AUTO}（模块接管）互斥地并存：这个是「让官方跑」，
+     * 那个是「官方跑不起来时自己上」。
+     */
+    public static final String K_CRUISE_OFFICIAL = "cruise_official";
+
+    /**
+     * 跳过高德开屏页（默认 <b>true</b>）。
+     *
+     * <p><b>2.3.0 真机实测结论，与推理相反</b>：
+     * 把这条 hook 去掉、让官方开屏页自己跑之后，<em>高德停在
+     * SplashActivity 不动（实测 30 秒仍在开屏页，只剩一行版权声明）</em>；
+     * 而保留它的那一版，进程能正常走到 {@code NewMapActivity}、悬浮层挂上、
+     * {@code baseline_home_ready} 也打了出来。
+     *
+     * <p>所以“开屏页被摘掉 ⇒ 首帧没东西盖 ⇒ 白屏”这个推理在 17.02 + LSPatch
+     * 上不成立。真实情况是：官方开屏页在内置版里**自己就卡住了**。
+     *
+     * <p>开关化：不喜欢直接进地图的可以关掉，代价是开屏页可能长时间停留。
+     */
+    public static final String K_SPLASH_SKIP = "splash_skip";
+
+    /**
+     * 跳过高德开屏页。**缺省 false**——高德自带的开屏页不是广告，
+     * 那是它自己的品牌页，截掉就是把正常界面挡了。
+     *
+     * <p>★ 为什么改成「必须显式开启」：上一版用 {@code visible()}（未知 key → true），
+     * 于是它**默认就开着**，用户看到的就是「开屏页被拦了」。现在只认用户
+     * 显式写过的 true（{@code explicit} 读的是字面值，不走可见性表）。
+     *
+     * <p>面板侧对应的一行必须带 {@code strict} 标记，否则开关会显示成「开」
+     * 而实际上开屏页是正常显示的。
+     */
+    public static boolean splashSkip() {
+        try { return Boolean.TRUE.equals(explicit(K_SPLASH_SKIP)); } catch (Throwable t) { return false; }
+    }
+
+    /** 官方巡航恢复开关（缺省 true）。 */
+    public static boolean cruiseOfficial() {
+        // Config 只有 visible(String) 一个重载；它对未知 key 默认返回 true，
+        // 正好是这个开关要的缺省值。
+        try { return visible(K_CRUISE_OFFICIAL); } catch (Throwable t) { return true; }
+    }
     // ── 子进程省电（默认 true = 已拦截；面板里可关掉，用于排查「是不是我拦的」）──────
     // 语义与 K_HOTWORD_OFF 一致：**true 表示"这个行为被关掉"**，不是"显示"。
     // 三个键都落在 defaultVisible 的兜底 `return true` 上，所以默认值天然就是"已拦截"；

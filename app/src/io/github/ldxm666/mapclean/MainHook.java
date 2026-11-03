@@ -64,8 +64,15 @@ public final class MainHook extends XposedModule {
         try {
             Class.forName("io.github.ldxm666.mapclean.NativeLabelAssets")
                     .getMethod("start", String.class).invoke(null, loadedProcess);
-        } catch (Throwable t) {
+        } catch (ClassNotFoundException missing) {
+            // 只有"类根本不存在"才是真正的变体不支持 —— 瘦身/免 root 构建会把
+            // NativeLabelAssets 换成桩，这里静默跳过是对的。
             Log.i(TAG, "native label assets unavailable in this variant");
+        } catch (Throwable t) {
+            // 类在、但启动失败：so 没加载起来 / 方法签名变了 / configure 内部抛。
+            // 以前这种也打上面那句 INFO，等于把"高德地图标注整条链路已经死了"伪装成
+            // "这个变体没有这个功能"，排障方向直接被带偏、日志里还查不到堆栈。
+            Log.w(TAG, "native label start failed", t);
         }
     }
 
@@ -125,11 +132,19 @@ public final class MainHook extends XposedModule {
         // 百度内置版：长按底部「我的」那一格 ≈750ms 弹出面板 —— 这是「关掉悬浮球之后」
         // 唯一的找回入口（百度内置版没有 MainActivity、也没有 tab 入口）。
         // 内部自带三道门控：模块模式跳过 / 非百度进程跳过 / 锚点缺失跳过，任何一道不满足都
-        // 一条 hook 都不装，所以这里可以无条件调用。
-        try {
-            BaiduMineEntry.install(this, pkg, param.getClassLoader());
-        } catch (Throwable t) {
-            Log.w(TAG, "baidu mine entry install failed", t);
+        // 一条 hook 都不装。
+        //
+        // ★ 2.3.1：在调用前再过滤一次。BaiduMineEntry 内部的门控本身是安全的（不满足就
+        //   一条 hook 都不装），但每个进程都仍要付一次 Vendor.host() 状态机 + 一行 Log.i：
+        //   腾讯地图 5 个进程 ⇒ 每次冷启动 5 行
+        //   `baidu_mine_entry_skipped reason=not_baidu host=com.tencent.map`。
+        //   排障时这些噪音还会盖住真正有用的行；一个字符串比较就能全省掉。
+        if (io.github.ldxm666.mapadkiller.MainHook.PKG_BMAP.equals(pkg)) {
+            try {
+                BaiduMineEntry.install(this, pkg, param.getClassLoader());
+            } catch (Throwable t) {
+                Log.w(TAG, "baidu mine entry install failed", t);
+            }
         }
 
         // 高德 / 百度 / 腾讯：去广告基线（含 SDK 自动检索）。

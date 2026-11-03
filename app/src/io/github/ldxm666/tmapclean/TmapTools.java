@@ -261,8 +261,17 @@ final class TmapTools {
                     }
                 }
                 Diag.count("tool_data", 1, hide ? 1 : 0);
-                scheduleDump(view, "update");
-                scheduleFacts(view, "update");
+                // ★ 2.3.1（性能）：两条取证转储只在 debug_log 打开时才跑。
+                //   scheduleDump() 递归整棵首页视图树（最长 8 层），逐节点取
+                //   getResourceEntryName / getX / getWidth，并对 RecyclerView 反射 getAdapter；
+                //   scheduleFacts() 再补 6 次反射。两者都 post 到主线程、紧跟在 updateItemList
+                //   之后执行，而 updateItemList 在首页每次数据刷新都会命中 —— 冷启动 25 s 真机
+                //   实测 443~565 行 TPD/TPE、98 KB logcat，每行都是一次到 logd 的同步 write。
+                //   这是取证输出，不属于功能，关掉 debug 就该一条都不跑。
+                if (Cfg.debug()) {
+                    scheduleDump(view, "update");
+                    scheduleFacts(view, "update");
+                }
                 scheduleRoom(view);
                 return result;
             }
