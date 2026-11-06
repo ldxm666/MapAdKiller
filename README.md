@@ -46,7 +46,7 @@
 | **免 root 内置版（高德）** | `Amap-2.3.2-nonroot-embedded.apk` | 普通用户，手机上没装框架 | **不需要** |
 | **免 root 内置版（百度）** | `Baidu-2.3.2-nonroot-embedded.apk` | 同上，百度地图 | **不需要** |
 | **免 root 内置版（腾讯）** | `Tencent-2.3.2-nonroot-embedded.apk` | 同上，腾讯地图 | **不需要** |
-| **免 root 内置版（高德 Play 版）** | `Amap-Play-2.3.1-nonroot-embedded.zip` | 手机上是 **Google Play 版**高德（17.02.2.2014），非国内版。**当前仍为 2.3.1**，见 [v2.3.1-play](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.1-play) | **不需要** |
+| **免 root 内置版（高德 Play 版）** | `Amap-Play-2.3.2-nonroot-embedded.zip` | 手机上是 **Google Play 版**高德（17.02.2.2014），非国内版 | **不需要** |
 | **模块版**（推荐） | `MapClean-lsp-v2.3.2.apk` | 已经在用 LSPosed / Vector 的用户 | 需要框架 |
 
 **一句话区别**：内置版把模块直接并进了地图本体，装完就是成品，代价是包体大、签名变了；模块版是一个几 MB 的小模块，靠框架注入，三个地图共用一份配置。
@@ -67,7 +67,7 @@
 
 > **高德有两个内置版，别装错**：
 > - `Amap-2.3.2-nonroot-embedded.apk` —— 对应**国内版**高德（17.02.0.1541），单个 APK 直接装。
-> - `Amap-Play-2.3.1-nonroot-embedded.zip` —— 对应 **Google Play 版**高德（17.02.2.2014），
+> - `Amap-Play-2.3.2-nonroot-embedded.zip` —— 对应 **Google Play 版**高德（17.02.2.2014），
 >   Play 版是拆分包，必须**四个文件一起装**：
 >   `adb install-multiple base.apk split_config.arm64_v8a.apk split_config.xxxhdpi.apk split_config.zh.apk`
 >   只装 `base.apk` 会失败。两者包名相同，**只能装一个**。
@@ -264,6 +264,32 @@
 
 #### 腾讯
 - 6013 的 `UpgradeInitTask` 已无调用点（死代码），去更新改在解析层与弹窗层拦截
+
+#### 高德 Play 版（17.02.2.2014）单独适配
+Play 版与国内版是**两次独立构建**，不是同一份代码的两种分发：8 个 DEX 全部不同，
+`libamapr.so` 也不同（32,984,120 vs 32,983,424 字节）。所以两版不能共用一个补丁地址。
+
+- **native 偏移改为双变体表**：`amap_buildings.c` 里放两组地址，运行时按三重自检选择 ——
+  槽值必须等于 `base+FN_PROCESS`、该地址四条指令必须是已知序言、gadget 处必须是
+  `mov x0,xzr; ret`。三关全过才写内存。旧 gadget `0xe84148` 在 Play 版里已变成
+  `ret; stp…`（某个函数的中间），照抄会跳进无效位置，因此选择必须靠自检而不是版本号。
+  实测 Play 版 `event=building_patch variant=17.02.2`，槽/旧值/新值三个地址逐项对得上。
+- **去更新改为按名 + 形状校验**：`AppUpgradeController.w` 的签名从
+  `(Lcom/amap/bundle/appupgrade/e;ZZ)V` 变成 `(ILjava/lang/String;Z)V`，而 `appupgrade.e`
+  这个类在 Play 版里根本不存在 —— 精确签名那条路会整条落空。改成按名 hook 后，
+  两版都命中（`event=update_block_install w=1 v=1`），形状校验保证只吞 `void` 且参数个数对得上的。
+- **锚点候选表证实是必需的**：`k84.f` / `s27.d`、`wm3.c` / `lv3.c` 各自只在一个版本上命中，
+  单留任何一个都会在另一个版本上静默失效。
+
+真机验证（Play 版 17.02.2.2014 / versionCode 170105）：
+```
+建筑去除    开→无楼块 / 关→有楼块（A/B 双向）
+帧率上限    60→59~60  90→70~82  120→117~120
+开屏拦截    alimama_blocked sendSplashScreen + sendH5Log
+去更新      update_block_install w=1 v=1
+悬浮球      floating layer attached to NewMapActivity
+公告/版本   ver_code=2302 已从服务器取到
+```
 
 #### 已知未解决
 - 百度 22.1.20 详情页「你可能想搜 / FAQ / 团购横幅」三块无法去除：七张卡片名逐个屏蔽、五次截图逐像素无变化，日志证明加载确为 `detailtmpl` 且已打补丁 ⇒ 这三块不走已 hook 的三个数据通路

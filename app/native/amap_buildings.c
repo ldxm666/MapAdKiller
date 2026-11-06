@@ -52,33 +52,94 @@
 
 #define TARGET_LIB      "libamapr.so"
 
-/* 17.02.0.2010 — see the map at the top of the file. */
-#define VT_SLOT_PROCESS 0x1f40868UL   /* &BuildingStyleLayer_vtable[4] */
-#define FN_PROCESS      0x18b17e0UL   /* what that slot must currently hold */
-#define GADGET_ZERO_RET 0xe84148UL    /* mov x0, xzr ; ret */
+/* ── one table, two builds ────────────────────────────────────────────────────────
+ * 国内版 and Play 版 ship *different* libamapr.so files (32,983,424 vs 32,984,120 bytes,
+ * different sha256), so every address differs. Both builds share the same object graph —
+ * 14-slot vtable, patch slot [4], type constants 0x4B/0x4C, identical prologue and gadget
+ * words — so only three numbers move per build. The prologue/gadget arrays below are shared
+ * on purpose: they were verified byte-identical in both.
+ *
+ * Selection is by self-check, never by a version string: libamapr.so carries no version we
+ * can read, and a wrong guess must fail closed. For each candidate we require
+ *   [A] the vtable slot currently holds base + fn_process   (relocation applied)
+ *   [B] the four instructions there are the known prologue
+ *   [C] the gadget site holds `mov x0, xzr ; ret`
+ * Only then do we write. A build that matches nothing is left completely untouched, which
+ * is what a future AMap release will look like until its numbers are re-derived.
+ *
+ * Adding a build = adding one row. Do not reorder: the first fully-matching row wins, and
+ * putting a looser row first could shadow a stricter one.
+ */
+typedef struct {
+    const char *tag;        /* log only */
+    uintptr_t   vt_slot;    /* &BuildingStyleLayer_vtable[4] */
+    uintptr_t   fn_process; /* what that slot must currently hold */
+    uintptr_t   gadget;     /* mov x0, xzr ; ret */
+} patch_variant;
 
-/* First four instructions of FN_PROCESS: stp x29,x30,[sp,#-0x30]! / str x19,[sp,#0x10] /
- * stp x20,x19,[sp,#0x20] / mov x29,sp. Verified against the shipped .so. */
+static const patch_variant VARIANTS[] = {
+    /* 国内版 17.02.0.2010 (versionCode 170200), libamapr.so ef40b30a370ce3d6…
+     *   factory 0x18a7c6c  ctor 0x18b1684  vtable 0x1f40848  slot[4] 0x18b17e0
+     *   gadget 0xe84148 */
+    { "17.02.0", 0x1f40868UL, 0x18b17e0UL, 0xe84148UL },
+
+    /* Play 版 17.02.2.2014 (versionCode 170105), libamapr.so 70ffc7c0d75ba087…
+     *   factory 0x18a7f00  ctor 0x18b1918  vtable 0x1f40ae8  slot[4] 0x18b1a74
+     *   gadget 0xe842c8
+     * Note the old gadget 0xe84148 is NOT valid here — in this build it decodes as
+     * `ret; stp …`, i.e. the middle of some other function. Reusing it would jump into
+     * nowhere. That is exactly why selection is by self-check and not by version. */
+    { "17.02.2", 0x1f40b08UL, 0x18b1a74UL, 0xe842c8UL },
+};
+
+#define VARIANT_COUNT ((int) (sizeof(VARIANTS) / sizeof(VARIANTS[0])))
+
+/* First four instructions of FN_PROCESS: stp x29,x30,[sp,#-0x30]! / str x21,[sp,#0x10] /
+ * stp x20,x19,[sp,#0x20] / mov x29,sp. Verified identical in both builds. */
 static const uint32_t FN_PROCESS_PROLOGUE[4] = {
     0xa9bd7bfdU, 0xf9000bf5U, 0xa9024ff4U, 0x910003fdU
 };
 /* mov x0, xzr ; ret */
 static const uint32_t GADGET_WORDS[2] = { 0xaa1f03e0U, 0xd65f03c0U };
 
+/* Module address range, so a candidate row from a *different* build cannot make us read
+ * outside the mapping. Both tables live inside the same .so, but a future row could be
+ * mis-typed, and dereferencing a stray address here would SIGSEGV the host on startup —
+ * far worse than not patching. */
+typedef struct {
+    uintptr_t base;
+    uintptr_t vaddr_lo;   /* min PT_LOAD p_vaddr */
+    uintptr_t vaddr_hi;   /* max PT_LOAD p_vaddr + p_memsz */
+    int       found;
+} lib_info;
+
 static int on_phdr(struct dl_phdr_info *info, size_t size, void *data) {
     (void) size;
-    (void) data;
-    if (info->dlpi_name && strstr(info->dlpi_name, TARGET_LIB)) {
-        *(uintptr_t *) data = (uintptr_t) info->dlpi_addr;
-        return 1;
+    lib_info *out = (lib_info *) data;
+    if (!info->dlpi_name || !strstr(info->dlpi_name, TARGET_LIB)) return 0;
+
+    uintptr_t lo = UINTPTR_MAX, hi = 0;
+    for (int i = 0; i < info->dlpi_phnum; i++) {
+        const ElfW(Phdr) *ph = &info->dlpi_phdr[i];
+        if (ph->p_type != PT_LOAD) continue;
+        uintptr_t s = (uintptr_t) ph->p_vaddr;
+        uintptr_t e = s + (uintptr_t) ph->p_memsz;
+        if (s < lo) lo = s;
+        if (e > hi) hi = e;
     }
-    return 0;
+    if (hi <= lo) return 0;   /* no PT_LOAD: refuse rather than guess */
+
+    out->base     = (uintptr_t) info->dlpi_addr;
+    out->vaddr_lo = lo;
+    out->vaddr_hi = hi;
+    out->found    = 1;
+    return 1;
 }
 
-static uintptr_t find_lib_base(void) {
-    uintptr_t base = 0;
-    dl_iterate_phdr(on_phdr, &base);
-    return base;
+static int find_lib(lib_info *out) {
+    memset(out, 0, sizeof(*out));
+    dl_iterate_phdr(on_phdr, out);
+    return out->found;
 }
 
 static int words_match(uintptr_t address, const uint32_t *expected, int count) {
@@ -89,44 +150,83 @@ static int words_match(uintptr_t address, const uint32_t *expected, int count) {
     return 1;
 }
 
+/* True when [va, va+len) lies inside the module's loaded range. */
+static int in_range(const lib_info *li, uintptr_t va, size_t len) {
+    return va >= li->vaddr_lo && va + len <= li->vaddr_hi;
+}
+
 static void *patch_thread(void *arg) {
     (void) arg;
 
     /* libamapr.so is loaded lazily by the map engine, well after our constructor runs. */
-    uintptr_t base = 0;
-    for (int i = 0; i < 1200 && !base; i++) {   /* ~60 s at 50 ms */
-        base = find_lib_base();
-        if (!base) usleep(50000);
+    lib_info li;
+    for (int i = 0; i < 1200; i++) {   /* ~60 s at 50 ms */
+        if (find_lib(&li)) break;
+        usleep(50000);
     }
-    if (!base) {
+    if (!li.found) {
         LOGI("event=anchor_skip reason=lib_absent lib=%s", TARGET_LIB);
         return NULL;
     }
+    uintptr_t base = li.base;
 
-    uintptr_t slot = base + VT_SLOT_PROCESS;
-    uintptr_t function = base + FN_PROCESS;
-    uintptr_t gadget = base + GADGET_ZERO_RET;
-
-    /* Check 1: the vtable slot still points at the function we re-derived. */
-    uintptr_t current = *(volatile uintptr_t *) slot;
-    if (current == gadget) {
-        LOGI("event=already_patched slot=%p base=%p", (void *) slot, (void *) base);
+    /* Already patched? Detect before selection, because a patched slot no longer holds
+     * fn_process and would therefore fail every row's check [A]. */
+    for (int i = 0; i < VARIANT_COUNT; i++) {
+        const patch_variant *v = &VARIANTS[i];
+        if (!in_range(&li, v->vt_slot, sizeof(uintptr_t))) continue;
+        uintptr_t slot = base + v->vt_slot;
+        uintptr_t gadget = base + v->gadget;
+        if (*(volatile uintptr_t *) slot != gadget) continue;
+        if (!in_range(&li, v->gadget, sizeof(GADGET_WORDS))) continue;
+        if (!words_match(gadget, GADGET_WORDS, 2)) continue;
+        LOGI("event=already_patched variant=%s slot=%p base=%p",
+             v->tag, (void *) slot, (void *) base);
         return NULL;
     }
-    if (current != function) {
-        LOGW("event=anchor_mismatch slot=%p want=%p got=%p base=%p",
-             (void *) slot, (void *) function, (void *) current, (void *) base);
+
+    /* Select the row whose three self-checks all pass. */
+    const patch_variant *pick = NULL;
+    for (int i = 0; i < VARIANT_COUNT; i++) {
+        const patch_variant *v = &VARIANTS[i];
+        if (!in_range(&li, v->vt_slot, sizeof(uintptr_t))
+            || !in_range(&li, v->fn_process, sizeof(FN_PROCESS_PROLOGUE))
+            || !in_range(&li, v->gadget, sizeof(GADGET_WORDS))) {
+            continue;
+        }
+        uintptr_t slot = base + v->vt_slot;
+        uintptr_t fn   = base + v->fn_process;
+        uintptr_t gd   = base + v->gadget;
+
+        /* [A] the slot still points at the function we re-derived for this build */
+        if (*(volatile uintptr_t *) slot != fn) continue;
+        /* [B] the code behind it is that function */
+        if (!words_match(fn, FN_PROCESS_PROLOGUE, 4)) continue;
+        /* [C] the gadget site really is `mov x0, xzr ; ret` */
+        if (!words_match(gd, GADGET_WORDS, 2)) continue;
+
+        pick = v;
+        break;
+    }
+
+    if (!pick) {
+        /* Report what the *first* row saw, so a log from an unknown build still says
+         * something actionable. Never write. */
+        const patch_variant *v = &VARIANTS[0];
+        uintptr_t slot = base + v->vt_slot;
+        uintptr_t current = in_range(&li, v->vt_slot, sizeof(uintptr_t))
+                            ? *(volatile uintptr_t *) slot : 0;
+        LOGW("event=anchor_mismatch reason=no_variant_matched variants=%d "
+             "first=%s slot=%p want=%p got=%p base=%p",
+             VARIANT_COUNT, v->tag, (void *) slot, (void *) (base + v->fn_process),
+             (void *) current, (void *) base);
         return NULL;
     }
 
-    /* Check 2: the code behind it is the function we think it is. Guards against a build that
-     * kept the vtable layout but reordered the slot contents. */
-    if (!words_match(function, FN_PROCESS_PROLOGUE, 4)
-        || !words_match(gadget, GADGET_WORDS, 2)) {
-        LOGW("event=anchor_mismatch reason=prologue slot=%p function=%p", (void *) slot,
-             (void *) function);
-        return NULL;
-    }
+    uintptr_t slot     = base + pick->vt_slot;
+    uintptr_t function = base + pick->fn_process;
+    uintptr_t gadget   = base + pick->gadget;
+    uintptr_t current  = *(volatile uintptr_t *) slot;
 
     /* .data.rel.ro is read-only after relocation. Page size must come from the kernel: the
      * build targets 16 KB alignment, but that is a linker hint — mprotect only accepts real
@@ -137,15 +237,16 @@ static void *patch_thread(void *arg) {
     size_t span = (size_t) (((slot + sizeof(uintptr_t)) - page_start + page - 1) / page * page);
 
     if (mprotect((void *) page_start, span, PROT_READ | PROT_WRITE) != 0) {
-        LOGW("event=mprotect_failed slot=%p page=%ld", (void *) slot, page);
+        LOGW("event=mprotect_failed variant=%s slot=%p page=%ld",
+             pick->tag, (void *) slot, page);
         return NULL;
     }
     *(volatile uintptr_t *) slot = gadget;
     __builtin___clear_cache((char *) slot, (char *) (slot + sizeof(uintptr_t)));
     mprotect((void *) page_start, span, PROT_READ);
 
-    LOGI("event=building_patch slot=%p old=%p new=%p base=%p",
-         (void *) slot, (void *) current, (void *) gadget, (void *) base);
+    LOGI("event=building_patch variant=%s slot=%p old=%p new=%p base=%p",
+         pick->tag, (void *) slot, (void *) current, (void *) gadget, (void *) base);
     return NULL;
 }
 

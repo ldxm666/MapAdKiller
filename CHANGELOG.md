@@ -11,6 +11,33 @@
   实测关闭 117~120、120→119、90→80~82、60→60（90 档受屏幕刷新率整数分频限制）。
 - 两项均可在**模块 App → 高德 · 实验** 或 **内置版悬浮面板** 中操作，默认关闭，界面注明「需强停重开」。
 
+### 新增（高德 Play 版 17.02.2.2014 适配）
+
+Play 版与国内版是**两次独立构建**，不是同一份代码的两种分发：8 个 DEX 全部不同，
+`libamapr.so` 也不同（32,984,120 vs 32,983,424 字节）。因此两版不能共用同一组补丁地址。
+
+- **native 偏移改为双变体表**：`amap_buildings.c` 内置两组地址，运行时按三重自检选择 ——
+  槽值必须等于 `base+FN_PROCESS`、该地址四条指令必须是已知序言、gadget 处必须是
+  `mov x0,xzr; ret`，三关全过才写内存。旧 gadget `0xe84148` 在 Play 版里已变成 `ret; stp…`
+  （某个函数的中间），照抄会跳进无效位置 —— 这正是选择必须靠自检、不能靠版本号的原因。
+  实测 Play 版 `event=building_patch variant=17.02.2`，槽/旧值/新值三个地址逐项对得上。
+- **去更新改为按名 + 形状校验**：`AppUpgradeController.w` 签名从
+  `(Lcom/amap/bundle/appupgrade/e;ZZ)V` 变成 `(ILjava/lang/String;Z)V`，而 `appupgrade.e`
+  这个类在 Play 版里根本不存在，精确签名那条路会整条落空。改成按名 hook 后两版都命中
+  （`event=update_block_install w=1 v=1`），形状校验保证只吞 `void` 且参数个数对得上的方法。
+- **锚点候选表证实是必需的**：`k84.f` / `s27.d`、`wm3.c` / `lv3.c` 各自只在一个版本上命中，
+  单留任何一个都会在另一个版本上静默失效。
+
+真机验证（17.02.2.2014 / versionCode 170105）：
+```
+建筑去除    开→无楼块 / 关→有楼块（A/B 双向）
+帧率上限    60→59~60  90→70~82  120→117~120
+开屏拦截    alimama_blocked sendSplashScreen + sendH5Log
+去更新      update_block_install w=1 v=1
+悬浮球      floating layer attached to NewMapActivity
+公告/版本   ver_code=2302 已从服务器取到
+```
+
 ### 新增（三端通用）
 
 - **强制去除版本更新检查与更新弹窗**，默认生效、不提供开关：

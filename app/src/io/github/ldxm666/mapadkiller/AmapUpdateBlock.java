@@ -50,25 +50,22 @@ final class AmapUpdateBlock {
                     "event=anchor_miss feature=update_block name=" + CLS_CONTROLLER);
             return;
         }
-        // Loaded only to spell the exact parameter type. null is fine: the by-name fallback
-        // below does not need it.
-        Class<?> info = H.cls(cl, "com.amap.bundle.appupgrade.e");
 
-        if (info != null) {
-            H.hookSig(controller, "w", "amap_update_block_w",
-                    suppress(3), info, boolean.class, boolean.class);
-            H.hookSig(controller, "v", "amap_update_block_v",
-                    suppress(1), boolean.class);
-            probeCallback(cl, info);
-            return;
-        }
+        // 按名挂 + 运行时形状校验，**不用精确签名**。
+        //
+        // 精确签名要用 Lcom/amap/bundle/appupgrade/e; 这个混淆类做参数类型，而这个类在
+        // Play 版（17.02.2.2014）里根本不存在 —— 走精确签名那条路会整条落空，功能静默失效。
+        // 两版的真实签名是：
+        //     国内 17.02.0.2010   w(Lcom/amap/bundle/appupgrade/e;ZZ)V    v(Z)V
+        //     Play 17.02.2.2014   w(ILjava/lang/String;Z)V               v(Lcom/…/c;ZZ)V
+        // 参数类型全变了，但 w 两边都是「3 参、返回 void」，v 是「1 参或 3 参、返回 void」。
+        // 形状校验正好卡这个：只有 void + 参数个数对得上才吞，其余一律 proceed。
+        int w = H.hookAll(controller, "w", "amap_update_block_w", suppress(3));
+        int v = H.hookAll(controller, "v", "amap_update_block_v", suppress(1, 3));
 
-        // e changed name. Hook by name and let the shape check decide.
         H.log(Log.INFO, MainHook.TAG,
-                "event=update_block_fallback reason=info_class_missing");
-        H.hookAll(controller, "w", "amap_update_block_w", suppress(3));
-        H.hookAll(controller, "v", "amap_update_block_v", suppress(1));
-        probeCallback(cl, null);
+                "event=update_block_install w=" + w + " v=" + v);
+        probeCallback(cl);
     }
 
     /**
@@ -85,7 +82,7 @@ final class AmapUpdateBlock {
      *
      * <p>只在首次命中打一行，之后零成本；只 {@code proceed}，不碰参数也不碰返回值。
      */
-    private static void probeCallback(ClassLoader cl, Class<?> info) {
+    private static void probeCallback(ClassLoader cl) {
         Class<?> callback = H.cls(cl, "com.amap.bundle.appupgrade.AppUpgradeController$AppUpdateCallBack");
         if (callback == null) {
             H.log(Log.WARN, MainHook.TAG, "event=anchor_miss feature=update_probe"
@@ -120,7 +117,7 @@ final class AmapUpdateBlock {
      * return a value would corrupt the caller. Only a {@code void} method with the expected
      * parameter count is suppressed.
      */
-    private static XposedInterface.Hooker suppress(final int parameterCount) {
+    private static XposedInterface.Hooker suppress(final int... parameterCounts) {
         return new XposedInterface.Hooker() {
             private boolean reported;
 
@@ -130,14 +127,16 @@ final class AmapUpdateBlock {
                 java.lang.reflect.Executable executable = chain.getExecutable();
                 if (!(executable instanceof Method)) return chain.proceed();
                 Method method = (Method) executable;
-                if (method.getParameterCount() != parameterCount
-                        || method.getReturnType() != void.class) {
-                    return chain.proceed();
+                if (method.getReturnType() != void.class) return chain.proceed();
+                boolean wanted = false;
+                for (int n : parameterCounts) {
+                    if (method.getParameterCount() == n) { wanted = true; break; }
                 }
+                if (!wanted) return chain.proceed();
                 if (!reported) {
                     reported = true;
                     H.log(Log.INFO, MainHook.TAG, "event=update_blocked method="
-                            + method.getName() + " params=" + parameterCount);
+                            + method.getName() + " params=" + method.getParameterCount());
                 }
                 return null;
             }
