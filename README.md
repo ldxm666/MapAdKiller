@@ -4,7 +4,7 @@
 
 **把高德、百度、腾讯地图里那些不想看的东西关掉 —— 只留地图。**
 
-[![Version](https://img.shields.io/badge/version-2.3.1-2ea44f?style=flat-square)](https://github.com/ldxm666/MapAdKiller/releases)
+[![Version](https://img.shields.io/badge/version-2.3.2-2ea44f?style=flat-square)](https://github.com/ldxm666/MapAdKiller/releases)
 [![libxposed](https://img.shields.io/badge/libxposed-API%20102-0969da?style=flat-square)](https://github.com/libxposed/api)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84?style=flat-square&logo=android&logoColor=white)](https://www.android.com)
@@ -33,7 +33,7 @@
 | 百度地图 | `com.baidu.BaiduMap` |
 | 腾讯地图 | `com.tencent.map` |
 
-> 当前版本 **2.3.1**（versionCode 2301），基于 libxposed **API 102**，最低 Android 8.0。
+> 当前版本 **2.3.2**（versionCode 2302），基于 libxposed **API 102**，最低 Android 8.0。
 
 ---
 
@@ -43,11 +43,11 @@
 
 | 包 | 文件名 | 适合谁 | 需要 root 吗 |
 | --- | --- | --- | --- |
-| **免 root 内置版（高德）** | `Amap-2.3.1-nonroot-embedded.apk` | 普通用户，手机上没装框架 | **不需要** |
-| **免 root 内置版（百度）** | `Baidu-2.3.1-nonroot-embedded.apk` | 同上，百度地图 | **不需要** |
-| **免 root 内置版（腾讯）** | `Tencent-2.3.1-nonroot-embedded.apk` | 同上，腾讯地图 | **不需要** |
-| **免 root 内置版（高德 Play 版）** | `Amap-Play-2.3.1-nonroot-embedded.zip` | 手机上是 **Google Play 版**高德（17.02.2.2014），非国内版 | **不需要** |
-| **模块版**（推荐） | `MapClean-lsp-v2.3.1.apk` | 已经在用 LSPosed / Vector 的用户 | 需要框架 |
+| **免 root 内置版（高德）** | `Amap-2.3.2-nonroot-embedded.apk` | 普通用户，手机上没装框架 | **不需要** |
+| **免 root 内置版（百度）** | `Baidu-2.3.2-nonroot-embedded.apk` | 同上，百度地图 | **不需要** |
+| **免 root 内置版（腾讯）** | `Tencent-2.3.2-nonroot-embedded.apk` | 同上，腾讯地图 | **不需要** |
+| **免 root 内置版（高德 Play 版）** | `Amap-Play-2.3.1-nonroot-embedded.zip` | 手机上是 **Google Play 版**高德（17.02.2.2014），非国内版。**当前仍为 2.3.1**，见 [v2.3.1-play](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.1-play) | **不需要** |
+| **模块版**（推荐） | `MapClean-lsp-v2.3.2.apk` | 已经在用 LSPosed / Vector 的用户 | 需要框架 |
 
 **一句话区别**：内置版把模块直接并进了地图本体，装完就是成品，代价是包体大、签名变了；模块版是一个几 MB 的小模块，靠框架注入，三个地图共用一份配置。
 
@@ -66,7 +66,7 @@
 ---
 
 > **高德有两个内置版，别装错**：
-> - `Amap-2.3.1-nonroot-embedded.apk` —— 对应**国内版**高德（17.02.0.1541），单个 APK 直接装。
+> - `Amap-2.3.2-nonroot-embedded.apk` —— 对应**国内版**高德（17.02.0.1541），单个 APK 直接装。
 > - `Amap-Play-2.3.1-nonroot-embedded.zip` —— 对应 **Google Play 版**高德（17.02.2.2014），
 >   Play 版是拆分包，必须**四个文件一起装**：
 >   `adb install-multiple base.apk split_config.arm64_v8a.apk split_config.xxxhdpi.apk split_config.zh.apk`
@@ -93,7 +93,7 @@
 
 ### 免 root 内置版（推荐）
 
-1. 下载 `Amap-2.3.1-nonroot-embedded.apk`（高德免 root 内置版）。
+1. 下载 `Amap-2.3.2-nonroot-embedded.apk`（高德免 root 内置版）。
 2. **先卸载手机上原有的高德地图**（内置版重新签过名，和官方签名冲突，无法覆盖安装）。
    > 卸载会清掉登录状态和已下载的离线地图，装好重新登录即可。
 3. 安装，打开高德地图：第一次是**纯原生**，等它自己抓完数据并弹窗自动重启（见上一节），
@@ -104,7 +104,7 @@
 
 ### 模块版（LSPosed）
 
-1. 安装 `MapClean-lsp-v2.3.1.apk`。
+1. 安装 `MapClean-lsp-v2.3.2.apk`。
 2. 在 LSPosed / Vector 里**启用模块**，并把**需要处理的地图 App 勾进作用域**
    （高德 `com.autonavi.minimap`、百度 `com.baidu.BaiduMap`、腾讯 `com.tencent.map`，勾哪个管哪个）。
 3. **重启目标地图 App**（强制停止后重新打开），然后长按底部「我的」标签约 1 秒。
@@ -243,6 +243,31 @@
 ---
 
 ## 更新日志
+
+### 2.3.2（versionCode 2302）
+
+对比基线：2.3.1。新增两项高德实验功能、三端去更新、三处重要修复。
+
+#### 高德
+- **去除 3D / 扁平建筑物**（实验，默认关）：native 层改写 `libamapr.so` 中 `BuildingStyleLayer` 的虚表项，使该图层不产出几何。补丁前先读槽值与六个指令字做双重自检，**不匹配则不写内存、只记一行日志** —— 楼块保留，但高德零崩溃。已按 17.02.0.2010 重新定位全部偏移
+- **帧率上限 60 / 90 / 120**（实验，默认关）：hook `GLMapEngine#OnEGLRenderFrame` 做固定节拍调度。实测 关 117~120 / 120→119 / 90→80~82 / 60→60（90 档受屏幕刷新率整数分频限制）
+- 两项在 **模块 App → 高德 · 实验** 或 **内置版悬浮面板** 均可操作，默认关闭，界面注明「需强停重开」
+- 开屏广告拦截**默认开启**（此前门控语义导致默认不拦）
+
+#### 三端通用
+- **强制去除版本更新检查与更新弹窗**，默认生效、不提供开关：高德 `AppUpgradeController#w/#v`、百度 `VersionUpdateController#N/#x0/#j0/#l0`、腾讯 `AppUpgradeInfo#parseJson` + `AppUpgradeDialog#show`。只截控制器与弹窗入口，**网络层一条未碰**
+- **独立 App 增加内置版检测**：只读宿主 APK 的 zip 中央目录判断是否为 LSPatch 内置版，命中即整页置灰并提示「请在地图里轻点悬浮球」，避免「界面成功、实际无效」
+
+#### 百度
+- **逐类 POI 开关全部失效**：分类决策发生在宿主配置就绪之前 **3.1 秒**，读到的是空的只读表，13 个逐类开关全部落到缺省「隐藏」。改为先把宿主 Application 交给 `HostPrefs` 再计算
+- **详情页白屏**：补丁副本缓存无生命周期管理。改为内容指纹做缓存键、临时目录原子发布、命中先校验、失败降级到原模板（**宁可广告，不可白屏**）
+
+#### 腾讯
+- 6013 的 `UpgradeInitTask` 已无调用点（死代码），去更新改在解析层与弹窗层拦截
+
+#### 已知未解决
+- 百度 22.1.20 详情页「你可能想搜 / FAQ / 团购横幅」三块无法去除：七张卡片名逐个屏蔽、五次截图逐像素无变化，日志证明加载确为 `detailtmpl` 且已打补丁 ⇒ 这三块不走已 hook 的三个数据通路
+- 高德开屏 layer-list 的两个 logo 图层未上屏（已排除系统 SplashScreen 覆盖）
 
 ### 2.3.1（versionCode 2301）
 
