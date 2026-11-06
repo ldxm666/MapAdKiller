@@ -59,6 +59,22 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>失效安全：模板目录对不上 / 补丁锚点找不到 / 目录不可写 / 配置读不到
  * ⇒ 一律返回原 URL，页面保持原样，只记一条 miss。
+ *
+ * <h3>缓存：宁可广告，不可白屏（2.3.1 修复）</h3>
+ * 真机出过「地点详情页整页空白，清掉 {@code cache/mcpoi} 才正常」。做法改成四条硬约束：
+ * <ol>
+ *   <li><b>键按内容算</b>（{@link #treeFingerprint}），不按路径 / mtime ——
+ *       模板目录名只带组件版本，卡片却是服务端热更的，版本不变内容照换。</li>
+ *   <li><b>原子发布</b>：先在 {@code <key>-<pid>-<nano>} 里建完，逐文件核对长度
+ *       （{@link #verifyCopy}），{@code .mc-ok} 最后写，再整体 rename。
+ *       任何一步中断都只留下「缺标记」的目录，下次必被判 invalid 并删除。</li>
+ *   <li><b>命中先校验</b>（{@link #check}）：schema / key / 模板指纹 / app.js 里有没有
+ *       注入标记，四样缺一就重建。旧副本、半成品、换过内容的模板全在这一步拦掉。</li>
+ *   <li><b>失败降级到不注入</b>：{@link #prepare} 返回 null ⇒ 用宿主原模板加载。
+ *       广告会回来，但页面一定能开。</li>
+ * </ol>
+ * 日志出口：{@code poi_cache hit= reason=} / {@code poi_patch_fallback reason=} /
+ * {@code poi_ad_rule}（**规则回显**，不是"已删除"）。
  */
 final class BaiduPoiAds {
 
@@ -82,7 +98,21 @@ final class BaiduPoiAds {
      * （普通点 / 小区点各取其一），所以同一个开关下挂两个名字。
      */
     private static final String[][] CARDS = {
-            {Spec.K_POI_GUESS, "querycard"},
+            // 22.1.20 把「猜你想搜」换了实现：老名字 querycard 在这一版**已经不存在**，
+            // 同一个 UI 位改成 commonnearbyrecomm（真机回读 g= 列表里只有后者）。
+            // 两个名字都留着：22.1.0 及以前命 querycard，22.1.20 起命 commonnearbyrecomm。
+            //
+            // ⚠ **现状（2026-11-06 真机实测）：摘掉它页面没有任何可见变化。**
+            // r= 通道证明它确实从渲染列表里消失了（g−r 里能看到它），但「AI推荐·你可能想搜」
+            // 那一块照旧显示 ⇒ 那块不是它渲染的。同类情况还有 faqcard、poilocalrec、
+            // commentareacard、ctservicecardnew、overlaycard、carcouponsnew —— 一共 7 个名字
+            // 逐个屏蔽，五次截图逐像素没变。结论：那几块来自另一个模板（同屏还加载了
+            // searchList / startPage），不是卡片名的锅。判据见 logs 的 poi_tmpl_seen。
+            //
+            // 保留这个名字的理由：它在别的 POI 类型下可能真的渲染「你可能想搜」，而我们只验过
+            // 广场类一种。等 poi_tmpl_seen 证明「看错模板」之后，再决定去留 —— 现在删掉等于
+            // 丢掉一种可能性。
+            {Spec.K_POI_GUESS, "querycard", "commonnearbyrecomm"},
             {Spec.K_POI_REC, "surroundingrecom"},
             {Spec.K_POI_CARDS, "mediafeedcard"},
             {Spec.K_POI_HOUSE, "houseabout", "housebasenew"},
@@ -98,12 +128,53 @@ final class BaiduPoiAds {
                     // 「大家都在问 · 立即咨询 / 咨询更多问题」：按语义消元首选，待真机确认。
                     "merchantaimergeqapop",
                     // 房价总览（15125元/m² / 在售16套）+「立即咨询」CTA —— 用户选定连数据一起摘。
-                    "houseoverview"},
+                    "houseoverview",
+                    // faqcard：22.1.20 的新名字，摘掉后 r= 里确实消失，但页面上
+                    // 「停车怎么收费 / 附近有什么地道美食」那组仍显示 —— 与 commonnearbyrecomm
+                    // 同因（见上）。保留待用 poi_tmpl_seen 定性。
+                    "faqcard"},
     };
 
     private static final Map<String, String> PREPARED = new LinkedHashMap<String, String>();
     private static final AtomicInteger LOGS = new AtomicInteger();
     private static final AtomicInteger PROBES = new AtomicInteger();
+    /** 缓存命中/重建日志预算（每进程 8 条）。 */
+    private static final AtomicInteger CACHE_LOG = new AtomicInteger();
+    /** 降级日志预算（每进程 4 条）。白屏与「广告没去掉」必须一眼能分开。 */
+    private static final AtomicInteger FALLBACK_LOG = new AtomicInteger();
+    /**
+     * 模板取证日志预算（每进程 12 条）与去重集合。
+     *
+     * <p>存在的理由：同一屏里可以加载好几个 H5 模板（detailtmpl / searchList /
+     * startPage…），而我们只改写其中前缀匹配的那**一个**。用户看到的那几块推广
+     * 如果来自另一个模板，那我们把卡片名加多少遍都不会有变化 —— 这件事必须能从
+     * 日志一眼看出来，而不是靠猜。**只记录，不改变任何判定。**
+     */
+    private static final AtomicInteger SEEN_LOG = new AtomicInteger();
+    private static final java.util.Set<String> SEEN_NAMES =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    /** 判定规则每进程只打一条。 */
+    private static final java.util.concurrent.atomic.AtomicBoolean RULE_LOGGED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+    /** 缓存最多留几份（每份约 5.8MB，cache 配额有限）。 */
+    private static final int KEEP_CACHE = 2;
+    /**
+     * 本进程**交给过 WebView** 的缓存目录（绝对路径）。prune 永不删这些。
+     *
+     * <p>为什么需要：详情页打开后还会懒加载 `cards/*.umd.min.js`，WebView 可能
+     * 正从某份目录里读文件。把它删掉 ⇒ 页面白屏 —— 和我们这次要修的 bug 同一个
+     * 症状、不同的成因。所以「同进程里用过的目录」一律不删。
+     */
+    private static final java.util.Set<String> LIVE =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    /** 上次清理时间；0 = 本进程还没清过。 */
+    private static volatile long prunedAt;
+    /** 两次清理的最小间隔 —— 不要每开一次页就扫一遍目录。 */
+    private static final long PRUNE_INTERVAL_MS = 10L * 60L * 1000L;
+    /** 目录至少闲置这么久才允许删（给正在懒加载的 WebView 留足时间）。 */
+    private static final long PRUNE_MIN_AGE_MS = 10L * 60L * 1000L;
+    /** 补丁注入后 app.js 里必然出现的标记；命中校验靠它判断「这份副本真的打过补丁」。 */
+    private static final String MARKER = "window.__mcFN=function(";
     private static volatile boolean missLogged;
 
     private BaiduPoiAds() {}
@@ -166,6 +237,19 @@ final class BaiduPoiAds {
         return !("0".equals(value) || "false".equalsIgnoreCase(value) || "off".equalsIgnoreCase(value));
     }
 
+    /**
+     * 回读通道扩展开关：{@code setprop debug.bmapclean.poi_rendered 1}。
+     *
+     * <p>打开后 {@code document.title} 会多一段 {@code ;r=<真正留下来渲染的卡片名>}，
+     * 和 {@code g=}（检查过的）做差集，就能算出「哪些卡片被我们摘掉了」以及
+     * 「哪些卡片页面渲染了但表里没有」。默认关闭：{@code r=} 会让 title 变长三倍。
+     */
+    private static boolean renderedChannel() {
+        String value = systemProperty("debug.bmapclean.poi_rendered");
+        if (value == null || value.length() == 0) return false;
+        return !("0".equals(value) || "false".equalsIgnoreCase(value) || "off".equalsIgnoreCase(value));
+    }
+
     private static String systemProperty(String key) {
         try {
             Class<?> type = Class.forName("android.os.SystemProperties");
@@ -196,12 +280,34 @@ final class BaiduPoiAds {
         File web = new File(dirPath);
         if (!web.isDirectory()) return null;
         String canonical = web.getCanonicalPath();
-        if (!detailTemplate(canonical)) return null;
+        if (!detailTemplate(canonical)) {
+            // 不是我们认的那份模板：照样记一条，patched=0。这正是「页面变了、日志里
+            // 却什么都没有」的那类情况的证据来源。
+            seenTemplate(canonical, false, rejectReason(canonical));
+            return null;
+        }
         File appJs = findAppJs(web);
         if (appJs == null) return null;
+        // cards/ 为空**不是**残副本的判据：内置包里的 5.8.9 模板本来就不带 cards，
+        // 卡片是服务端下发的。这里只记一条，照常注入 —— 真下完卡片后模板指纹会变，
+        // 缓存自动重建并补上过滤。反过来（空就放弃注入）会让清理静默失效，更糟。
+        File[] cardFiles = new File(web, "cards").listFiles();
+        if (cardFiles == null || cardFiles.length == 0) {
+            H.log("event=poi_cache cards_empty=1 note=patch_continues");
+        }
 
-        File patched = prepare(web, appJs, names);
-        if (patched == null) return null;
+        File patched;
+        try {
+            patched = prepare(web, appJs, names);
+        } catch (Throwable error) {
+            fallback("prepare", error);
+            return null;                       // 用原模板加载：宁可广告，不可白屏
+        }
+        if (patched == null) {
+            seenTemplate(canonical, false, "prepare_failed");
+            return null;
+        }
+        seenTemplate(canonical, true, "detail_ok");
         String tmpl = canonical.substring(canonical.indexOf(RUNTIME_MARK) + RUNTIME_MARK.length(),
                 canonical.length() - "/running/web".length());
         logOnce(tmpl, names.length);
@@ -217,14 +323,58 @@ final class BaiduPoiAds {
      * 而不是靠注释保证。
      */
     private static boolean detailTemplate(String canonical) {
-        if (!canonical.startsWith("/data/user/0/") && !canonical.startsWith("/data/data/")) return false;
+        String why = rejectReason(canonical);
+        boolean accept = why == null;
+        // 每进程一条：我们到底认哪些路径、为什么拒 —— 排查「改了没效果」的第一现场。
+        if (RULE_LOGGED.compareAndSet(false, true)) {
+            H.log("event=poi_tmpl_rule accept=" + accept + " why=" + (accept ? "detail_ok" : why));
+        }
+        return accept;
+    }
+
+    /** @return {@code null} 表示接受；否则是不接受的原因（进 {@code poi_tmpl_rule} 日志） */
+    private static String rejectReason(String canonical) {
+        if (!canonical.startsWith("/data/user/0/") && !canonical.startsWith("/data/data/")) {
+            return "outside_app_data";
+        }
         int at = canonical.indexOf(RUNTIME_MARK);
-        if (at < 0) return false;
+        if (at < 0) return "no_runtime_mark";
         String rest = canonical.substring(at + RUNTIME_MARK.length());
         String[] parts = rest.split("/");
-        if (parts.length != 3) return false;                       // <com> / running / web
-        if (!parts[0].startsWith(TEMPLATE_PREFIX)) return false;
-        return "running".equals(parts[1]) && "web".equals(parts[2]);
+        if (parts.length != 3) return "shape";                     // <com> / running / web
+        if (!parts[0].startsWith(TEMPLATE_PREFIX)) return "prefix_mismatch";
+        if (!"running".equals(parts[1]) || !"web".equals(parts[2])) return "tail_mismatch";
+        return null;
+    }
+
+    /**
+     * 记录「这一屏加载了哪个模板、我们有没有改它」。
+     *
+     * <p>同名模板每进程只打一条，总量封顶 {@code 12} 条。字段：
+     * <pre>
+     *   event=poi_tmpl_seen name=map.android.baidu.comdetailtmpl_5.8.9
+     *                       path_tail=…/running/web/index.html patched=1 why=detail_ok
+     * </pre>
+     * {@code patched=0} + {@code why=prefix_mismatch} 就是「这块 UI 不是我们改的那份」的铁证。
+     */
+    private static void seenTemplate(String canonical, boolean patched, String why) {
+        String name = templateName(canonical);
+        if (!SEEN_NAMES.add(name)) return;
+        if (SEEN_LOG.getAndIncrement() >= 12) return;
+        String tail = canonical.length() > 64
+                ? "…" + canonical.substring(canonical.length() - 64) : canonical;
+        H.log("event=poi_tmpl_seen name=" + name + " path_tail=" + tail
+                + " patched=" + (patched ? "1" : "0") + " why=" + why);
+    }
+
+    /** 从 {@code …/runtime/map.android.baidu.<name>_<ver>/running/web} 里取模板名；取不到返回 {@code ?}。 */
+    private static String templateName(String canonical) {
+        int at = canonical.indexOf("/runtime/");
+        if (at < 0) return "?";
+        String rest = canonical.substring(at + "/runtime/".length());
+        int slash = rest.indexOf('/');
+        String name = slash > 0 ? rest.substring(0, slash) : rest;
+        return name.length() == 0 ? "?" : name;
     }
 
     /** 只认详情页模板这一个组件前缀。 */
@@ -259,51 +409,263 @@ final class BaiduPoiAds {
     // ── 打补丁的模板副本 ────────────────────────────────────────────────
 
     private static synchronized File prepare(File web, File appJs, String[] names) throws Exception {
-        String key = cacheKey(web, appJs, names);
+        String fingerprint;
+        try {
+            fingerprint = treeFingerprint(web);
+        } catch (Throwable error) {
+            fallback("fingerprint", error);
+            return null;
+        }
+        String key = cacheKey(web, fingerprint, names, renderedChannel());
+
         String cached = PREPARED.get(key);
         if (cached != null) {
             File dir = new File(cached);
-            if (new File(dir, ".mc-ok").isFile()) return dir;
+            String bad = check(dir, key, fingerprint);
+            if (bad == null) {
+                logCache(true, "memory", key);
+                LIVE.add(dir.getAbsolutePath());
+                return dir;
+            }
+            PREPARED.remove(key);
         }
+
         Application app = application();
-        if (app == null) return null;
+        if (app == null) {
+            fallback("no_context", null);
+            return null;
+        }
         File base = new File(app.getCacheDir(), "mcpoi").getCanonicalFile();
         File out = new File(base, key.substring(0, 32));
-        if (new File(out, ".mc-ok").isFile()) {
+        String bad = check(out, key, fingerprint);
+        if (bad == null) {
             PREPARED.put(key, out.getAbsolutePath());
+            LIVE.add(out.getAbsolutePath());
+            logCache(true, "disk", key);
             return out;
         }
+        // 命中但不可用（旧版本残留 / 半成品 / 模板已变）：先整份删掉再重建。
+        // 半成品留在那里只会让下一次也白屏，删掉才是唯一安全动作。
+        if (out.exists()) {
+            deleteTree(out);
+            logCache(false, "invalid:" + bad, key);
+        } else {
+            logCache(false, "miss", key);
+        }
+
         mkdirs(base);
         File temp = new File(base, key.substring(0, 32) + "-" + android.os.Process.myPid()
                 + "-" + System.nanoTime());
-        mkdirs(temp);
-        long copied = copyTree(web, temp, 0);
-        if (copied > MAX_BYTES) throw new IOException("Template too large");
-        File copiedApp = new File(temp, "js/" + appJs.getName());
-        String original = read(copiedApp);
-        String patched = patch(original, names);
-        if (patched.equals(original)) {
-            logMiss("anchor", appJs.getName());
-            return null;
+        boolean published = false;
+        try {
+            mkdirs(temp);
+            long copied = copyTree(web, temp, 0);
+            if (copied > MAX_BYTES) throw new IOException("Template too large");
+            verifyCopy(web, temp);                       // 逐文件核对长度，半截副本当场发现
+            File copiedApp = new File(temp, "js/" + appJs.getName());
+            String original = read(copiedApp);
+            String patched = patch(original, names, renderedChannel());
+            if (patched.equals(original)) {
+                logMiss("anchor", appJs.getName());
+                return null;
+            }
+            write(copiedApp, patched);
+            // `.mc-ok` 永远最后写：没有它 = 目录不可用。写它之前的任何中断都留下
+            // 一份「缺标记」的目录，下次 check() 直接判 invalid 并删除重建。
+            write(new File(temp, ".mc-ok"), (SCHEMA + "\n" + key + "\n" + fingerprint
+                    + "\n" + names.length + "\n" + copied).getBytes("UTF-8"));
+            if (out.exists()) deleteTree(out);           // rename 到已存在的目录会失败
+            if (!temp.renameTo(out)) throw new IOException("Cannot publish template cache");
+            published = true;
+            PREPARED.put(key, out.getAbsolutePath());
+            LIVE.add(out.getAbsolutePath());
+            H.log("event=poi_ad_prepare template=" + web.getName() + " bytes=" + copied
+                    + " cards=" + names.length + " key=" + key.substring(0, 12));
+        } finally {
+            if (!published) deleteTree(temp);            // 失败不留垃圾，也不留半成品
         }
-        write(copiedApp, patched);
-        write(new File(temp, ".mc-ok"), (SCHEMA + "\n" + key + "\n" + names.length
-                + "\n" + copied).getBytes("UTF-8"));
-        if (!temp.renameTo(out) && !new File(out, ".mc-ok").isFile()) {
-            throw new IOException("Cannot publish template cache");
-        }
-        PREPARED.put(key, out.getAbsolutePath());
-        H.log("event=poi_ad_prepare template=" + web.getName() + " bytes=" + copied
-                + " cards=" + names.length);
+        pruneOld(base);
         return out;
     }
 
-    private static String cacheKey(File web, File appJs, String[] names) throws Exception {
+    /**
+     * 校验一份缓存目录是否**可用**。
+     *
+     * @return {@code null} 表示可用；否则返回不可用的原因（进日志）
+     */
+    private static String check(File dir, String key, String fingerprint) {
+        if (dir == null || !dir.isDirectory()) return "no_dir";
+        File ok = new File(dir, ".mc-ok");
+        if (!ok.isFile()) return "no_marker";
+        String text;
+        try {
+            text = read(ok);
+        } catch (Throwable t) {
+            return "unreadable";
+        }
+        String[] lines = text.split("\n");
+        if (lines.length < 4) return "short_marker";
+        if (!SCHEMA.equals(lines[0].trim())) return "schema";
+        if (!key.equals(lines[1].trim())) return "key";
+        // 模板内容变了 ⇒ 这份副本是按旧模板打的，注入点可能对不上 ⇒ 必须重建
+        if (!fingerprint.equals(lines[2].trim())) return "stale_template";
+        File appJs = findAppJs(dir);
+        if (appJs == null) return "no_appjs";
+        try {
+            if (read(appJs).indexOf(MARKER) < 0) return "unpatched";
+        } catch (Throwable t) {
+            return "unreadable_appjs";
+        }
+        return null;
+    }
+
+    /**
+     * 逐文件核对「复制出来的目录」和源目录的长度一致。
+     *
+     * <p>白屏那次的直接嫌疑就是半截副本：`component3` 在首次打开时才把模板下载到
+     * runtime 目录，我们恰好赶上它写到一半，于是复制出一份缺文件的目录、还写上了
+     * `.mc-ok`。这一步让那种情况当场失败并降级到原模板，而不是发布出去。
+     */
+    private static void verifyCopy(File source, File target) throws IOException {
+        File[] children = source.listFiles();
+        if (children == null) throw new IOException("Cannot list source");
+        for (File child : children) {
+            File copy = new File(target, child.getName());
+            if (child.isDirectory()) {
+                if (!copy.isDirectory()) throw new IOException("Missing dir " + child.getName());
+                verifyCopy(child, copy);
+            } else if (child.isFile()) {
+                if (!copy.isFile() || copy.length() != child.length()) {
+                    throw new IOException("Short copy " + child.getName());
+                }
+            }
+        }
+    }
+
+    /**
+     * 缓存键 = 模板内容的指纹，不是路径也不是 mtime。
+     *
+     * <p>为什么必须按内容：模板目录名里带的是**组件版本**（`...detailtmpl_5.8.9`），
+     * 而卡片清单是服务端热更的 —— 版本号不动、内容照换。用路径或 mtime 做键，
+     * 换完内容还会命中旧副本，注入点的结构和卡片名全对不上。
+     *
+     * <p>为什么不做全量哈希：5.8MB 每次开页 SHA 一遍要几十毫秒，而卡片文件名本身
+     * 就带内容哈希（`adcpccard.0a8faa….umd.min.js`）—— 遍历目录取「文件名 + 长度」
+     * 已经能捕捉到任何内容变化，代价是几百次 stat。
+     */
+    private static String treeFingerprint(File web) throws Exception {
+        java.util.List<String> rows = new java.util.ArrayList<String>(512);
+        collect(web, web, rows);
+        java.util.Collections.sort(rows);
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        for (int i = 0; i < rows.size(); i++) feed(digest, rows.get(i));
+        // 「路径|长度」抓不到「同名同长度、内容不同」。我们**真正会改写**的只有
+        // index.html 与 app.js 两个小文件（1.7KB / 166KB），给它们补一份内容哈希，
+        // 代价约 1ms；卡片 JS 不补 —— 它们的文件名里本来就带内容哈希
+        // （adcpccard.0a8faa….umd.min.js），而且卡片是运行时注入的，不走这两份文件。
+        feed(digest, "index.html=" + fileDigest(new File(web, "index.html")));
+        File app = findAppJs(web);
+        feed(digest, "app.js=" + (app == null ? "-" : fileDigest(app)));
+        StringBuilder out = new StringBuilder();
+        char[] hex = "0123456789abcdef".toCharArray();
+        for (byte b : digest.digest()) out.append(hex[(b & 255) >>> 4]).append(hex[b & 15]);
+        return out.toString();
+    }
+
+    /** 单文件内容 SHA-256（读不到返回 {@code "-"}，绝不抛）。 */
+    private static String fileDigest(File file) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (FileInputStream input = new FileInputStream(file)) {
+                byte[] buffer = new byte[65536];
+                int count;
+                while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
+            }
+            StringBuilder out = new StringBuilder();
+            char[] hex = "0123456789abcdef".toCharArray();
+            for (byte b : digest.digest()) out.append(hex[(b & 255) >>> 4]).append(hex[b & 15]);
+            return out.toString();
+        } catch (Throwable t) {
+            return "-";
+        }
+    }
+
+    private static void collect(File root, File dir, java.util.List<String> out) {
+        File[] children = dir.listFiles();
+        if (children == null) return;
+        for (File child : children) {
+            String rel = child.getAbsolutePath().substring(root.getAbsolutePath().length());
+            if (child.isDirectory()) collect(root, child, out);
+            else if (child.isFile()) out.add(rel + "|" + child.length());
+        }
+    }
+
+    /**
+     * 只保留最近 {@link #KEEP_CACHE} 份缓存，其余删掉（cache 配额是有限的）。
+     *
+     * <p>删错一份正在被 WebView 读的目录 = 白屏，所以这里**三道保险全过才动手**：
+     * <ol>
+     *   <li>{@link #LIVE} 里的（本进程交给过 WebView 的）不删；</li>
+     *   <li>mtime 距今不足 {@link #PRUNE_MIN_AGE_MS} 的不删 —— 可能是另一个进程
+     *       正在写、或者页面刚打开还没加载完卡片；</li>
+     *   <li>两次清理间隔不足 {@link #PRUNE_INTERVAL_MS} 直接返回 —— 不每页扫目录。</li>
+     * </ol>
+     * 换句话说：**拿不准就不删**。多占几 MB 比白屏便宜得多。
+     */
+    private static void pruneOld(File base) {
+        long now = System.currentTimeMillis();
+        long last = prunedAt;
+        if (last != 0 && now - last < PRUNE_INTERVAL_MS) return;
+        prunedAt = now;
+        try {
+            File[] all = base.listFiles();
+            if (all == null || all.length <= KEEP_CACHE) return;
+            java.util.Arrays.sort(all, new java.util.Comparator<File>() {
+                @Override public int compare(File a, File b) {
+                    long x = a.lastModified(), y = b.lastModified();
+                    return x < y ? 1 : (x == y ? 0 : -1);        // 新 → 旧
+                }
+            });
+            for (int i = KEEP_CACHE; i < all.length; i++) {
+                File dir = all[i];
+                if (LIVE.contains(dir.getAbsolutePath())) continue;
+                if (now - dir.lastModified() < PRUNE_MIN_AGE_MS) continue;
+                deleteTree(dir);
+                H.log("event=poi_cache pruned=" + dir.getName());
+            }
+        } catch (Throwable ignored) {
+            // 清理失败不影响正确性，只是占点空间。
+        }
+    }
+
+    private static void deleteTree(File file) {
+        if (file == null) return;
+        File[] children = file.listFiles();
+        if (children != null) for (File child : children) deleteTree(child);
+        //noinspection ResultOfMethodCallIgnored
+        file.delete();
+    }
+
+    private static void logCache(boolean hit, String reason, String key) {
+        if (CACHE_LOG.getAndIncrement() >= 8) return;
+        H.log("event=poi_cache hit=" + (hit ? "1" : "0") + " reason=" + reason
+                + " key=" + key.substring(0, 12));
+    }
+
+    /** 任何一步失败都走这里：记一条可检索的降级原因，然后**用原模板加载**。 */
+    private static void fallback(String reason, Throwable error) {
+        if (FALLBACK_LOG.getAndIncrement() >= 4) return;
+        H.log("event=poi_patch_fallback reason=" + reason
+                + (error == null ? "" : " err=" + error.getClass().getSimpleName()));
+    }
+
+    private static String cacheKey(File web, String fingerprint, String[] names,
+                                  boolean rendered) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         feed(digest, SCHEMA);
         feed(digest, web.getCanonicalPath());
-        feed(digest, String.valueOf(appJs.length()));
-        feed(digest, String.valueOf(appJs.lastModified()));
+        feed(digest, fingerprint);
+        feed(digest, rendered ? "r=1" : "r=0");
         // 人为失效盐：setprop debug.bmapclean.poi_schema <任意值> 即整批重建缓存，
         // 不用改包、不用等模板版本号变。
         String salt = systemProperty("debug.bmapclean.poi_schema");
@@ -394,12 +756,12 @@ final class BaiduPoiAds {
      * <p>定位用「方法名 + 方法体里取的是哪个 store 字段」，不依赖局部变量名
      * （压缩产物每次发版都会把 {@code r}/{@code o} 换个字母）。
      */
-    static String patch(String source, String[] names) {
+    static String patch(String source, String[] names, boolean rendered) {
         String body = inject(source, "setPageData", ".groupDataList", ".cards");
         body = inject(body, "setHeadGroupList", ".headGroupList");
         body = inject(body, "setOverlayGroupList", ".overlayCardList");
         if (body.equals(source)) return source;         // 一个锚点都没命中 ⇒ 不动，交给上层记 miss
-        return preamble(names) + body;
+        return preamble(names, rendered) + body;
     }
 
     /**
@@ -407,24 +769,30 @@ final class BaiduPoiAds {
      * 由 {@code __mcStr()} 写到 {@code document.title} 上 —— H5 里没有 Java 回调，
      * 这是本页唯一的回读通道（uiautomator 抓 WebView 的 text 即可）。
      */
-    private static String preamble(String[] names) {
+    private static String preamble(String[] names, boolean rendered) {
         StringBuilder out = new StringBuilder(1024);
         out.append("window.__mcB={");
         for (int i = 0; i < names.length; i++) {
             if (i > 0) out.append(',');
             out.append('"').append(names[i]).append("\":1");
         }
-        out.append("};window.__mcG={};window.__mcF={};");
+        out.append("};window.__mcG={};window.__mcF={};window.__mcR={};");
         // 回读通道：g=groupDataList（**真正会被 v-for 渲染**的清单），
         // f=扁平的 cards 数组（含预加载/埋点用的定义，不一定有 UI）。
         // 两个名单分开记，才能回答「某个名字到底是不是可渲染卡片」。
         out.append("window.__mcStr=function(){try{document.title='mc:g='")
-                .append("+Object.keys(window.__mcG).join(',')+';f='+Object.keys(window.__mcF).join(',');")
-                .append("}catch(e){}};");
+                .append("+Object.keys(window.__mcG).join(',')+';f='+Object.keys(window.__mcF).join(',')")
+                // 只有开了 debug.bmapclean.poi_rendered 才把「真的留下来渲染的」也写进 title。
+                // 默认关：g/f 已经够定位名字，r= 会让 title 变长三倍。
+                .append(rendered ? "+';r='+Object.keys(window.__mcR).join(',')" : "")
+                .append(";}catch(e){}};");
         out.append("window.__mcFN=function(l){try{");
         out.append("if(!l||!l.length)return l;var o=[];");
         out.append("var take=function(c,flat){var n=(c&&c.card_info&&c.card_info.name)||'';");
-        out.append("if(n)(flat?window.__mcF:window.__mcG)[n]=1;return !window.__mcB[n];};");
+        // __mcG/__mcF 记录「检查过」（过滤前），__mcR 记录「留下了」（过滤后）。
+        // 三者的差集才是「我们漏了什么」的精确来源 —— 详见 docs/POI-CARD-READBACK.md。
+        out.append("if(n)(flat?window.__mcF:window.__mcG)[n]=1;");
+        out.append("var k=!window.__mcB[n];if(k&&n)window.__mcR[n]=1;return k;};");
         out.append("for(var i=0;i<l.length;i++){var g=l[i];if(!g)continue;var cs=g.groupCards;");
         out.append("if(cs&&cs.length){var k=[];for(var j=0;j<cs.length;j++){if(take(cs[j],false))k.push(cs[j]);}");
         out.append("if(!k.length)continue;");           // 整组被摘空 ⇒ 连组壳一起丢掉，不留白
@@ -484,7 +852,10 @@ final class BaiduPoiAds {
                 if (names.length() > 0) names.append('+');
                 names.append(row[i]);
             }
-            H.log("event=poi_ad_removed block=" + blockName(row[0]) + " how=data card="
+            // ⚠ 字段名是 poi_ad_rule 而不是 poi_ad_removed：这一行只是**规则回显**
+            // （这个开关配了哪些卡片名），从 Java 侧看不到 H5 里到底删没删掉。
+            // 以前叫 poi_ad_removed，读日志的人会以为「已删除」，比没有日志更糟。
+            H.log("event=poi_ad_rule block=" + blockName(row[0]) + " how=data card="
                     + names + " template=" + template);
         }
     }

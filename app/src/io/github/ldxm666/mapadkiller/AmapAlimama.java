@@ -75,12 +75,14 @@ final class AmapAlimama {
 
     static void install(final ClassLoader cl) {
         // ★ 安装期门控（两条各自独立）：关掉的那条**根本不装**，零成本。
-        // ★ 2.3.0：开屏广告拦截改成**显式开关，默认不拦**。
-        // 用户反馈「开屏页被拦了」—— 开屏**页面**本身是高德自己的界面，
-        // 不是广告；而拦掉它的广告请求会让这张页**拿不到内容又不结束**，
-        // 表现就是「白屏几秒才进去」。所以默认不拦，保持与官方一致。
-        // 要去广告的话在面板里显式打开（那时属于用户知情的取舍）。
-        final boolean splashOn = Boolean.TRUE.equals(Config.explicit(Config.K_ALIMAMA_SPLASH_OFF));
+        // ★ 2.3.0 一度把开屏广告拦截改成"显式开关、默认不拦"（`Config.explicit()`：
+        //   没设置过 = 不拦），理由是"开屏页是高德自己的界面，拦掉广告请求会让页面拿不到
+        //   内容又不结束"。真机上这个理由只成立一半：开屏**页**与白屏无关 —— `canShowSplash`
+        //   那条 gate 由 `K_SPLASH_SKIP` 控制且默认不装，页面本来就在；而不拦广告的净结果
+        //   就是用户重新看到开屏广告。
+        // ⇒ 2.4.0 恢复**默认拦截**，读法改回 `visible()`（该键在 `defaultVisible` 里落 true）。
+        //   页面照旧显示，只是页面上那条第三方物料不再下发。开关保留，排查时可临时关掉。
+        final boolean splashOn = Config.visible(Config.K_ALIMAMA_SPLASH_OFF);
         final boolean logOn = Config.installGate(Config.K_ALIMAMA_LOG_OFF);
         if (!splashOn && !logOn) {
             H.log(Log.INFO, MainHook.TAG, "event=hook_skipped key=alimama_splash_off+alimama_log_off"

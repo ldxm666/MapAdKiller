@@ -245,6 +245,9 @@ public final class MainHook {
 
     /** 装全部界面精简钩子。 */
     private static void install(ClassLoader cl) {
+        // 开屏 / 升级两条链先装：两者都在启动任务图里，只跑一次，晚装就永远等不到那一发。
+        TmapSplash.install(cl);
+        TmapUpdate.install(cl);
         TmapTabBar.install(cl);
         TmapTools.install(cl, H.cls(cl, "com.qq.taf.jce.JceInputStream"));
         TmapHomeFav.install(cl);

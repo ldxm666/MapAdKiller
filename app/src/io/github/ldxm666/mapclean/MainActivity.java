@@ -17,6 +17,10 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
 import android.view.Window;
 import android.widget.EditText;
 import android.graphics.drawable.ColorDrawable;
@@ -27,6 +31,7 @@ import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -39,9 +44,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.json.JSONObject;
 
@@ -132,6 +140,18 @@ public final class MainActivity extends Activity {
 
     private boolean embedded() { return embeddedHost != null; }
     private boolean embeddedAmap() { return EmbeddedSettingsPolicy.AMAP.equals(embeddedHost); }
+
+    // ── 内置版只读闸（独立设置 App 专用） ────────────────────────────────
+    /**
+     * 页面 id → 该宿主是不是 LSPatch 内置版。{@code null}/缺失 = 还没测出来或测不出来，
+     * 一律按模块版处理（fail-open，界面不锁）。
+     */
+    private final Map<Integer, Boolean> embeddedPages = new HashMap<Integer, Boolean>();
+    /** 已经锁过的页面 id，避免重复遍历整棵视图树。 */
+    private final Set<Integer> embeddedLocked = new HashSet<Integer>();
+    /** 锁定时显示在配置页顶部的说明条。 */
+    private TextView embeddedNotice;
+
     private String settingsTargetLabel() {
         return embedded() ? (embeddedAmap() ? "高德" : "百度") : "高德和百度";
     }
@@ -1087,6 +1107,23 @@ public final class MainActivity extends Activity {
                 + "该排由高德 AJX 页面在运行时绘制，服务端数据、本地缓存、页面预载包三处都试过剔除，"
                 + "但页面总会回落到内置默认项（等于换另一批广告），故只能在显示层隐藏。"
                 + "代价：进入搜索页会先闪现约 0.3 秒再消失、每次进入重演一次、原位留一条空白。如实告知。");
+
+        sec = newDrawer("高德 · 实验");
+        addSwitch(sec.card, "帧率上限（实验）", Config.K_AMAP_FPS_ON);
+        addChoiceRow(sec.card, "目标帧率（实验）", Config.K_AMAP_FPS_TARGET,
+                new int[]{60, 90, 120}, 60, " 帧");
+        addSwitch(sec.card, "去除建筑物模型（实验）", Config.K_AMAP_BUILDING_ON);
+        addNoteRow(sec.card, "默认全关。这两项动的是高德自己的地图渲染，不是广告也不是界面，"
+                + "判错就是地图错乱，所以缺省什么都不做。");
+        addNoteRow(sec.card, "⚠ 两项都是安装期门控：改完必须强停并重开高德才生效。"
+                + "「去除建筑物模型」是原生层补丁，一旦打上是进程级全局的 —— "
+                + "之后把开关关掉也要重启高德，楼块才会回来。");
+        addNoteRow(sec.card, "帧率上限是「限速」不是「提速」：高德本身跑不满时不会拉高。"
+                + "60 与 120 和屏幕刷新率整除，是精确值；90 需要屏幕本身支持 90Hz 输出，"
+                + "否则会落在最近的整数分频上（120Hz 屏通常约 80）。"
+                + "可在 logcat 搜 event=fps_sample 看实时帧数。");
+        addNoteRow(sec.card, "去除建筑物：导航 / 巡航态不再绘制 3D 与扁平楼块，只剩路网、绿地、"
+                + "地名与兴趣点。可在 logcat 搜 event=building_patch 确认补丁落点。");
 
         sec = newDrawer("高德 · 首页推荐内容");
         addSwitch(sec.card, "扫街榜 / 周边精选榜单（首页及分页）", Config.K_FEED_BOARD);
@@ -2564,6 +2601,62 @@ public final class MainActivity extends Activity {
         card.addView(row, skin.matchWrap());
     }
 
+    /**
+     * 一行「离散值」选择器：60 / 90 / 120 这种只允许几档的整数配置。
+     *
+     * <p>为什么不复用 {@link #addCruiseSlider}：那个是「min + position，步长 1」的连续滑块，
+     * 帧率上限用它会长出 61 个无意义档位（77 帧、83 帧……）。帧率上限只有在屏幕刷新率的
+     * 整数分频点上才有确定含义，所以这里给三个按钮，点哪个就是哪个。
+     *
+     * <p>写盘走 {@code App.writeInt}：模块 App 和地图不是一个进程，写本地 prefs 地图侧永远
+     * 读不到。写失败（服务没绑上 = 高德没运行）要当场说清楚并保持原高亮，否则用户会以为调好了，
+     * 然后去怪帧率没变。
+     */
+    private void addChoiceRow(LinearLayout card, String title, final String key,
+                              final int[] values, final int def, final String unit) {
+        LinearLayout row = skin.row();
+        row.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(skin.text(title, Skin.T_ROW, Skin.MEDIUM, skin.text2),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(head, skin.matchWrap());
+
+        final int init = App.readInt(key, Config.getInt(key, def));
+        LinearLayout choices = new LinearLayout(this);
+        choices.setOrientation(LinearLayout.HORIZONTAL);
+        final TextView[] buttons = new TextView[values.length];
+        for (int i = 0; i < values.length; i++) {
+            final int value = values[i];
+            final int accent = skin.accent;
+            final int dim = skin.text2;
+            TextView button = skin.text(value + unit, Skin.T_ROW, Skin.BOLD,
+                    value == init ? accent : dim);
+            button.setGravity(Gravity.CENTER);
+            button.setPadding(0, dp(10), 0, dp(10));
+            button.setContentDescription(title + "，" + value + unit);
+            button.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!App.writeInt(key, value)) {
+                        Toast.makeText(MainActivity.this, "未连接地图：先打开高德，再回来调",
+                                Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    for (int k = 0; k < values.length; k++) {
+                        buttons[k].setTextColor(values[k] == value ? accent : dim);
+                    }
+                }
+            });
+            buttons[i] = button;
+            choices.addView(button, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        row.addView(choices, skin.matchWrap());
+        card.addView(row, skin.matchWrap());
+    }
+
     private void addSwitch(final LinearLayout card, String title, final String key) {
         LinearLayout row = newSwitchRow(card, key, title, null);
 
@@ -3991,6 +4084,20 @@ public final class MainActivity extends Activity {
         cslp.rightMargin = skin.dp(Skin.S5);
         screen.addView(configSummary, cslp);
 
+        // 内置版只读说明条：不是脚注 —— 整页置灰之后，这一条是用户唯一的出口提示，
+        // 必须首屏可见、且「长按悬浮球」几个字要能一眼抓住（见 applyEmbeddedNotice 的 Spannable）。
+        embeddedNotice = skin.text("", Skin.T_BODY, Skin.MEDIUM, skin.text);
+        embeddedNotice.setVisibility(View.GONE);
+        embeddedNotice.setLineSpacing(skin.dp(3), 1f);
+        int noticePad = skin.dp(Skin.S3);
+        embeddedNotice.setPadding(noticePad, noticePad, noticePad, noticePad);
+        embeddedNotice.setBackground(skin.solid(skin.surface2, Skin.R_INNER));
+        LinearLayout.LayoutParams noticeLp = skin.matchWrap();
+        noticeLp.topMargin = skin.dp(Skin.S3);
+        noticeLp.leftMargin = skin.dp(Skin.S5);
+        noticeLp.rightMargin = skin.dp(Skin.S5);
+        screen.addView(embeddedNotice, noticeLp);
+
         View searchBar = finder.bar();
         LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, skin.dp(44));
@@ -4029,6 +4136,7 @@ public final class MainActivity extends Activity {
             addAppPage(buildTmapPage(), PAGE_TMAP);
         }
         selectApp(0);
+        probeEmbeddedBuilds();
         return screen;
     }
 
@@ -4083,6 +4191,119 @@ public final class MainActivity extends Activity {
         }
         if (tabIndex == TAB_CONFIG && finder != null) {
             finder.attach(appPageIds.get(index));
+        }
+        applyEmbeddedNotice();
+    }
+
+    // ------------------------------------------------ 内置版只读闸（独立 App 侧）
+
+    /**
+     * 后台判定三个宿主包是不是 LSPatch 内置版。
+     *
+     * <p>只在<b>独立 App</b> 里跑：进程内面板（{@code embedded()==true}）本身就活在地图进程里，
+     * 写的就是宿主 prefs，不需要也没必要判。
+     */
+    private void probeEmbeddedBuilds() {
+        if (embedded()) return;
+        for (int i = 0; i < appPageIds.size(); i++) {
+            final int pageId = appPageIds.get(i).intValue();
+            final String pkg = hostPackageOf(pageId);
+            if (pkg == null) continue;
+            EmbeddedBuild.detect(this, pkg, new EmbeddedBuild.Callback() {
+                @Override public void onResult(final boolean isEmbeddedBuild) {
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            embeddedPages.put(Integer.valueOf(pageId),
+                                    Boolean.valueOf(isEmbeddedBuild));
+                            applyEmbeddedNotice();
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    private static String hostPackageOf(int pageId) {
+        if (pageId == PAGE_BAIDU) return EmbeddedSettingsPolicy.BAIDU;
+        if (pageId == PAGE_AMAP) return EmbeddedSettingsPolicy.AMAP;
+        if (pageId == PAGE_TMAP) return EmbeddedSettingsPolicy.TENCENT;
+        return null;
+    }
+
+    /**
+     * 当前页若是内置版宿主：顶部出说明条 + 整页置灰不可点。
+     *
+     * <p>为什么必须锁而不能只提示：UI 是「先写先翻」—— 开关拨过去、Toast 也可能报成功，
+     * 但写的是<b>本 App 沙箱</b>，宿主进程读的是它自己的沙箱，永远读不到。
+     * 只提示不锁，用户还是会以为改好了。
+     */
+    private void applyEmbeddedNotice() {
+        TextView notice = embeddedNotice;
+        if (notice == null) return;
+        int pageId = (appIndex >= 0 && appIndex < appPageIds.size())
+                ? appPageIds.get(appIndex).intValue() : -1;
+        boolean locked = Boolean.TRUE.equals(embeddedPages.get(Integer.valueOf(pageId)));
+        notice.setVisibility(locked ? View.VISIBLE : View.GONE);
+        if (!locked) return;
+        notice.setText(buildEmbeddedNoticeText());
+        if (embeddedLocked.add(Integer.valueOf(pageId))) {
+            View page = (appIndex >= 0 && appIndex < appPages.size()) ? appPages.get(appIndex) : null;
+            lockPage(page);
+            if (page != null) page.setAlpha(0.6f);
+        }
+    }
+
+    /**
+     * 说明条文案：**「长按悬浮球」几个字单独加粗 + 主色**。
+     *
+     * <p>整页置灰之后用户能读到的只有这一条，所以它不能和旁边的说明文字一个灰度 ——
+     * 用 {@link StyleSpan} 加粗 + {@link ForegroundColorSpan} 上主色，扫一眼就能落到
+     * "该去哪儿改"这个动作上。
+     */
+    private CharSequence buildEmbeddedNoticeText() {
+        String head = "当前是免 root 内置版：这里的开关写不进地图，改了也不生效。";
+        String action = "请在地图里轻点悬浮球";
+        String tail = "，用悬浮球面板修改 —— 那一套才是真正生效的配置。";
+        String all = head + "\n" + action + tail;
+        SpannableString span = new SpannableString(all);
+        int start = head.length() + 1;
+        int end = start + action.length();
+        try {
+            span.setSpan(new StyleSpan(Typeface.BOLD), start, end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            span.setSpan(new ForegroundColorSpan(cAccent()), start, end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        } catch (Throwable ignored) { }
+        return span;
+    }
+
+    /**
+     * 把一页里所有可交互控件关掉，<b>但保留滚动</b>（长页面还得能看）。
+     *
+     * <p>两道保险：{@code setEnabled/setClickable} 走框架的分发拦截；
+     * 对自绘控件（{@link GlassSwitch} / {@link GlassSlider}）再加一个吞掉手势的
+     * {@code OnTouchListener}，因为它们各自重写了 {@code onTouchEvent}，
+     * 只靠 enabled 状态不一定拦得住。
+     */
+    private static void lockPage(View v) {
+        if (v == null) return;
+        if (!(v instanceof ScrollView)) {
+            if (v.isClickable()) v.setClickable(false);
+            if (v.isLongClickable()) v.setLongClickable(false);
+            if (v.isEnabled()) v.setEnabled(false);
+            if (v instanceof GlassSwitch || v instanceof GlassSlider) {
+                v.setOnTouchListener(new View.OnTouchListener() {
+                    @Override public boolean onTouch(View view, MotionEvent event) {
+                        return true;    // 吞掉，不产生任何状态变化
+                    }
+                });
+            }
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) v;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                lockPage(group.getChildAt(i));
+            }
         }
     }
 

@@ -28,8 +28,13 @@ package io.github.ldxm666.tmapclean;
  *                  本模块改挂 HomeFavComponentImpl（稳定），因此不需要它。
  * </pre>
  *
- * <p><b>结论：本模块的 6 个 hook 全部落在稳定锚点上</b>，没有一个依赖混淆名。
+ * <p><b>结论：本模块的界面 hook 全部落在稳定锚点上</b>，没有一个依赖混淆名。
  * 混淆锚点只在上面作为"如果将来稳定锚点也消失，该去哪找"的备份记录。
+ *
+ * <p><b>6013 追加（开屏广告 / 升级弹窗）</b>：这两条链的锚点同样只用腾讯自己的命名
+ * （{@code ama.splash.*} / {@code ama.upgrade.*} / {@code qq.e.*} / {@code init.tasks.*}），
+ * 唯一被点名过的混淆类是升级管理器 {@code navisdk.a.hgi}，它<b>刻意不挂</b> ——
+ * 原因写在 {@link TmapUpdate} 的类注释里。6013 上这两组锚点逐类核对的结果见下方 ⑦ ⑧。
  */
 final class Anchors {
 
@@ -123,4 +128,77 @@ final class Anchors {
     static final String[] MAP_ENGINE_STYLE_KEYS = {
             "map_icon_4.1", "map_icon_version", "map_icon_poi_8_7_",
     };
+
+    // ── ⑦ 开屏广告（{@link TmapSplash}） ─────────────────────────────────
+    /**
+     * 全部逐类解析 versionCode <b>6013</b> 的 22 个 DEX，并与 6011 逐方法签名比对实证。
+     *
+     * <p>结论：<b>这两组锚点在 6011→6013 上逐方法签名完全一致</b>（{@code GDTADManager} 35 个方法、
+     * {@code TGSplashAD} 50 个、{@code SplashRequestTask} 11 个、{@code DecodeSplashTask} 2 个、
+     * {@code CheckAndDeleteSplashTask} 2 个、{@code SplashManagerInitTask} 5 个、
+     * 两个 Receiver 各 2 个、{@code SplashEntity} 4 个，全部 identical）。
+     *
+     * <p>容易误判的一条：{@code com.tencent.ams.fusion.widget.splash.SplashView}（旧
+     * {@code SplashContainerHooks} 的探测点）<b>6011 里就不存在</b>，融合 SDK 在两边都是 800 个类。
+     * 那行探测从一开始就是死代码，与本轮无关。
+     */
+    static final String GDT_MANAGER = "com.qq.e.comm.managers.GDTADManager";
+    static final String TG_SPLASH = "com.qq.e.tg.splash.TGSplashAD";
+    static final String SPLASH_REQUEST_TASK =
+            "com.tencent.map.init.tasks.optional.SplashRequestTask";
+    static final String SPLASH_DECODE_TASK = "com.tencent.map.init.tasks.DecodeSplashTask";
+    static final String SPLASH_CHECK_TASK =
+            "com.tencent.map.init.tasks.optional.CheckAndDeleteSplashTask";
+    static final String SPLASH_MGR_TASK =
+            "com.tencent.map.launch.v2.task.t2.SplashManagerInitTask";
+    static final String SPLASH_BCAST_REQUEST =
+            "com.tencent.map.ama.splash.SplashBroadcastReceiver";
+    static final String SPLASH_BCAST_TIMER =
+            "com.tencent.map.ama.splash.SplashTimerBroadcastReceiver";
+    /** 开屏实体；{@code a()Z} = 「endT >= now」（实证自字节码），恒 false 即全部判过期。 */
+    static final String SPLASH_ENTITY = "com.tencent.map.ama.splash.SplashEntity";
+
+    // ── ⑧ 升级检查 / 升级弹窗（{@link TmapUpdate}） ───────────────────────
+    /**
+     * 启动任务。6013 上<b>已无调用点</b>（全包 {@code --InvokeXref} = 0 条）：检查改走
+     * {@code navisdk.a.evp → navisdk.a.hgi.a(Context)}，两个都是混淆名。钩子保留，
+     * 但它不会 HIT —— 真正兜底的是 {@link #UPGRADE_INFO} 与 {@link #UPGRADE_DIALOG}。
+     */
+    static final String UPGRADE_TASK = "com.tencent.map.init.tasks.UpgradeInitTask";
+    /** 升级信息数据体；{@code parseJson} 的 {@code version} 字段决定"要不要提示升级"。 */
+    static final String UPGRADE_INFO = "com.tencent.map.ama.upgrade.AppUpgradeInfo";
+    /** 标准升级弹窗，覆写了 {@code Dialog#show()}。 */
+    static final String UPGRADE_DIALOG = "com.tencent.map.ama.upgrade.view.AppUpgradeDialog";
+    /** 图文轮播升级弹窗，<b>没有</b>覆写 show()，靠 {@code Dialog#show()} 的类名闸门拦。 */
+    static final String UPGRADE_SLIDE_DIALOG =
+            "com.tencent.map.ama.upgrade.slidedialog.SlideDialog";
+
+    /*
+     * ── ⑨ 6011 → 6013 逐类签名比对结果（不是猜的，是工具跑的） ─────────────
+     *
+     * 用 .agent_work/scripts/tmap_diff_6011_6013.py 把两个 base.apk 的全部 DEX 解出来逐类比对：
+     *   6011 = 23 dex / 220,019 类    6013 = 22 dex / 214,763 类
+     *   （删 10,849 类、增 5,593 类 —— 变的是 Kuikly / Hippy / 业务包，我们挂的地方没动）
+     *
+     * 开屏 + 去更新两组：逐方法签名 identical，零漂移。
+     *
+     * 三处真实的签名变化（都在回归组里；本模块因为一律"按名挂 + 不依赖参数类型"才没被打破，
+     * 记在这里是给下一轮任何一个想改用精确签名的人看的）：
+     *
+     *   com.tencent.map.ama.newhome.component.HomeFavComponentImpl
+     *       setCardData(Lcom/tencent/map/navisdk/a/iri;)V   →  (.../irf;)V
+     *       另有 6 个方法的第一参数 hyo → hyl（内部类跟着换名）
+     *   com.tencent.map.ama.newhome.widget.HomePlaceView
+     *       setCardData(.../iri;)V → (.../irf;)V
+     *       getPresenter()Lcom/tencent/map/navisdk/a/koz$a; → (.../kow$a;)
+     *   com.tencent.map.api.view.MapBaseView
+     *       addMapElement / getMapElement 的参数/返回 .../mvl; → .../mvi;
+     *
+     * 对照参考：navisdk.a.hgi（升级管理器）在 6013 上 80 个方法与 6011 完全一致 —— 混淆名这一次
+     * 没漂。即便如此仍然不挂它：混淆名不漂是运气，不是契约。
+     *
+     * 另一条容易记错的：com.tencent.map.ama.upgrade 包两边都是 13 个类、com.qq.e.tg.splash 都是
+     * 31 个类、com.tencent.ams.fusion 都是 800 个类。6013 不是"砍了东西"，是换了内部实现
+     * （UpgradeInitTask 变成零调用点就是证据）。
+     */
 }

@@ -202,6 +202,14 @@ TARGETS = {
             b"Lio/github/ldxm666/mapclean/BaiduPanel;",      # the generated no-op
             b"Lio/github/ldxm666/mapclean/TmapPanel;",       # the generated no-op
             b"Lio/github/ldxm666/bmapclean/MainHook;",       # the forwarding target
+            # v2.4.0 高德调校三项。都在 mapadkiller 包里，但精简构建对 mapadkiller 是按文件名
+            # 裁剪的（DROP_AMAP_FILES），所以"某个文件被误加进裁剪名单"是真实可能的，
+            # 而后果和当年的地图标注一模一样：开关还在、面板还画，实现整条没了。
+            # DEX 级 required 把这种失误提前到构建期。
+            b"Lio/github/ldxm666/mapadkiller/AmapFpsCap;",
+            b"Lio/github/ldxm666/mapadkiller/AmapBuildingPatch;",
+            b"Lio/github/ldxm666/mapadkiller/AmapUpdateBlock;",
+            b"Lio/github/ldxm666/mapadkiller/AmapHookArgs;",
         ),
         "banned": vendor_classes("io.github.ldxm666.bmapclean", STUBBED_CLASSES) + (
             b"Lio/github/ldxm666/mapadkiller/BmapHooks;",
@@ -464,6 +472,66 @@ def rewrite_native_init(dest: Path) -> None:
         path.write_text("libmapclean_labels.so\n", encoding="utf-8")
 
 
+def pack_native_libraries(apk: Path, libs: Path) -> list:
+    """Pack every ``app/libs/<abi>/*.so`` into the module APK at ``lib/<abi>/``.
+
+    Returns the list of archive entry names written, so the caller can assert on them
+    after signing.
+
+    Why generic instead of by name: this used to copy exactly one file,
+    ``libmapclean_labels.so``. Adding a second native feature (the 高德 building patch,
+    ``libamapbldpatch.so``) would then have shipped an APK without it -- the module would
+    report itself installed, the Java gate would log "switch on", and nothing would happen.
+    That is the same class of bug that made 地图标注 dead in an earlier release, and it is
+    invisible from the UI.
+
+    Entries are STORED (method 0), not deflated: the dynamic linker memory-maps a library
+    straight out of the APK, and a deflated entry cannot be mapped.
+    """
+    written = []
+    with zipfile.ZipFile(apk, "a", zipfile.ZIP_STORED) as z:
+        existing = set(z.namelist())
+        for abi in NATIVE_ABIS:
+            directory = libs / abi
+            if not directory.is_dir():
+                continue
+            for library in sorted(directory.glob("*.so")):
+                entry = f"lib/{abi}/{library.name}"
+                if entry in existing:
+                    continue
+                z.write(library, entry)
+                written.append(entry)
+
+    # Fail fast rather than shipping an APK with no native code. The label library drives
+    # 高德 地图标注 and the building patch is the only working implementation of 去楼块;
+    # both are arm64-v8a on this device class.
+    for required in ("libmapclean_labels.so", "libamapbldpatch.so"):
+        entry = f"lib/arm64-v8a/{required}"
+        if entry not in written:
+            raise ValueError(f"native library not packed: {entry} (looked in {libs / 'arm64-v8a'})")
+    return written
+
+
+def verify_native_entries(apk: Path, expected: list) -> None:
+    """Post-signature check: the .so files are still there, STORED, and non-empty.
+
+    zipalign/apksigner must not disturb the entry set, and the compression method is what
+    decides whether the platform can mmap the library. Both are worth asserting on the
+    finished artifact rather than on the intermediate one.
+    """
+    with zipfile.ZipFile(apk) as z:
+        names = set(z.namelist())
+        for entry in expected:
+            if entry not in names:
+                raise ValueError(f"signing dropped {entry} from {apk.name}")
+            info = z.getinfo(entry)
+            if info.compress_type != zipfile.ZIP_STORED:
+                raise ValueError(f"{entry} is not STORED (method={info.compress_type}); "
+                                 f"the linker cannot mmap it")
+            if info.file_size == 0:
+                raise ValueError(f"{entry} is empty in {apk.name}")
+
+
 def drop_component(text: str, tag: str, name: str) -> tuple:
     """删除**恰好一个** {@code <tag ... android:name="name" .../>} 或 {@code <tag ...>…</tag>}。
 
@@ -655,15 +723,13 @@ def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_to
     #
     # Entries are STORED (not deflated) for the same reason the platform stores them:
     # the dynamic linker memory-maps the library straight out of the APK.
-    with zipfile.ZipFile(build / "out" / "module.apk", "a", zipfile.ZIP_STORED) as z:
-        existing = set(z.namelist())
-        for abi in ("arm64-v8a", "armeabi-v7a", "x86", "x86_64"):
-            lib = libs / abi / "libmapclean_labels.so"
-            if not lib.exists():
-                continue
-            entry = f"lib/{abi}/libmapclean_labels.so"
-            if entry not in existing:
-                z.write(lib, entry)
+    #
+    # v2.4.0: every app/libs/<abi>/*.so is packed, not just the label library by name.
+    # The rule used to be one hard-coded filename, so a second native feature (the 高德
+    # building patch, libamapbldpatch.so) would have been silently left out of the APK --
+    # the module would look installed and do nothing, which is the exact failure this
+    # project already ate once with the label library.
+    packed_native = pack_native_libraries(build / "out" / "module.apk", libs)
 
     # 6) align + sign
     run([tool(bt, "zipalign"), "-P", "16", "-f", "4",
@@ -686,8 +752,11 @@ def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_to
         dex_bytes = sum(z.getinfo(n).file_size for n in signed_dex)
     if signed_dex != dex_names:
         raise ValueError(f"signing changed the dex set: {signed_dex} != {dex_names}")
+    # 同一道哨兵管 native：.so 必须在、必须 STORED、必须非空。
+    verify_native_entries(out_apk, packed_native)
     return {"file": out_apk.name, "bytes": out_apk.stat().st_size, "sha256": sha256(out_apk),
-            "dexBytes": dex_bytes, "dexEntries": signed_dex}
+            "dexBytes": dex_bytes, "dexEntries": signed_dex,
+            "nativeEntries": packed_native}
 
 
 JAVA_JAVAC = "javac"

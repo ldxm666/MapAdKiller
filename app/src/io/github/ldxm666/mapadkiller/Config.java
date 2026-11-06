@@ -224,6 +224,18 @@ public final class Config {
     //   BaseConnection.startChannelService / SpdyConnection.start / InAppConnection.start /
     //   SpdyConnection$NetworkThread.run。代价：高德推送收不到。默认 true，面板可关。
     public static final String K_PUSH_HARD_OFF = "push_hard_off";
+    // ── 实验特性：动的是高德自己的渲染，不是广告/界面，所以**默认关** ──────────────────
+    // 方向与上面所有 `*_off` 键相反：这两个键 `true` = 功能**开启**，`false` = 高德原样。
+    // 理由：上面那些都是"少显示一点东西"，判错顶多难看；这两个动的是楼块几何和出帧节拍，
+    // 判错就是地图错乱。所以缺省必须是"什么都不做"。
+    //
+    // 两者都是**安装期门控**（见 AmapFpsCap / AmapBuildingPatch）：
+    //   关着 ⇒ 一条 hook 不装、.so 也不加载，代价为零；
+    //   改开关 ⇒ 必须强停并重开高德才生效。
+    // 建筑那条尤其如此：native 补丁是进程级的，回关也要重启宿主才恢复楼块。
+    public static final String K_AMAP_FPS_ON = "amap_fps_on";
+    public static final String K_AMAP_FPS_TARGET = "amap_fps_target";
+    public static final String K_AMAP_BUILDING_ON = "amap_building_on";
     // The map's default page is kept; removing it invalidates navigation return targets.
     public static final String[] TABS = {"探索", "长按说话", "打车", "我的"};
     public static final String[] TOOLS = toolLabels();
@@ -371,6 +383,9 @@ public final class Config {
     }
     public static boolean defaultVisible(String key) {
         if (K_CRUISE_AUTO.equals(key)) return false;
+        // 实验特性默认关。放在这里而不是只在读取点判断，是因为面板画开关走的也是
+        // visible() —— 少了这一行，开关会显示"开"而实现其实一条 hook 都没装。
+        if (K_AMAP_FPS_ON.equals(key) || K_AMAP_BUILDING_ON.equals(key)) return false;
         if (K_DEBUG_LOG.equals(key) || K_TOOLS_ALLOWLIST.equals(key) || K_MAP_POI.equals(key)
                 || K_TOOL_COLOR_ICON.equals(key) || K_PLACE_RECOMMEND.equals(key)) return false;
         if (key != null && key.startsWith("tool_id_")) return false;

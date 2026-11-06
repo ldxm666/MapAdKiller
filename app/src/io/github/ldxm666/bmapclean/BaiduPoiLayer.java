@@ -28,13 +28,26 @@ final class BaiduPoiLayer {
     static void install(ClassLoader cl) {
         BaiduHooks.hook(H.cls(cl,"com.baidu.platform.comjni.map.basemap.AppBaseMap"),"initWithOptions",chain -> {
             Bundle options=(Bundle)chain.getArg(0);
+            // ★ 2.3.2：**先把宿主 Application 交给 HostPrefs，再算分类**。
+            //
+            // 真机实证（22.1.20 / pid 8347）：initWithOptions 在 01:51:56.498 就跑完了
+            // 分类决策，而 Cfg 拿到宿主本地 prefs 是 01:51:59.598（cfg_snap n=43 backend=1）
+            // —— 中间差 3.1 秒。这 3 秒里 Cfg.prefs() 只有 LSPatch 那个空表的只读 remote
+            // 可读，于是每个键都 present=false、落回缺省 false = 隐藏。
+            // 用户拨的逐类开关全部被忽略，界面表现就是「地图 POI 独立开关无效」。
+            // 把 Application 提前交出去，local() 当场就能成功，读到的就是用户真正设的值。
+            Application app=currentApplication();
+            if (app!=null) {
+                io.github.ldxm666.mapclean.HostPrefs.remember(app);
+                // 丢掉「刚才本地拿不到」的探测结论 —— 否则 500ms 节流会把那次失败
+                // 继续当成 fallback 用，等于没修。
+                Cfg.resetBackend();
+            }
             java.util.Set<String> hidden=hiddenCategories();
             boolean hide=!hidden.isEmpty();
             boolean prepared=false;
-            if (hide && options!=null) try {
-                Application app=(Application)Class.forName("android.app.ActivityThread")
-                        .getMethod("currentApplication").invoke(null);
-                if (app!=null) prepared=prepare(options,app,hidden);
+            if (hide && options!=null && app!=null) try {
+                prepared=prepare(options,app,hidden);
             } catch (Throwable error) {
                 disable();
                 if (!failedLogged) {
@@ -44,12 +57,31 @@ final class BaiduPoiLayer {
             }
             if (!hide || !prepared) disable();
             H.log("poi_style policy="+(hide?"hidden":"visible")+" categories="+hidden.size()
-                    +"/"+(BaiduLabelSettings.CATS.length+1)+" original_bundle=true file_mapping="+prepared);
+                    +"/"+(BaiduLabelSettings.CATS.length+1)+" original_bundle=true file_mapping="+prepared
+                    // backend / n 是这次修复的可观测出口：backend=1 且 n>0 才说明
+                    // 「按用户配置做的决策」；backend=2 或 n=0 就是又读早了。
+                    +" backend="+Cfg.backend()+" host="+(app!=null));
             // The original Bundle, including every SDK root, is always passed once.
             Object result=chain.proceed();
             H.log("poi_style initialized="+Boolean.TRUE.equals(result)+" redirected=false file_mapping="+prepared);
             return result;
         },Bundle.class,boolean.class);
+    }
+    /**
+     * 宿主 Application（可能为 null：initWithOptions 也可能在网络子进程里跑）。
+     *
+     * <p>走 {@code ActivityThread.currentApplication()} 而不是缓存 —— 这个方法在
+     * 主进程第一次调用的时刻就一定有值，把它交给 {@link io.github.ldxm666.mapclean.HostPrefs}
+     * 之后，{@code Cfg} 才能当场解析出宿主本地 prefs。
+     */
+    private static Application currentApplication() {
+        try {
+            Object app=Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+            return app instanceof Application ? (Application)app : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
     /**
      * 当前要隐藏哪几类。

@@ -64,7 +64,7 @@ public final class BaiduHooks {
         //
         // 不加版本判断：方法找不到时 hook() 自己记 miss，不会误伤别的版本。
         for (String name : new String[]{"F", "z", "w", "y"}) {
-            hook(splash, name, chain -> Boolean.FALSE);
+            hook(splash, name, splashGate(name));
         }
         // 22.0.50 新增的兜底闸门：SplashAdManager 还有 D()/N()/O()/q()/t()/u()
         // 一族布尔查询。只挂**无参返回 boolean** 的重载，语义同样是纯查询。
@@ -91,6 +91,8 @@ public final class BaiduHooks {
         // BMAd 开放封装层在这里就挂（provider 类在 install 时已能解析，实测 voided=2）；
         // commonadprovider 的 ADN loader 走上面的懒挂载，见 hookAdSdkOnRequest。
         BaiduSdkBlock.installBmad(cl);
+        // 版本更新：检查不发、弹窗不弹。默认生效，无开关（用户明确要求）。
+        BaiduUpdateBlock.install(cl);
 
         // UI half runs in the same pass: deferring it moved the cost into the first-frame
         // window instead of removing it (measured worse), so keep the single install pass.
@@ -516,6 +518,27 @@ public final class BaiduHooks {
      *
      * <p>性能：Scan 一次 43 个方法，只在 onPackageReady 跑一遍。
      */
+    /**
+     * 门闸钩子体：钉成 `false`，并在**第一次被调用时**打一行日志。
+     *
+     * <p>为什么要这行日志：开屏广告「没出现」有两种截然不同的原因 —— 一是门闸生效
+     * （宿主真的问了、我们答 false），二是宿主压根没走到这段（改版换了入口）。
+     * 两者在界面上长得一样，只看截图分不出来。logcat 里出现
+     * `baidu splash gate F -> false` 就是前者的实证；一行都没有就是后者，
+     * 得去查新入口。每个门闸只打一次，7 个门闸最多 7 行，不挤占冷启动窗口。
+     */
+    private static XposedInterface.Hooker splashGate(final String name) {
+        return new XposedInterface.Hooker() {
+            @Override public Object intercept(XposedInterface.Chain chain) {
+                if (sGateLogged.add(name)) H.log("baidu splash gate " + name + " -> false");
+                return Boolean.FALSE;
+            }
+        };
+    }
+
+    /** 已打过日志的门闸名（进程内去重）。 */
+    private static final java.util.Set<String> sGateLogged =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static void hookSplashGates(Class<?> splash) {
         if (splash == null) return;
         Method[] all;
@@ -533,7 +556,7 @@ public final class BaiduHooks {
             if (!java.lang.reflect.Modifier.isStatic(m.getModifiers())) continue;
             try {
                 H.hook(m, "baidu_splash_gate_" + m.getName() + i,
-                        chain -> Boolean.FALSE);
+                        splashGate(m.getName()));
                 n++;
             } catch (Throwable ignored) { }
         }
@@ -869,3 +892,4 @@ public final class BaiduHooks {
         }
     }
 }
+

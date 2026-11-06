@@ -187,6 +187,48 @@ public final class MainHook {
                     } catch (Throwable t) {
                         H.log(Log.WARN, TAG, "event=push_failed", t);
                     }
+                    // ── 强制去除版本更新提示（默认生效，**不设开关**）────────────────────
+                    // 用户明确要求"默认加入无需开关"。落点是 AppUpgradeController 里唯一那两处
+                    // 弹升级框的方法，网络层一条不碰（ws/app/conf/app_update 照发）。
+                    // 找不到类就安静跳过，见 AmapUpdateBlock 的注释。
+                    try {
+                        AmapUpdateBlock.install(cl);
+                    } catch (Throwable t) {
+                        H.log(Log.WARN, TAG, "event=update_block_failed", t);
+                    }
+                    // ── 实验特性：帧率上限 / 去除建筑物（**默认关**，安装期门控）────────
+                    // 两个都是"改高德自己的渲染"，判错就是地图错乱，所以缺省什么都不做；
+                    // 关着的时候一条 hook 不装、.so 也不加载，代价为零。
+                    // 打开后**必须强停重开高德**才生效 —— 面板文案里写明了这一点。
+                    boolean fpsCap = false;
+                    boolean stripBuildings = false;
+                    try {
+                        fpsCap = AmapTuneGate.on(Config.K_AMAP_FPS_ON);
+                    } catch (Throwable ignored) {
+                    }
+                    try {
+                        stripBuildings = AmapTuneGate.on(Config.K_AMAP_BUILDING_ON);
+                    } catch (Throwable ignored) {
+                    }
+                    if (fpsCap) {
+                        try {
+                            AmapFpsCap.install(cl);
+                        } catch (Throwable t) {
+                            H.log(Log.WARN, TAG, "event=fps_cap_failed", t);
+                        }
+                    } else {
+                        H.log(Log.INFO, TAG, "event=hook_skipped key=amap_fps_on reason=switch_off");
+                    }
+                    if (stripBuildings) {
+                        try {
+                            AmapBuildingPatch.install(cl);
+                        } catch (Throwable t) {
+                            H.log(Log.WARN, TAG, "event=building_patch_failed", t);
+                        }
+                    } else {
+                        H.log(Log.INFO, TAG,
+                                "event=hook_skipped key=amap_building_on reason=switch_off");
+                    }
                     break;
                 case PKG_BMAP:
                     H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg + " process=" + process);
