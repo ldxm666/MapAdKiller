@@ -163,21 +163,24 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         return border(fill, line, radiusDp)
     }
 
-    fun border(fill: Int, line: Int, radiusDp: Float): GradientDrawable {
-        val g = GradientDrawable()
-        g.shape = GradientDrawable.RECTANGLE
-        g.setColor(fill)
-        g.cornerRadius = dp(radiusDp).toFloat()
-        g.setStroke(Math.max(1, dp(1f)), line)
-        return g
+    /**
+     * 带描边的 squircle 底板。
+     *
+     * <p>原来是 `GradientDrawable.setCornerRadius` —— 那是四分之一圆弧，曲率在弧与直边的
+     * 接点处从 0 突跳到 1/r，肉眼能看出「角是贴上去的」。HyperOS 用连续曲率（超椭圆）：
+     * 三次贝塞尔过渡，曲率连续变化，角看起来「长在」矩形上。参数与算法见 [SquircleShape]。
+     *
+     * <p>返回类型从 `GradientDrawable` 放宽到 `Drawable`：所有调用点都只是 setBackground
+     * 或往 RippleDrawable 里塞 content，本来就不需要具体类型。
+     */
+    fun border(fill: Int, line: Int, radiusDp: Float): Drawable {
+        return SquircleDrawable(fill, dp(radiusDp).toFloat(), line,
+                Math.max(1, dp(1f)).toFloat())
     }
 
-    fun solid(fill: Int, radiusDp: Float): GradientDrawable {
-        val g = GradientDrawable()
-        g.shape = GradientDrawable.RECTANGLE
-        g.setColor(fill)
-        g.cornerRadius = dp(radiusDp).toFloat()
-        return g
+    /** 无描边的 squircle 底板。半径超过短边一半时自动退化成胶囊（[R_PILL] 靠这个生效）。 */
+    fun solid(fill: Int, radiusDp: Float): Drawable {
+        return SquircleDrawable(fill, dp(radiusDp).toFloat())
     }
 
     fun pressable(fill: Int, radiusDp: Float): Drawable {
@@ -194,8 +197,9 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
     /** 行间分割线 —— 左缩进 16 dp，与文字左边缘对齐（HyperOS 不从卡片边缘起笔）。 */
     fun hairline(): View {
         val v = View(context)
+        // 0.75 dp：miuix DividerDefaults.Thickness。1 dp 在 3x 屏是 3 px，比笔画粗，像表格线。
         val lp = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1f))
+            ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(0.75f))
         )
         lp.leftMargin = dp(HyperDesign.DIVIDER_INSET.toFloat())
         v.layoutParams = lp

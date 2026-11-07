@@ -1318,7 +1318,7 @@ class MainActivity : Activity() {
     private fun pageRoot(sv: ScrollView): LinearLayout {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        val p = dp(16)
+        val p = dp(HyperDesign.PAGE_PAD)
         root.setPadding(p, dp(4), p, dp(24))
         sv.addView(root)
         return root
@@ -2661,11 +2661,16 @@ class MainActivity : Activity() {
      * <p>HyperOS 的分割线不从卡片边缘起笔。全宽分割线会把卡片切成"一格一格的表格"，
      * 缩进之后才读得出"这是一个分组内的多行"。缩进量等于行的左右 padding。
      */
+    /** miuix `DividerDefaults.Thickness` —— 0.75 dp。 */
+    private val DIVIDER_THICKNESS_DP = 0.75f
+
     private fun divider(): View {
         val d = View(this)
         d.setBackgroundColor(if (skin == null) 0x0F000000 else skin!!.divider)
+        // 0.75 dp —— miuix 的 DividerDefaults.Thickness。1 dp 在 3x 屏上是 3 px，
+        // 比文字笔画还粗，读起来像表格线；0.75 dp 落到 2 px，正好是一条"分隔"而不是"框"。
         val lp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)))
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(DIVIDER_THICKNESS_DP)))
         lp.leftMargin = dp(HyperDesign.DIVIDER_INSET)
         d.layoutParams = lp
         return d

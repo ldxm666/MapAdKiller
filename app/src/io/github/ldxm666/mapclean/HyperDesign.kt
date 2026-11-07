@@ -121,8 +121,14 @@ class HyperDesign private constructor(dark: Boolean) {
         const val S6 = 24
         const val S7 = 32
 
-        /** 页面左右边距。 */
-        const val PAGE_PAD = S4
+        /**
+         * 页面左右边距 —— **12 dp**。
+         *
+         * <p>miuix 示例全站统一 `Modifier.padding(horizontal = 12.dp)`（38 处）。这个值不是
+         * 随手取的：浅色下卡片底和页面底**同为纯白**，卡片的分层完全靠页边距 + 圆角切出来，
+         * 边距给大了（16）卡片像浮在纸上的贴片，给小了（8）就分不出「这是一组」。
+         */
+        const val PAGE_PAD = S3
         /** 卡片之间的间距。 */
         const val CARD_GAP = S3
         /** 卡片内单行的左右 padding。 */
