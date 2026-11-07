@@ -2282,8 +2282,20 @@ class MainActivity : Activity() {
             val act: Runnable = run ?: Runnable { }
             b.setOnClickListener(object : View.OnClickListener {
                 override fun onClick(v: View) {
-                    act.run()
-                    dlg.dismiss()
+                    // 出场不能是硬消失。收起方向与入场相反：缩到 0.96（不是 0.92，
+                    // 出场位移要更小，否则读起来像"弹回去"而不是"收进去"）+ 淡出，
+                    // 140ms ACCELERATE（比入场快 100ms —— 消失永远该比出现干脆）。
+                    // 动作在动画结束时才执行，避免对话框还没走完页面就变了。
+                    box.animate().cancel()
+                    box.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f)
+                            .setDuration(140L).setInterpolator(UiKit.ACCELERATE)
+                            .withEndAction(Runnable {
+                                try {
+                                    act.run()
+                                } finally {
+                                    dlg.dismiss()
+                                }
+                            }).start()
                 }
             })
             val blp2 = LinearLayout.LayoutParams(
@@ -2302,8 +2314,35 @@ class MainActivity : Activity() {
         box.scaleY = 0.92f
         dlg.setOnShowListener(object : android.content.DialogInterface.OnShowListener {
             override fun onShow(dialogInterface: android.content.DialogInterface) {
+                // 入场：240ms + 轻微过冲。SPRING 是自建的一条 overshoot 插值曲线，
+                // 比 DecelerateInterpolator 多一个"顶一下再落回"的过程 —— 对话框读起来
+                // 是"被放到桌面上"而不是"淡入了一张图"。
                 box.animate().alpha(1f).scaleX(1f).scaleY(1f)
                         .setDuration(240L).setInterpolator(UiKit.SPRING).start()
+                // 遮罩本身也淡入：默认是瞬间变暗，和对话框的缩放不在同一节奏上。
+                dialogInterface.let {
+                    try {
+                        val w = dlg.window
+                        if (w != null) {
+                            val lp = w.attributes
+                            lp.dimAmount = 0f
+                            w.attributes = lp
+                            val a = android.animation.ValueAnimator.ofFloat(0f, 0.45f)
+                            a.duration = 240L
+                            a.interpolator = UiKit.DECELERATE
+                            a.addUpdateListener { an ->
+                                try {
+                                    val x = w.attributes
+                                    x.dimAmount = an.animatedValue as Float
+                                    w.attributes = x
+                                } catch (ignored: Throwable) {
+                                }
+                            }
+                            a.start()
+                        }
+                    } catch (ignored: Throwable) {
+                    }
+                }
             }
         })
         dlg.show()
@@ -4490,7 +4529,16 @@ class MainActivity : Activity() {
                 layoutSegmentIndicator(false)
             }
         })
-        val segLp = skin!!.matchWrap()
+        // ★ 高度必须**定死**，不能用 matchWrap()（WRAP_CONTENT）。
+        //
+        // segWrap 里放了一个 MATCH_PARENT 高度的指示器。FrameLayout 量子 View 时，
+        // MATCH_PARENT 要拿父容器的高度来算；父容器又是 WRAP_CONTENT（要等子 View 量完
+        // 才知道自己多高）—— 循环。实际结果是 FrameLayout 退回用 LinearLayout 给出的
+        // **剩余空间**去量它，于是轨道撑满整页、白色滑块变成一根竖条。
+        //
+        // 48 = 40（chip 行）+ 4 + 4（上下 padding），与内部 segment 的高度一致。
+        val segLp = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(48f))
         segLp.topMargin = skin!!.dp(Skin.S4.toFloat())
         segLp.leftMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
         segLp.rightMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())

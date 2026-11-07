@@ -207,6 +207,15 @@ class UiKit private constructor() {
                         android.view.MotionEvent.ACTION_DOWN -> {
                             down = true
                             animateScaleTo(scale)
+                            // 触感反馈：让"按到了"这件事越过视觉、直接到手上。
+                            // KEYBOARD_TAP 比 LONG_PRESS 轻，适合行/卡片这种高频轻点；
+                            // 用 performHapticFeedback 而不是 Vibrator —— 尊重系统
+                            // 「触摸振动」开关，用户关了就不震。
+                            try {
+                                v.performHapticFeedback(
+                                    android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                            } catch (ignored: Throwable) {
+                            }
                         }
                         android.view.MotionEvent.ACTION_UP,
                         android.view.MotionEvent.ACTION_CANCEL -> {
