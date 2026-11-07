@@ -123,9 +123,9 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
     /** 页面画布 —— 浅色 #F7F7F7 / 深色 #000000（取自 LSPosed Manager 真机取色）。 */
     fun aurora(): Drawable = solid(bg, 0f)
 
-    fun display(value: String): TextView = text(value, T_DISPLAY, BOLD, text)
+    fun display(value: String): TextView = text(value, T_DISPLAY, MEDIUM, text)
 
-    fun title(value: String): TextView = text(value, T_TITLE, BOLD, text)
+    fun title(value: String): TextView = text(value, T_TITLE, MEDIUM, text)
 
     fun rowTitle(value: String): TextView = text(value, T_ROW, MEDIUM, text)
 
@@ -139,9 +139,15 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         val v = TextView(context)
         v.text = value
         v.setTextSize(sp)
-        v.typeface = face
+        v.setTypeface(face)
         v.setTextColor(color)
         v.setIncludeFontPadding(false)
+        // 行距 1.2em —— miuix 全部 TextStyle 都是这个值（TextStyles.kt 每一条都写
+        // lineHeight = 1.2.em）。之前用的是默认行距（约 1.0~1.15），多行说明文字会挤成
+        // 一坨，这是"文字很突兀"的两个主因之一。
+        v.setLineSpacing(0f, 1.2f)
+        // 大字号加一点负字距：中文字形本身已是全宽，20sp 以上不收一点会显得松散。
+        if (sp >= 20f) v.letterSpacing = -0.015f
         return v
     }
 
@@ -230,6 +236,9 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         )
         row.background = HyperRipple(if (dark) 0xFFFFFFFF.toInt() else 0xFF000000.toInt(), dp(R_INNER.toFloat()).toFloat())
         row.isClickable = true
+        // 按住时整行缩到 0.98 —— 只靠 ripple 的整行淡色叠加，手指按下去"没有实体感"。
+        // 0.98 比按钮的 0.94 轻，因为行比按钮宽，同样的比例在宽元素上位移更明显。
+        UiKit.pressable(row, HyperDesign.PRESS_ROW)
         return row
     }
 
@@ -475,6 +484,13 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         @JvmField
         val REGULAR: Typeface = Typeface.create("sans-serif", Typeface.NORMAL)
         @JvmField
-        val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        /**
+     * 700。**只在极少数需要真正压过一层的场合用**。
+     *
+     * <p>miuix 全站标题用的是 500（[MEDIUM]），不是 700。之前 display/title 都挂 BOLD，
+     * 32sp + 700 的大标题压在 13sp 的副标题上，视觉落差很硬 —— 这是"文字很突兀"的
+     * 另一个主因。现在两个标题都改成 MEDIUM。
+     */
+    val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
     }
 }

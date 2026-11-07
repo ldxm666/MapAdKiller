@@ -245,6 +245,7 @@ class MainActivity : Activity() {
             }
         })
 
+        attachScrollAnimations()
         showTab(TAB_HOME, false)
         renderStatus()
         shell.post(Runnable { UiKit.enter(contentHost, sk.dp(8f).toFloat(), 0L) })
@@ -4557,6 +4558,66 @@ class MainActivity : Activity() {
                 UiKit.enterStaggered(host, skin!!.dp(10f).toFloat(), 26L, 20L)
             }
         }
+    }
+
+    /* ────────────────────────────────────────────────────── 滚动联动动效 */
+
+    private var navBarHidden = false
+
+    /**
+     * 给每一页的 ScrollView 挂滚动联动：**向下滚隐藏底栏，向上滚把它唤回来**。
+     *
+     * <p>这是「上拉下滑」最自然的一处：底栏是悬浮的，内容往下翻的时候它挡着视线，
+     * 藏起来；想切页时手指往回一拨就回来。LSPosed 的悬浮元素是同一套思路。
+     *
+     * <p>每个 ScrollView 各自持有上一次的 y（不能用共享字段 —— 四个页面同时在 pager 里，
+     * 共用一个值会在切页那一刻读到别页的偏移，底栏"莫名其妙弹一下"）。
+     */
+    private fun attachScrollAnimations() {
+        val pg = pager ?: return
+        for (i in 0 until pg.pageCount()) {
+            val sv = findScrollView(pg.getChildAt(i)) ?: continue
+            var lastY = 0
+            sv.setOnScrollChangeListener(object : View.OnScrollChangeListener {
+                override fun onScrollChange(v: View, sx: Int, sy: Int, osx: Int, osy: Int) {
+                    val dy = sy - lastY
+                    lastY = sy
+                    // 小于这个阈值的位移是手指微抖或回弹，不该触发显隐。
+                    if (Math.abs(dy) < skin!!.dp(8f)) return
+                    if (dy > 0) {
+                        // 往下翻：离开顶部一段距离后收起，避免刚进页面就把栏藏掉。
+                        if (!navBarHidden && sy > skin!!.dp(32f)) setNavBarHidden(true)
+                    } else {
+                        if (navBarHidden) setNavBarHidden(false)
+                    }
+                }
+            })
+        }
+    }
+
+    private fun findScrollView(v: View?): ScrollView? {
+        if (v == null) return null
+        if (v is ScrollView) return v
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) {
+                val hit = findScrollView(v.getChildAt(i))
+                if (hit != null) return hit
+            }
+        }
+        return null
+    }
+
+    /** 收起 / 唤出底栏。位移 + 淡出同步做，只位移会看到栏底还有一条影。 */
+    private fun setNavBarHidden(hidden: Boolean) {
+        if (navBarHidden == hidden) return
+        navBarHidden = hidden
+        val dy = if (hidden) (navBar.height + skin!!.dp(16f)).toFloat() else 0f
+        navBar.animate().cancel()
+        navBar.animate().translationY(dy)
+                .alpha(if (hidden) 0f else 1f)
+                .setDuration(if (hidden) 200L else 260L)
+                .setInterpolator(if (hidden) UiKit.ACCELERATE else UiKit.SPRING)
+                .start()
     }
 
     /** 取某个 tab 的根容器（首页/配置/备份/关于），拿不到返回 null。 */
