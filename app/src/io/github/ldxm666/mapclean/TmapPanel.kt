@@ -81,6 +81,17 @@ class TmapPanel private constructor() {
             }
         }
 
+        /** 见 [BaiduPanel.hasStored] —— 同一个「关掉重启又回来」的根因。 */
+        @JvmStatic
+        fun hasStored(key: String): Boolean {
+            return try {
+                val p = io.github.ldxm666.tmapclean.Cfg.prefs()
+                p != null && p.contains(key)
+            } catch (t: Throwable) {
+                false
+            }
+        }
+
         @JvmStatic
         fun read(key: String): Boolean {
             return try {

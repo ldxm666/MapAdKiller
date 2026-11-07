@@ -199,6 +199,24 @@ class BaiduPanel private constructor() {
             }
         }
 
+        /**
+         * 这个键是否**被显式写过**。
+         *
+         * <p>存在的理由：{@code FloatingConfig.hasStored()} 以前对百度/腾讯无条件返回 true，
+         * 于是悬浮球开关的读取永远走「读不到就用默认值」那条路 —— 默认值是
+         * {@code floatDefault() = isEmbedded() = true}，用户关掉、重启，球必回来。
+         * 只有真的问一次存储，才能区分「从没写过」和「写过 false」。
+         */
+        @JvmStatic
+        fun hasStored(key: String): Boolean {
+            return try {
+                val p = io.github.ldxm666.bmapclean.Cfg.prefs()
+                p != null && p.contains(key)
+            } catch (t: Throwable) {
+                false
+            }
+        }
+
         @JvmStatic
         fun read(key: String): Boolean {
             return try {

@@ -253,6 +253,9 @@ class FloatingConfig private constructor() {
             // ① 远程/面板通道（正常情况）
             try {
                 if (hasStored(K_FLOAT_ENABLED)) {
+                    // 只有存储里**真的存在**这个键才采信并回写镜像。
+                    // 以前这里无条件 mirrorPut，一旦 read 因后端未就绪而回落默认值，
+                    // 镜像就被写成 true —— 用户的选择被自己的兜底机制覆盖掉。
                     val v = read(K_FLOAT_ENABLED, floatDefault())
                     mirrorPut(v)
                     return v
@@ -308,11 +311,25 @@ class FloatingConfig private constructor() {
          * 变体返回 true（按已设置处理），不改变它们原有行为 —— 只有高德变体会被构建。
          */
         private fun hasStored(key: String): Boolean {
-            if (Vendor.tmap() || Vendor.baidu()) return true
-            try {
-                return AmapPanel.hasStored(key)
+            // 这里曾经是 `if (Vendor.tmap() || Vendor.baidu()) return true` ——
+            // 一句"不改变原有行为"的保守写法，实际造出了一个用户能天天碰到的 bug：
+            //
+            //   floatEnabled() 的第一分支是 `if (hasStored(...)) { read(); return }`。
+            //   hasStored 恒 true ⇒ 永远走这条 ⇒ read() 读不到就回落 floatDefault()
+            //   ⇒ isEmbedded() = true ⇒ **用户关掉的悬浮球，重启后必然回来**。
+            //   而且那一分支还会 mirrorPut(true)，把用户的选择从本地镜像里也抹掉，
+            //   连兜底路径一起污染。
+            //
+            // 现在三个厂商都真问一次存储。异常时返回 false 而不是 true：读不到就当没写过，
+            // 让调用方退到本地镜像（那才是用户最后一次显式选择），而不是退到默认值。
+            return try {
+                when {
+                    Vendor.tmap() -> TmapPanel.hasStored(key)
+                    Vendor.baidu() -> BaiduPanel.hasStored(key)
+                    else -> AmapPanel.hasStored(key)
+                }
             } catch (t: Throwable) {
-                return true
+                false
             }
         }
 
