@@ -2252,7 +2252,7 @@ class MainActivity : Activity() {
         box.background = skin!!.glassFor(box, GLASS_R.toFloat())
         val pad = dp(20)
         box.setPadding(pad, dp(18), pad, dp(10))
-        val tv = text(title, 18f, Typeface.BOLD, cTxP())
+        val tv = skin!!.text(title, 18f, Skin.MEDIUM, cTxP())   // 500，不是 700：全站标题统一 miuix 字重
         box.addView(tv)
         if (!message.isNullOrEmpty()) {
             val mv = text(message, 14f, Typeface.NORMAL, cTxS())
@@ -4507,7 +4507,7 @@ class MainActivity : Activity() {
         // 必须首屏可见、且「长按悬浮球」几个字要能一眼抓住（见 applyEmbeddedNotice 的 Spannable）。
         embeddedNotice = skin!!.text("", Skin.T_BODY, Skin.MEDIUM, skin!!.text)
         embeddedNotice!!.visibility = View.GONE
-        embeddedNotice!!.setLineSpacing(skin!!.dp(3f).toFloat(), 1f)
+        embeddedNotice!!.setLineSpacing(0f, 1.2f)
         val noticePad = skin!!.dp(Skin.S3.toFloat())
         embeddedNotice!!.setPadding(noticePad, noticePad, noticePad, noticePad)
         embeddedNotice!!.background = skin!!.solid(skin!!.surface2, Skin.R_INNER.toFloat())
@@ -4649,9 +4649,9 @@ class MainActivity : Activity() {
                 if (!appDisabled[i]) anyEnabled = true
             }
             // 三家都没装的极端情况下仍然显示一页：整块空白比"只读的一页"更让人以为模块坏了。
-            if (anyEnabled) {
+            if (anyEnabled && index < appChips.size) {
                 Toast.makeText(this@MainActivity, appChips[index].text.toString()
-                        + " 未安装，装好后重新打开本页即可配置", Toast.LENGTH_SHORT).show()
+                        + "未安装，装好后重新打开本页即可配置", Toast.LENGTH_SHORT).show()
                 return
             }
         }
