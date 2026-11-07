@@ -1084,7 +1084,10 @@ public final class MainActivity extends Activity {
         addSwitch(sec.card, "工具图标统一彩绘（实验）", Config.K_TOOL_COLOR_ICON);
         addNoteRow(sec.card, "开启反转后，只保留你明确打开的工具；未设置、新增和未知工具全部隐藏。关闭反转可恢复原有默认值。修改后重开高德生效。");
         addNoteRow(sec.card, "以下目录取自高德「更多工具」，按出行、服务等分类。开启的工具会补入首页；新增推广工具默认关闭。同名工具按 ID 分别控制。");
-        addSwitch(sec.card, "显示「更多工具」", Config.K_TOOL_PREFIX + "更多工具");
+        // 键必须走 AmapPanel.moreToolsKey()：它优先返回目录里学到的真实键
+        // （tool_id_86 之类），拿不到才 fallback。此前这里直接拼 fallback 字面量，
+        // 而那个键没有任何读取方 —— 用户关掉「更多工具」，关的是空气。
+        addSwitch(sec.card, "显示「更多工具」", AmapPanel.moreToolsKey());
         addSwitch(sec.card, "显示「高德出行节」", Config.K_TOOL_PREFIX + "高德出行节");
         for (String group : io.github.ldxm666.mapadkiller.AmapToolCatalog.GROUPS) {
             sec = newDrawer("高德 · 工具：" + group);

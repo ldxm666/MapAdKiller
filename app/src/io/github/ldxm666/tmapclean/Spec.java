@@ -362,19 +362,25 @@ public final class Spec {
 
         String[] ids = toolIds();
         String[] titles = toolTitles();
-        Row[] tools = new Row[1 + ids.length + (ids.length == 0 ? 1 : 0)];
+        // 布局：[0]=总开关 [1]=只保留常用入口 [2..]=逐项工具（未学到时 [2] 是占位提示）
+        //
+        // 这里曾经少算一格：数组开 1+ids.length，preset 写进 [1]，随后又被
+        // 「尚未学到工具目录」和 for 循环的 tools[i+1]（i=0 → [1]）覆盖 —— 两条分支
+        // 都会盖掉它。结果是「只保留常用入口」这个开关在**任何情况下都不显示**，
+        // 而它的键 K_TOOL_PRESET 有 hook 在消费，属于用户永远调不到的功能。
+        Row[] tools = new Row[2 + ids.length + (ids.length == 0 ? 1 : 0)];
         tools[0] = new Row(K_TOOLS, "显示首页工具宫格",
                 "关闭后首页不再显示驾车 / 公交地铁 / 打车等工具入口。", true);
-        tools[0 + 1] = new Row(K_TOOL_PRESET, "只保留常用入口（前 " + TOOL_PRESET_COUNT + " 个）",
+        tools[1] = new Row(K_TOOL_PRESET, "只保留常用入口（前 " + TOOL_PRESET_COUNT + " 个）",
                 "腾讯首次会把十几个偏好工具写进首页，把宫格填满。开启后按它自己的顺序只留前 "
                         + TOOL_PRESET_COUNT + " 个，其余收入「更多工具」。", true);
         if (ids.length == 0) {
-            tools[1] = new Row(null, "尚未学到工具目录",
+            tools[2] = new Row(null, "尚未学到工具目录",
                     "打开腾讯地图首页（工具宫格出现一次）后回到本页即可看到逐项开关。", false);
         } else {
             for (int i = 0; i < ids.length; i++) {
                 String label = titles[i] == null || titles[i].length() == 0 ? ids[i] : titles[i];
-                tools[i + 1] = new Row(K_TOOL + ids[i], "显示「" + label + "」",
+                tools[i + 2] = new Row(K_TOOL + ids[i], "显示「" + label + "」",
                         label.equals(ids[i]) ? null : "工具 ID：" + ids[i], false);
             }
         }
