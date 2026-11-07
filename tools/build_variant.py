@@ -161,12 +161,37 @@ HOST_WHITELIST_CLASS = b"Lio/github/ldxm666/mapclean/EmbeddedSettingsPolicy;"
 HOST_WHITELIST_METHOD = "isHostPackage"
 
 
+SOURCE_SUFFIXES = (".kt", ".java")
+
+
+def source_files(folder: Path) -> list:
+    """Every compilable source under `folder`. The tree is Kotlin-first since 2.3.2."""
+    return sorted(p for p in Path(folder).rglob("*")
+                  if p.is_file() and p.suffix in SOURCE_SUFFIXES)
+
+
+def find_source(folder: Path, name: str) -> Path | None:
+    """Resolve a Java-era filename (`Foo.java`) to the file that actually exists.
+
+    Every list in this file -- drop lists, keep lists -- was written when the tree was `.java`.
+    Matching on the stem keeps those lists readable and stops a stale extension from silently
+    turning a drop into a no-op: the file would survive into the slim build, and the build would
+    either fail or ship vendor code it claims to have removed.
+    """
+    stem = Path(name).stem
+    for suffix in SOURCE_SUFFIXES:
+        candidate = Path(folder) / (stem + suffix)
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def vendor_classes(package: str, keep) -> tuple:
     """DEX type descriptors for one vendor package, minus the classes we stub out."""
     folder = APP / "src" / Path(package.replace(".", "/"))
     prefix = b"L" + package.replace(".", "/").encode() + b"/"
     return tuple(prefix + f.stem.encode() + b";"
-                 for f in sorted(folder.glob("*.java")) if f.stem not in keep)
+                 for f in source_files(folder) if f.stem not in keep)
 
 
 # One entry per map app we ship an integrated build for. The two are mirror images: each drops
@@ -364,6 +389,31 @@ def tool(directory: Path, name: str) -> Path:
     return directory / (name + ".exe" if os.name == "nt" else name)
 
 
+def kotlin_toolchain() -> tuple:
+    """`java` plus the classpath that boots the embeddable Kotlin compiler.
+
+    There is no standalone kotlinc on this machine and no `gradle` on PATH: the compiler only
+    exists as the copy Gradle 8.9 ships inside its distribution, driven through
+    `java -cp ... K2JVMCompiler`. app/build.ps1 hard-codes that one dist path; resolving it by
+    search keeps this working if the dist hash directory changes.
+    """
+    root = Path(os.environ.get("USERPROFILE", str(Path.home()))) / ".gradle" / "wrapper" / "dists"
+    compilers = sorted(root.rglob("kotlin-compiler-embeddable-*.jar"))
+    if not compilers:
+        raise ValueError(f"kotlin-compiler-embeddable-*.jar not found under {root}")
+    lib = compilers[-1].parent
+    jars = []
+    # Every one of these is required: K2JVMCompiler fails with NoClassDefFoundError otherwise
+    # (trove4j most readily -- it is not a declared dependency of anything else on the path).
+    for name in ("kotlin-compiler-embeddable", "kotlin-stdlib", "kotlin-reflect",
+                 "kotlin-script-runtime", "trove4j", "annotations", "kotlin-daemon-embeddable"):
+        found = sorted(lib.glob(name + "-*.jar"))
+        if not found:
+            raise ValueError(f"{name}-*.jar missing in {lib}")
+        jars.append(found[-1])
+    return Path("java"), os.pathsep.join(str(j) for j in jars)
+
+
 def pinned_download(directory: Path, name: str, expected: str, url: str) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     dest = directory / name
@@ -399,14 +449,19 @@ def copy_slim_sources(dest: Path, target: dict) -> dict:
     removed, stubbed = [], []
 
     # 1) drop whole foreign packages
-    keep = {Path(x).as_posix() for x in target.get("keepFiles", ())}
+    #    keepFiles is written in Java-era paths (`Foo.java`) while the tree carries `Foo.kt`, so
+    #    match on (folder, stem): an extension-sensitive compare here would keep nothing, and the
+    #    whole package -- including the classes the caller legitimately needs -- would be deleted.
+    keep = {(Path(x).parent.as_posix().lstrip("./"), Path(x).stem)
+            for x in target.get("keepFiles", ())}
     for pkg in target["dropPackages"]:
         folder = src / Path(pkg.replace(".", "/"))
         if folder.is_dir():
+            rel_pkg = Path(pkg.replace(".", "/")).as_posix()
             held = {}
-            for f in folder.rglob("*.java"):
+            for f in source_files(folder):
                 rel = f.relative_to(src).as_posix()
-                if rel in keep:
+                if (rel_pkg, f.stem) in keep:
                     held[rel] = f.read_bytes()
                 else:
                     removed.append(rel)
@@ -418,20 +473,23 @@ def copy_slim_sources(dest: Path, target: dict) -> dict:
                 back.write_bytes(data)
 
     # 2) drop named files in the two kept packages
-    for rel in sorted(DROP_AMAP_FILES):
-        f = src / "io/github/ldxm666/mapadkiller" / rel
-        if f.exists():
-            removed.append(f.relative_to(src).as_posix())
-            f.unlink()
-    for rel in sorted(DROP_MAPCLEAN_FILES):
-        f = src / "io/github/ldxm666/mapclean" / rel
-        if f.exists():
-            removed.append(f.relative_to(src).as_posix())
-            f.unlink()
+    for folder, names in (("io/github/ldxm666/mapadkiller", DROP_AMAP_FILES),
+                          ("io/github/ldxm666/mapclean", DROP_MAPCLEAN_FILES)):
+        for name in sorted(names):
+            f = find_source(src / folder, name)
+            if f is not None:
+                removed.append(f.relative_to(src).as_posix())
+                f.unlink()
 
     # 3) write the stubs this target needs for symbols the kept sources still name
     for rel in target["stubs"]:
         f = src / rel
+        # The stub is Java, the file it replaces is Kotlin: leaving the original in place would
+        # declare the same FQN twice and kotlinc rejects the tree before javac ever runs.
+        twin = f.with_suffix(".kt")
+        if twin.exists():
+            removed.append(twin.relative_to(src).as_posix())
+            twin.unlink()
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text((STUB_DIR / rel).read_text(encoding="utf-8"), encoding="utf-8")
         stubbed.append(rel)
@@ -661,21 +719,44 @@ def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_to
         return [str(p) for p in Path(folder).rglob("*.java")]
 
     # 1) framework stubs (compile-only, never packaged)
-    run([java.replace("java", "javac") if False else JAVA_JAVAC, "-encoding", "UTF-8", "-nowarn",
+    run([JAVA_JAVAC, "-encoding", "UTF-8", "-nowarn",
          "-source", "8", "-target", "8", "-bootclasspath", aj, "-d", build / "stubs",
          *java_files(slim / "stub-src")])
-    # 2) module sources
+
+    # 2) module sources -- Kotlin first, then Java, exactly the order app/build.ps1 uses.
+    #
+    #    kotlinc parses .java for symbol resolution but emits no classes for it, so a Kotlin
+    #    class may name a Java type; javac then runs with the Kotlin output on its classpath.
+    #    Reversed, nothing declared in Java is visible to Kotlin. Compiling the .java half with
+    #    javac alone (the pre-2.3.2 pipeline) is now a no-op: the tree holds no .java sources
+    #    beyond the generated stubs, so every Kotlin class the stubs name goes missing.
+    stdlib = libs / "kotlin-stdlib-1.9.23.jar"
+    kt_src = sorted(str(p) for p in (slim / "src").rglob("*.kt"))
+    java_src = sorted(str(p) for p in (slim / "src").rglob("*.java"))
     cp = os.pathsep.join([str(aj), str(libs / "api-102.0.0.jar"),
                           str(libs / "service-classes.jar"), str(libs / "interface-102.0.0.jar")])
-    run([JAVA_JAVAC, "-encoding", "UTF-8", "-nowarn", "--release", "8",
-         "-classpath", cp, "-d", build / "classes", *java_files(slim / "src")])
+    if kt_src:
+        if not stdlib.exists():
+            raise ValueError(f"kotlin-stdlib missing: {stdlib}")
+        kotlin_java, kotlin_cp = kotlin_toolchain()
+        run([kotlin_java, "-cp", kotlin_cp, "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
+             "-no-stdlib", "-no-reflect", "-nowarn", "-jvm-target", "1.8",
+             "-classpath", cp + os.pathsep + str(stdlib),
+             "-d", build / "classes", *kt_src, *java_src])
+    if java_src:
+        run([JAVA_JAVAC, "-encoding", "UTF-8", "-nowarn", "--release", "8",
+             "-classpath", cp + os.pathsep + str(build / "classes") + os.pathsep + str(stdlib),
+             "-d", build / "classes", *java_src])
 
     # 3) dex
     run([JAVA_JAR, "-cf", build / "classes.jar", "-C", build / "classes", "."])
     shutil.copy2(libs / "service-classes.jar", build / "service-classes.jar")
+    # kotlin-stdlib must be dexed in: the module calls into Intrinsics/CollectionsKt at runtime.
+    d8_inputs = [build / "classes.jar", build / "service-classes.jar", libs / "interface-102.0.0.jar"]
+    if stdlib.exists():
+        d8_inputs.append(stdlib)
     run([tool(bt, "d8"), "--min-api", "26", "--lib", aj,
-         "--lib", libs / "api-102.0.0.jar", "--output", build / "dex",
-         build / "classes.jar", build / "service-classes.jar", libs / "interface-102.0.0.jar"])
+         "--lib", libs / "api-102.0.0.jar", "--output", build / "dex", *d8_inputs])
 
     # 4) resources + manifest
     run([tool(bt, "aapt2"), "compile", "--dir", slim / "res", "-o", build / "res.zip"])
@@ -827,7 +908,12 @@ def main() -> int:
         args.Jar = Path(shutil.which("jar") or "jar")
     JAVA_JAVAC, JAVA_JAR = str(args.Javac), str(args.Jar)
 
-    version_file = (APP / "src/io/github/ldxm666/mapclean/Version.java").read_text(encoding="utf-8")
+    version_src = APP / "src/io/github/ldxm666/mapclean"
+    version_path = next(
+        (p for p in (version_src / "Version.kt", version_src / "Version.java") if p.exists()),
+        version_src / "Version.kt",
+    )
+    version_file = version_path.read_text(encoding="utf-8")
     version_name = args.Version or re.search(r'NAME\s*=\s*"([^"]+)"', version_file).group(1)
     version_code = int(re.search(r'CODE\s*=\s*(\d+)', version_file).group(1))
 
@@ -995,14 +1081,22 @@ def check_host_whitelist(module: Path, target: dict) -> list:
     host = target["package"]
     desc = HOST_WHITELIST_CLASS.decode()
     literals, method_seen = [], False
+    # Kotlin splits this method in two: the real body sits in the companion, and the outer class
+    # carries a @JvmStatic bridge that is just `return Companion.isHostPackage(pkg)` -- no
+    # literals at all. Scanning only the outer descriptor therefore reads an empty allow-list and
+    # fails a build that is actually fine; scanning only the companion would stop checking the
+    # method that Java-era callers see. Both are read, and the invariant stays fail-closed: the
+    # host still has to appear in the union.
+    descriptors = (desc, desc[:-1] + "$Companion;")
     for dex in dex_query.open_apk(module):
-        if desc not in dex.classes():
-            continue
-        for m in dex.methods(desc):
-            if m["name"] != HOST_WHITELIST_METHOD:
+        for name in descriptors:
+            if name not in dex.classes():
                 continue
-            method_seen = True
-            literals.extend(s for _, s in dex.const_strings(m["code_off"]))
+            for m in dex.methods(name):
+                if m["name"] != HOST_WHITELIST_METHOD:
+                    continue
+                method_seen = True
+                literals.extend(s for _, s in dex.const_strings(m["code_off"]))
 
     if not method_seen:
         raise ValueError(

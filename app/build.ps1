@@ -114,7 +114,18 @@ if ($LASTEXITCODE -ne 0) { throw "module classes jar failed" }
 Copy-Item "$src\libs\service-classes.jar" "$src\build\service-classes.jar"
 # kotlin-stdlib 必须进 d8：Kotlin 代码在运行期要它的实现（Intrinsics、CollectionsKt 等）。
 # interface-102.0.0.jar 只做 --lib（编译用），不进 dex。
-$d8Inputs = @("$src\build\classes.jar", "$src\build\service-classes.jar")
+# interface-102.0.0.jar 必须作为 **d8 输入**（不是 --lib）一起合进 dex。
+# 它里面有 IXposedService 的 AIDL 生成类：$Stub / $Stub$Proxy / $Default。
+# 我们的代码只静态引用 IXposedService.Stub.asInterface()，$Stub$Proxy 与 $Default
+# 没有任何字节码直接引用它们 —— 只要这个 jar 不在输入里，d8 就不会把它们打进 dex，
+# 运行时 XposedServiceHelper.onBinderReceived 一调 asInterface 就
+# NoClassDefFoundError: IXposedService$Stub，表现是框架状态永远"连接中"、
+# 所有开关都读不到远程配置。重构构建脚本时漏掉这一项，就是这么坏的。
+$d8Inputs = @(
+    "$src\build\classes.jar",
+    "$src\build\service-classes.jar",
+    "$src\libs\interface-102.0.0.jar"
+)
 if (Test-Path $KotlinStdlib) { $d8Inputs += $KotlinStdlib }
 $d8Args = ($d8Inputs | ForEach-Object { "`"$_`"" }) -join " "
 cmd /c "`"$Bt\d8.bat`" --min-api 26 --lib `"$Aj`" --lib `"$src\libs\api-102.0.0.jar`" --output `"$src\build\dex`" $d8Args > `"$src\build\d8.log`" 2>&1"

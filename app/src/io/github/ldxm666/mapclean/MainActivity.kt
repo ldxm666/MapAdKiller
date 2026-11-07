@@ -217,22 +217,30 @@ class MainActivity : Activity() {
         pg.addView(aboutPage)
 
         navBar = buildBottomNav()
-        val shell = LinearLayout(this)
-        shell.orientation = LinearLayout.VERTICAL
+        // 真正的悬浮：底栏**叠在内容之上**，不是排在内容流里。
+        //
+        // 之前 shell 是 LinearLayout（content 占 1 份 + navBar 紧随其后），底栏从布局上就
+        // 不覆盖任何内容 —— 无论背景做得多透明，看起来都只是「页面底部的一条」，浮不起来。
+        // 现在改成 FrameLayout，底栏用 layout_gravity=BOTTOM + 外边距悬在内容上，
+        // 内容区靠 paddingBottom 让出高度（不是给每页塞假底）。
+        val shell = FrameLayout(this)
         shell.setBackgroundColor(sk.bg)
-        shell.addView(contentHost, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        shell.addView(navBar, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        shell.addView(contentHost, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val navLp = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        navLp.gravity = Gravity.BOTTOM
+        shell.addView(navBar, navLp)
         setContentView(shell)
 
-        // 底部标签栏在布局流里（不是浮层）：内容区自然止于栏顶，不需要给每页留 92 dp 的假底。
         shell.setOnApplyWindowInsetsListener(object : View.OnApplyWindowInsetsListener {
             override fun onApplyWindowInsets(v: View, insets: WindowInsets): WindowInsets {
                 val top = insets.systemWindowInsetTop
                 val bottom = insets.systemWindowInsetBottom
-                contentHost.setPadding(0, top, 0, 0)
-                navBar.setPadding(sk.dp(16f), sk.dp(6f), sk.dp(16f), bottom + sk.dp(10f))
+                // 内容让出底栏高度（68 dp 胶囊 + 10 dp 下边距 + 8 dp 视觉间隙），
+                // 否则列表最后一行会被胶囊压住。
+                contentHost.setPadding(0, top, 0, sk.dp(94f) + bottom)
+                navBar.setPadding(sk.dp(16f), 0, sk.dp(16f), bottom + sk.dp(10f))
                 return insets
             }
         })
@@ -4951,9 +4959,26 @@ class MainActivity : Activity() {
         navBar.setPadding(skin!!.dp(16f), 0, skin!!.dp(16f), skin!!.dp(10f))
 
         navHolder = FrameLayout(this)
-        navHolder!!.background = skin!!.glassFor(navHolder!!, 28f)
+        // 半透明底 + 真正的背景模糊。
+        //
+        // 之前是 solid(surface) —— 纯色不透，浮起来也像贴了一张白纸。要「真悬浮」必须
+        // 能看见下面的内容：底色降到 ~72% 不透明，再用 RenderEffect 把**背景**糊掉
+        // （API 31+ 的 View.setBackgroundBlurRadius，作用是这个 View 后面的内容，
+        // 不是 View 自己），这才是毛玻璃而不是半透明白。
+        //
+        // 低版本（API 26~30）没有背景模糊，只能靠 92% 高不透明 + 描边保证可读性，
+        // 否则半透明文字会和下层内容糊在一起。
+        // 应用内的「背板模糊」没有公开 API：android-34 的 View 没有
+        // setBackgroundBlurRadius（那是 render 层的东西，不是 View 的方法），
+        // 而窗口级 FLAG_BLUR_BEHIND 模糊的是**整个窗口背后**，对「栏后面那块内容」
+        // 无效。所以这里做真半透明：内容从胶囊底下滚过去时能看见，这才是悬浮的读感。
+        //
+        // 高亮底把文字压住的同时保留通透度：0.88 在浅色下能看见下面的卡片边缘，
+        // 又不至于让「首页/配置」这两个字跟滚动内容糊在一起。
+        val body = if (dark) 0xFF1A1A1A.toInt() else 0xFFFFFFFF.toInt()
+        navHolder!!.background = skin!!.solid(HyperDesign.alpha(body, 0.88f), 28f)
         UiKit.clipRounded(navHolder!!, skin!!.dp(28f).toFloat())
-        skin!!.shadow(navHolder!!, 8f)
+        skin!!.shadow(navHolder!!, 10f)
         // 68 dp = 图标容器 28 + 文字 ~15 + 项内上下 8 + 行内上下 8，留 9 dp 余量。
         // 62 dp 时文字底部会被胶囊裁掉一截（首页/配置/备份/关于 四个字的下缘发虚）。
         navBar.addView(navHolder, LinearLayout.LayoutParams(

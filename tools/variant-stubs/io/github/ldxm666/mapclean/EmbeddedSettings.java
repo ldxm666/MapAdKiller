@@ -55,7 +55,14 @@ public final class EmbeddedSettings {
         // 药丸恒显「○ 只读·服务未连接」，开关写不进去（=用户反馈的“无法使用”）。
         // 并且 App.svc() 越早就绪越好：CfgStore.embedded() 的第二条判据也要靠它。
         try {
-            io.github.ldxm666.mapclean.App.listenEmbedded();
+            // Kotlin 会给 *internal* 成员的 JVM 名加上 `$模块名` 后缀（防止跨模块误用），
+            // App.listenEmbedded 声明为 `@JvmStatic internal fun`，所以它在这里的可调用名
+            // 是 listenEmbedded$main —— 模块名用的是编译器默认值，app/build.ps1 与本工具
+            // 都没有传 -module-name，两边一致。
+            //
+            // 故意写成直接调用而不是反射：名字再变一次就编译不过，而不是悄悄变成一次空调用，
+            // 让每个内置版装机后面板恒只读、日志里又什么都看不到。
+            io.github.ldxm666.mapclean.App.listenEmbedded$main();
             Log.i(TAG, "embedded settings replaced by the floating entry (service listener registered)");
         } catch (Throwable t) {
             Log.w(TAG, "listenEmbedded failed: " + t);
