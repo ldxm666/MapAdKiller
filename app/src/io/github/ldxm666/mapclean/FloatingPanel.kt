@@ -2787,7 +2787,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         return cached
     }
 
-    private fun cBg(): Int = hd().background
+    /** 页面底 —— 取 surface（浅 #F7F7F7 / 深 #000000），不是 background。见 [Skin.bg] 的说明。 */
+    private fun cBg(): Int = hd().surface
 
     /** 卡片底。HyperOS 浅色下与页面同色，靠页边距和圆角切分。 */
     private fun cGlass(): Int = hd().surfaceContainer

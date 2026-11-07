@@ -34,12 +34,23 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
     // 悬浮面板里还有第二份（cBg/cGlass/…），改配色要动两个地方。
     private val design: HyperDesign = HyperDesign.of(dark)
 
+    /**
+     * 页面底色。
+     *
+     * <p><b>取 [HyperDesign.surface]，不是 background</b>。这是照着 LSPosed Manager 真机
+     * 取色定的：浅色页面 #F7F7F7、卡片 #FFFFFF；深色页面 #000000、卡片 #242424。
+     * 之前用 background（浅色纯白 / 深色 #242424）当页面，卡片再叠 surfaceContainer，
+     * 两个模式都塌成「同色 + 描边」，所以整页读起来像一堆线框盒子 —— 这正是"UI 太奇怪"
+     * 的根因。
+     */
     @JvmField
-    val bg: Int = design.background
+    val bg: Int = design.surface
+    /** 卡片底：浅色 #FFFFFF / 深色 #242424。与页面底差一档，靠对比分层，不靠描边。 */
     @JvmField
-    val surface: Int = design.surfaceContainer          // 卡片底：浅色白 / 深色 #242424
+    val surface: Int = design.surfaceContainer
+    /** 次级面（chip、分段控件、内嵌块）：浅色 #E8E8E8 / 深色 #242424。 */
     @JvmField
-    val surface2: Int = design.surface                  // 次级面：浅色 #F7F7F7 / 深色纯黑
+    val surface2: Int = design.surfaceContainerHigh
     // 描边渐变的两端：HyperOS 不用高光边，两端都取 outline，
     // 只让左上略亮一点点，保留一点方向感而不抢眼。
     @JvmField
@@ -95,21 +106,21 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
      * 几乎不用阴影。保留方法名和签名，419 处调用方一行不用改。
      */
     fun glassFor(host: View, radiusDp: Float): Drawable {
-        return border(surface, stroke, radiusDp)
+        return solid(surface, radiusDp)
     }
 
     /** 带色调的卡片 —— 用于状态卡（成功/警告/危险）。色调只染 12% 和描边 30%。 */
     fun glassFor(host: View, radiusDp: Float, tint: Int): Drawable {
+        // 状态卡（成功/警告/危险）才带色调。仍不描边 —— 颜色本身就是分层手段。
         val fill = HyperDesign.mix(surface, tint, if (dark) 0.16f else 0.10f)
-        val line = HyperDesign.mix(stroke, tint, if (dark) 0.34f else 0.30f)
-        return border(fill, line, radiusDp)
+        return solid(fill, radiusDp)
     }
 
     fun dp(value: Float): Int {
         return Math.round(value * context.resources.displayMetrics.density)
     }
 
-    /** Pure white canvas — the requested backdrop. */
+    /** 页面画布 —— 浅色 #F7F7F7 / 深色 #000000（取自 LSPosed Manager 真机取色）。 */
     fun aurora(): Drawable = solid(bg, 0f)
 
     fun display(value: String): TextView = text(value, T_DISPLAY, BOLD, text)
@@ -194,16 +205,17 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         )
     }
 
-    /** 行间分割线 —— 左缩进 16 dp，与文字左边缘对齐（HyperOS 不从卡片边缘起笔）。 */
+    /**
+     * 行间分隔 —— **0 高，实际不画线**。
+     *
+     * <p>LSPosed Manager 的设置页在卡片内不画分隔线：行靠自身 16 dp 上下 padding 形成
+     * 呼吸，卡片与页面的底色差形成边界。保留函数名供既有调用点使用。
+     */
     fun hairline(): View {
         val v = View(context)
-        // 0.75 dp：miuix DividerDefaults.Thickness。1 dp 在 3x 屏是 3 px，比笔画粗，像表格线。
-        val lp = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(0.75f))
+        v.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0
         )
-        lp.leftMargin = dp(HyperDesign.DIVIDER_INSET.toFloat())
-        v.layoutParams = lp
-        v.setBackgroundColor(divider)
         return v
     }
 
@@ -244,10 +256,17 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         return t
     }
 
+    /**
+     * 分组标题（「网络」「语言」「主题」这种）。
+     *
+     * <p>左右缩进 **28 dp** = 页面 12 dp + 卡片内 16 dp —— 标题文字的左边缘正好和卡片里
+     * 行标题的左边缘对齐。miuix `SmallTitle` 用的就是 `PaddingValues(28.dp, 8.dp)`。
+     * 字号 14 sp Bold、颜色 onBackgroundVariant（比正文淡一档）。
+     */
     fun section(value: String): TextView {
-        val t = text(value, T_LABEL + 1f, MEDIUM, text3)
-        t.letterSpacing = 0.06f
-        t.setPadding(dp(4f), 0, 0, 0)
+        val t = text(value, 14f, BOLD, design.onBackgroundVariant)
+        t.letterSpacing = 0f
+        t.setPadding(dp(28f), dp(8f), dp(28f), dp(8f))
         return t
     }
 
@@ -256,8 +275,7 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         val lp = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        lp.topMargin = dp(S6.toFloat())
-        lp.bottomMargin = dp(S2.toFloat())
+        lp.topMargin = dp(S2.toFloat())
         parent.addView(t, lp)
     }
 

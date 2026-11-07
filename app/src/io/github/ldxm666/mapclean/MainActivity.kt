@@ -340,21 +340,21 @@ class MainActivity : Activity() {
 
     private fun cTxS(): Int = if (skin == null) 0xFF5B6472.toInt() else skin!!.text2
 
-    private fun cAccent(): Int = if (skin == null) 0xFF2563EB.toInt() else skin!!.accent
+    private fun cAccent(): Int = if (skin == null) 0xFF3482FF.toInt() else skin!!.accent
 
     private fun cRipple(): Int = if (dark) 0x22FFFFFF else 0x0F000000
 
     private fun cTrackOff(): Int = if (skin == null) 0x2E8A94A4 else skin!!.chipBg
 
-    private fun cDotOk(): Int = if (skin == null) 0xFF16A34A.toInt() else skin!!.success
+    private fun cDotOk(): Int = if (skin == null) 0xFF12A150.toInt() else skin!!.success
 
-    private fun cDotBad(): Int = if (skin == null) 0xFFDC2626.toInt() else skin!!.danger
+    private fun cDotBad(): Int = if (skin == null) 0xFFE94634.toInt() else skin!!.danger
 
     private fun blobColors(): IntArray {
         return if (dark)
-            intArrayOf(0x263D6BFF, 0x1E19C37A, 0x227C5CFF)
+            intArrayOf(HyperDesign.alpha(skin!!.accent, 0.15f), HyperDesign.alpha(skin!!.success, 0.14f), HyperDesign.alpha(skin!!.accent, 0.13f))
         else
-            intArrayOf(0x1E649BFF, 0x162BD9B8, 0x16A78BFA)
+            intArrayOf(HyperDesign.alpha(skin!!.accent, 0.12f), HyperDesign.alpha(skin!!.success, 0.12f), 0x16A78BFA)
     }
 
     // ---------------------------------------------------------------- 背景光斑
@@ -602,7 +602,7 @@ class MainActivity : Activity() {
             verLine!!.setTextColor(cTxS())
             txt = "当前 v" + Version.LABEL + " · 线上版本未获取"
         } else if (out) {
-            verLine!!.setTextColor(if (skin == null) 0xFFD97706.toInt() else skin!!.warn)
+            verLine!!.setTextColor(if (skin == null) 0xFFC77700.toInt() else skin!!.warn)
             txt = "当前 v" + Version.LABEL + " · 有新版本 v" + latest
         } else {
             verLine!!.setTextColor(cDotOk())
@@ -615,7 +615,7 @@ class MainActivity : Activity() {
             updateBtn!!.text = "立即更新"
             updateBtn!!.setTextColor(0xFFFFFFFF.toInt())
             updateBtn!!.background = UiKit.ripple(0x33FFFFFF,
-                    UiKit.plate(if (skin == null) 0xFFD97706.toInt() else skin!!.warn, pill.toFloat()), pill.toFloat())
+                    UiKit.plate(if (skin == null) 0xFFC77700.toInt() else skin!!.warn, pill.toFloat()), pill.toFloat())
         } else if (latest == null) {
             updateBtn!!.text = "重试"
             updateBtn!!.setTextColor(0xFFFFFFFF.toInt())
@@ -624,7 +624,7 @@ class MainActivity : Activity() {
         } else {
             updateBtn!!.text = "已是最新"
             updateBtn!!.setTextColor(cDotOk())
-            updateBtn!!.background = UiKit.plate(if (dark) 0x1F34D399 else 0x1416A34A, pill.toFloat())
+            updateBtn!!.background = UiKit.plate(if (dark) HyperDesign.alpha(skin!!.success, 0.14f) else HyperDesign.alpha(skin!!.success, 0.12f), pill.toFloat())
         }
     }
 
@@ -753,7 +753,7 @@ class MainActivity : Activity() {
         b.setPadding(dp(8), dp(12), dp(8), dp(12))
         val bg = GradientDrawable()
         bg.setColor(if (primary) (if (dark) 0xFF2F6BFF.toInt() else 0xFF0A6CF5.toInt())
-        else (if (dark) 0x2E7AB1FF else 0x1F0A6CF5))
+        else (if (dark) HyperDesign.alpha(skin!!.accent, 0.20f) else HyperDesign.alpha(skin!!.accent, 0.12f)))
         bg.cornerRadius = dp(HEAD_R.toFloat()).toFloat()
         b.background = ripple(bg, HEAD_R.toFloat())
         b.setOnClickListener(object : View.OnClickListener {
@@ -976,7 +976,7 @@ class MainActivity : Activity() {
 
     private fun cAccentTop(): Int = if (dark) 0xFF4C8DFF.toInt() else 0xFF3D82FF.toInt()
 
-    private fun cAccentBottom(): Int = if (dark) 0xFF2563EB.toInt() else 0xFF0A5CE0.toInt()
+    private fun cAccentBottom(): Int = if (dark) skin!!.accent.toInt() else 0xFF0A5CE0.toInt()
 
     /** 小圆点指示器（尺寸由调用方的 LayoutParams 决定，避免 WRAP_CONTENT 无限拉伸） */
     private fun dot(color: Int, sizeDp: Int): View {
@@ -1641,7 +1641,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun tabOnBg(): Int = if (dark) 0x2E7AB1FF else 0x1F0A6CF5
+    private fun tabOnBg(): Int = if (dark) HyperDesign.alpha(skin!!.accent, 0.20f) else HyperDesign.alpha(skin!!.accent, 0.12f)
 
     // ── 搜索：每页的查询落地 ──────────────────────────────────────────────
 
@@ -1962,7 +1962,7 @@ class MainActivity : Activity() {
         c.gravity = Gravity.CENTER
         c.setPadding(dp(16), dp(10), dp(16), dp(10))
         c.background = UiKit.ripple(cRipple(),
-                UiKit.plate(if (dark) 0x2E7AB1FF else 0x330A6CF5, dp(20f).toFloat()), dp(20f).toFloat())
+                UiKit.plate(if (dark) HyperDesign.alpha(skin!!.accent, 0.20f) else 0x330A6CF5, dp(20f).toFloat()), dp(20f).toFloat())
         c.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
                 action.run()
@@ -2208,7 +2208,7 @@ class MainActivity : Activity() {
         for (def in defs) {
             val b = text(def[0], 14f, Typeface.BOLD, cAccent())
             b.setPadding(dp(14), dp(10), dp(14), dp(10))
-            b.background = ripple(if (dark) tintBg(0x2E7AB1FF) else tintBg(0x1E0A6CF5), HEAD_R.toFloat())
+            b.background = ripple(if (dark) tintBg(HyperDesign.alpha(skin!!.accent, 0.20f)) else tintBg(HyperDesign.alpha(skin!!.accent, 0.12f)), HEAD_R.toFloat())
             val run = if ("pos" == def[1]) posAction else if ("neu" == def[1]) neuAction else negAction
             val act: Runnable = run ?: Runnable { }
             b.setOnClickListener(object : View.OnClickListener {
@@ -2501,7 +2501,7 @@ class MainActivity : Activity() {
         cancel.setPadding(dp(14), dp(10), dp(14), dp(10))
         val go = text("导入", 14f, Typeface.BOLD, cAccent())
         go.setPadding(dp(14), dp(10), dp(14), dp(10))
-        go.background = ripple(if (dark) tintBg(0x2E7AB1FF) else tintBg(0x1E0A6CF5), HEAD_R.toFloat())
+        go.background = ripple(if (dark) tintBg(HyperDesign.alpha(skin!!.accent, 0.20f)) else tintBg(HyperDesign.alpha(skin!!.accent, 0.12f)), HEAD_R.toFloat())
         go.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
                 doImport(input.text.toString())
@@ -2547,7 +2547,7 @@ class MainActivity : Activity() {
     private fun restoreDefaultsRow(): View {
         val action = text("恢复默认配置", 13f, Typeface.BOLD, cAccent())
         action.setPadding(dp(2), dp(6), dp(2), dp(6))
-        action.background = ripple(if (dark) tintBg(0x2E7AB1FF) else tintBg(0x1E0A6CF5), HEAD_R.toFloat())
+        action.background = ripple(if (dark) tintBg(HyperDesign.alpha(skin!!.accent, 0.20f)) else tintBg(HyperDesign.alpha(skin!!.accent, 0.12f)), HEAD_R.toFloat())
         action.gravity = Gravity.CENTER
         action.contentDescription = "重新应用模块内置的默认配置，会覆盖当前开关"
         val lp = LinearLayout.LayoutParams(
@@ -2664,15 +2664,20 @@ class MainActivity : Activity() {
     /** miuix `DividerDefaults.Thickness` —— 0.75 dp。 */
     private val DIVIDER_THICKNESS_DP = 0.75f
 
+    /**
+     * 行间分隔 —— **0 高，实际不画线**。
+     *
+     * <p>照 LSPosed Manager 的设置页取的样：卡片内的行之间没有分隔线，靠每行自带的
+     * 上下 16 dp padding 形成呼吸，靠卡片与页面的底色差形成边界。画一条线立刻变成
+     * 「表格」，一屏十几行就是十几条横线，这是"UI 太奇怪"的另一半原因。
+     *
+     * <p>保留这个函数和所有 addView 调用点，只为不改 30 多处调用；它现在只是一个
+     * 0 高度的占位，视觉上等同不存在。
+     */
     private fun divider(): View {
         val d = View(this)
-        d.setBackgroundColor(if (skin == null) 0x0F000000 else skin!!.divider)
-        // 0.75 dp —— miuix 的 DividerDefaults.Thickness。1 dp 在 3x 屏上是 3 px，
-        // 比文字笔画还粗，读起来像表格线；0.75 dp 落到 2 px，正好是一条"分隔"而不是"框"。
-        val lp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(DIVIDER_THICKNESS_DP)))
-        lp.leftMargin = dp(HyperDesign.DIVIDER_INSET)
-        d.layoutParams = lp
+        d.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0)
         return d
     }
 
@@ -2963,7 +2968,7 @@ class MainActivity : Activity() {
         return label
     }
 
-    private fun tintBg(): Int = if (dark) 0x2E7AB1FF else 0x1A0A6CF5
+    private fun tintBg(): Int = if (dark) HyperDesign.alpha(skin!!.accent, 0.20f) else 0x1A0A6CF5
 
     /** 说明文字：左侧细色条 + 淡色正文，与开关行区分开 */
     private fun addNoteRow(card: LinearLayout, s: String) {
@@ -3001,6 +3006,9 @@ class MainActivity : Activity() {
     private val appPageIds: MutableList<Int> = ArrayList()
     private val appChips: MutableList<TextView> = ArrayList()
     private lateinit var navBar: LinearLayout
+    private var navHolder: FrameLayout? = null
+    private var navIndicator: View? = null
+    private var navIndicatorDriver: HyperMotion.Driver? = null
     private val navItems: MutableList<LinearLayout> = ArrayList()
     private val navIcons: MutableList<Icon> = ArrayList()
     private val navLabels: MutableList<TextView> = ArrayList()
@@ -3070,7 +3078,7 @@ class MainActivity : Activity() {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
-        row.addView(iconTile(Icon.INFO, skin!!.accent, skin!!.accentSoft), fixed(skin!!, 38, 38))
+        row.addView(iconTile(Icon.INFO, skin!!.text2, skin!!.surface2), fixed(skin!!, 38, 38))
 
         val texts = LinearLayout(this)
         texts.orientation = LinearLayout.VERTICAL
@@ -3124,7 +3132,7 @@ class MainActivity : Activity() {
         tagLp.topMargin = skin!!.dp(3f)
         brand.addView(tagline, tagLp)
         top.addView(brand, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(skin!!.chip("v" + Version.LABEL, skin!!.accentSoft, skin!!.accent))
+        top.addView(skin!!.chip("v" + Version.LABEL, skin!!.chipBg, skin!!.text3))
         top.setPadding(skin!!.dp(Skin.S2.toFloat()), skin!!.dp(Skin.S1.toFloat()), skin!!.dp(Skin.S2.toFloat()), skin!!.dp(Skin.S2.toFloat()))
         top.background = skin!!.headerScrim()
         root.addView(top, skin!!.matchWrap())
@@ -3180,12 +3188,13 @@ class MainActivity : Activity() {
         stLp.topMargin = skin!!.dp(7f)
         status.addView(statusView, stLp)
 
+        // 这里原本画一条 1 dp 的 stroke 色横线，把「连接状态」和下面的指标行隔开。
+        // 去掉：LSPosed 的设置页在卡片内不画分隔线，靠间距分组。保留 14 dp 的上留白
+        // 来维持原来的节奏，只是不再有线。
         val hair = View(this)
-        hair.setBackgroundColor(skin!!.stroke)
-        val hairLp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, skin!!.dp(1f)))
+        hair.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0)
+        val hairLp = hair.layoutParams as LinearLayout.LayoutParams
         hairLp.topMargin = skin!!.dp(14f)
-        status.addView(hair, hairLp)
 
         metricRow = LinearLayout(this)
         metricRow!!.orientation = LinearLayout.HORIZONTAL
@@ -3200,7 +3209,7 @@ class MainActivity : Activity() {
         val updateRow = LinearLayout(this)
         updateRow.orientation = LinearLayout.HORIZONTAL
         updateRow.gravity = Gravity.CENTER_VERTICAL
-        updateRow.addView(iconTile(Icon.REFRESH, skin!!.accent, skin!!.accentSoft), fixed(skin!!, 38, 38))
+        updateRow.addView(iconTile(Icon.REFRESH, skin!!.text2, skin!!.surface2), fixed(skin!!, 38, 38))
         val updateText = LinearLayout(this)
         updateText.orientation = LinearLayout.VERTICAL
         updateText.addView(skin!!.rowTitle("版本更新"))
@@ -3308,7 +3317,7 @@ class MainActivity : Activity() {
     /** 「抓取云数据」一行：官方云端下发的首页卡片 / 金刚位 / 工具宫格 / 云控开关，按版本抓一份基线。 */
     private fun cloudDataRow(): LinearLayout {
         val row = skin!!.row()
-        row.addView(iconTile(Icon.DOWNLOAD, skin!!.accent, skin!!.accentSoft), fixed(skin!!, 38, 38))
+        row.addView(iconTile(Icon.DOWNLOAD, skin!!.text2, skin!!.surface2), fixed(skin!!, 38, 38))
 
         val box = LinearLayout(this)
         box.orientation = LinearLayout.VERTICAL
@@ -3338,7 +3347,7 @@ class MainActivity : Activity() {
     /** 「运行日志」一行：进程内环形缓冲（最近 10 分钟）查看 / 复制 / 导出 txt。 */
     private fun logRow(): LinearLayout {
         val row = skin!!.row()
-        row.addView(iconTile(Icon.ARCHIVE, skin!!.accent, skin!!.accentSoft), fixed(skin!!, 38, 38))
+        row.addView(iconTile(Icon.ARCHIVE, skin!!.text2, skin!!.surface2), fixed(skin!!, 38, 38))
 
         val box = LinearLayout(this)
         box.orientation = LinearLayout.VERTICAL
@@ -3952,7 +3961,7 @@ class MainActivity : Activity() {
     private fun sheetButton(label: String, dlg: AlertDialog?, action: Runnable?): TextView {
         val b = text(label, 14f, Typeface.BOLD, cAccent())
         b.setPadding(dp(14), dp(10), dp(14), dp(10))
-        b.background = ripple(if (dark) tintBg(0x2E7AB1FF) else tintBg(0x1E0A6CF5), HEAD_R.toFloat())
+        b.background = ripple(if (dark) tintBg(HyperDesign.alpha(skin!!.accent, 0.20f)) else tintBg(HyperDesign.alpha(skin!!.accent, 0.12f)), HEAD_R.toFloat())
         b.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
                 action?.run()
@@ -4058,8 +4067,11 @@ class MainActivity : Activity() {
         nameWrap.orientation = LinearLayout.HORIZONTAL
         nameWrap.gravity = Gravity.CENTER_VERTICAL
         nameWrap.addView(skin!!.text(label, Skin.T_ROW, Skin.MEDIUM, skin!!.text2))
+        // 「未安装」是状态说明，不是错误。之前用硬编码 Material Red 0xFFE53935，
+        // 和整套 grey/blue 打架（一屏三个红色标签，视觉噪音比信息本身还大）。
+        // 改成次文字灰 —— LSPosed 全部状态文案都是中性色，颜色只留给开关和主动作。
         nameWrap.addView(skin!!.text(if (embedded()) " · 未安装" else " · 本机未安装",
-                Skin.T_ROW, Skin.MEDIUM, 0xFFE53935.toInt()))
+                Skin.T_CAPTION, Skin.REGULAR, skin!!.text3))
         row.addView(nameWrap, LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -4480,11 +4492,15 @@ class MainActivity : Activity() {
     private fun applyNav() {
         for (i in 0 until navItems.size) {
             val on = i == tabIndex
-            navIcons[i].setColor(if (on) skin!!.accent else skin!!.text2)
-            navLabels[i].setTextColor(if (on) skin!!.accent else skin!!.text2)
+            // 选中态：**不画背景块**，只把图标与文字从灰提成黑。
+            // LSPosed Manager 的底栏就是这样 —— 真机取色：未选 #838383、选中 #000000，
+            // 底栏底就是页面底 #F7F7F7，没有任何胶囊或填充。之前那个 accentSoft 圆角块
+            // 会把底栏读成一排按钮，和上面卡片抢层级。
+            navIcons[i].setColor(if (on) skin!!.text else skin!!.text3)
+            navLabels[i].setTextColor(if (on) skin!!.text else skin!!.text3)
             navLabels[i].setTypeface(if (on) Skin.MEDIUM else Skin.REGULAR)
-            navItems[i].background = if (on)
-                skin!!.solid(skin!!.accentSoft, 16f) else null
+            navItems[i].background = null
+            navItems[i].setPadding(0, skin!!.dp(4f), 0, skin!!.dp(3f))
             if (on) {
                 val item = navItems[i]
                 item.scaleX = 0.94f
@@ -4497,6 +4513,8 @@ class MainActivity : Activity() {
                         .setDuration(260L).setInterpolator(UiKit.SPRING).start()
             }
         }
+        // 指示器滑到当前项 —— 弹簧位移，连点两个 tab 会从当前位置滑过去。
+        moveNavIndicator(tabIndex, true)
     }
 
     private fun showTab(index: Int, animate: Boolean) {
@@ -4516,9 +4534,38 @@ class MainActivity : Activity() {
             finder!!.dismissKeyboard()
         }
         applyNav()
-        if (index == TAB_HOME && !homeAnimated && homePage != null && homePage!!.childCount > 0) {
-            homeAnimated = true
-            UiKit.enterStaggered(homePage!!.getChildAt(0) as ViewGroup, skin!!.dp(12f).toFloat(), 32L, 30L)
+
+        // 每次切 tab 都播一轮入场：卡片依次淡入 + 从下方 10 dp 上浮，间隔 26 ms。
+        //
+        // 之前只有「首页第一次显示」播一次（homeAnimated 守卫），其余切换是硬切 ——
+        // LSPosed 的每个页面都有入场动效，硬切在对比之下显得很廉价。
+        //
+        // 用 startDelay 而不是 ValueAnimator 串联：页面被快速来回切时，上一轮的 delay
+        // 天然被新的一轮覆盖（enter 里会 cancel 同 View 的旧动画），不会堆积。
+        val page = pageFor(index) as? ViewGroup
+        if (page != null && page.childCount > 0) {
+            val host = page.getChildAt(0) as? ViewGroup
+            if (host != null) {
+                UiKit.enterStaggered(host, skin!!.dp(10f).toFloat(), 26L, 20L)
+            }
+        }
+    }
+
+    /** 取某个 tab 的根容器（首页/配置/备份/关于），拿不到返回 null。 */
+    private fun pageFor(index: Int): View? {
+        return try {
+            when (index) {
+                TAB_HOME -> homePage
+                TAB_CONFIG -> if (pager != null && pager!!.pageCount() > TAB_CONFIG)
+                    pager!!.getChildAt(TAB_CONFIG) else null
+                TAB_BACKUP -> if (pager != null && pager!!.pageCount() > TAB_BACKUP)
+                    pager!!.getChildAt(TAB_BACKUP) else null
+                TAB_ABOUT -> if (pager != null && pager!!.pageCount() > TAB_ABOUT)
+                    pager!!.getChildAt(TAB_ABOUT) else null
+                else -> null
+            }
+        } catch (t: Throwable) {
+            null
         }
     }
 
@@ -4555,7 +4602,7 @@ class MainActivity : Activity() {
         val exportHead = LinearLayout(this)
         exportHead.orientation = LinearLayout.HORIZONTAL
         exportHead.gravity = Gravity.CENTER_VERTICAL
-        exportHead.addView(iconTile(Icon.DOWNLOAD, skin!!.accent, skin!!.accentSoft), fixed(skin!!, 40, 40))
+        exportHead.addView(iconTile(Icon.DOWNLOAD, skin!!.text2, skin!!.surface2), fixed(skin!!, 40, 40))
         val exportText = LinearLayout(this)
         exportText.orientation = LinearLayout.VERTICAL
         exportText.addView(skin!!.rowTitle("导出配置文件"))
@@ -4594,7 +4641,7 @@ class MainActivity : Activity() {
         val impHead = LinearLayout(this)
         impHead.orientation = LinearLayout.HORIZONTAL
         impHead.gravity = Gravity.CENTER_VERTICAL
-        impHead.addView(iconTile(Icon.UPLOAD, skin!!.accent, skin!!.accentSoft), fixed(skin!!, 40, 40))
+        impHead.addView(iconTile(Icon.UPLOAD, skin!!.text2, skin!!.surface2), fixed(skin!!, 40, 40))
         val impText = LinearLayout(this)
         impText.orientation = LinearLayout.VERTICAL
         impText.addView(skin!!.rowTitle("导入配置文件"))
@@ -4795,7 +4842,7 @@ class MainActivity : Activity() {
             val installed = installedVersion(pkg)
             val match = installed != null && installed.startsWith(Version.TARGETS[i][2])
             row.addView(skin!!.chip(if (installed == null) "未安装" else (if (match) "本机 " + installed else "本机 " + installed),
-                    if (installed == null) skin!!.chipBg else (if (match) (if (dark) 0x1F34D399 else 0x1416A34A)
+                    if (installed == null) skin!!.chipBg else (if (match) (if (dark) HyperDesign.alpha(skin!!.success, 0.14f) else HyperDesign.alpha(skin!!.success, 0.12f))
                     else (if (dark) 0x2AFBBF24 else 0x1AF79009)),
                     if (installed == null) skin!!.text3 else (if (match) skin!!.success else skin!!.warn)))
             versions.addView(row)
@@ -4875,24 +4922,104 @@ class MainActivity : Activity() {
 
     /* ──────────────────────────────────────────────────── 底部标签栏 */
 
+    /**
+     * 底部导航 —— **平铺**，不是浮动胶囊。
+     *
+     * <p>照 LSPosed Manager 的底栏：图标直接落在页面底色上，没有容器卡片、没有阴影、
+     * 没有圆角，只在顶缘有一条极淡的分界。之前做成「悬浮胶囊 + 26 dp 圆角 + 10 dp 阴影」，
+     * 和上面那些卡片抢层级，整页看起来像三层浮片叠在一起 —— 这也是"太奇怪"的一部分。
+     */
+    /**
+     * 悬浮底栏 —— 一颗悬在内容之上的胶囊，选中有滑动指示器。
+     *
+     * 结构：
+     * ```
+     * navBar        透明，只负责给胶囊留外边距（16 dp 侧 / 10 dp 底 + 手势条 inset）
+     *  └ holder     FrameLayout，背景 = squircle(surface, 28)，带 8 dp 投影
+     *      ├ indicator  选中指示器，一个 squircle 色块，跟弹簧在四项之间滑动
+     *      └ row        4 个 tab，各占 1/4 宽
+     * ```
+     *
+     * 指示器用 `translationX` 驱动而不是重建背景：这样连点两个 tab 时它会**从当前位置
+     * 滑过去**，而不是先消失再出现。位置在 `applyNav` 里按实测宽度算，因为第一次调用时
+     * 还没 layout，宽度是 0。
+     */
     private fun buildBottomNav(): LinearLayout {
         navBar = LinearLayout(this)
         navBar.orientation = LinearLayout.VERTICAL
         navBar.setBackgroundColor(0x00000000)
-        navBar.setPadding(skin!!.dp(16f), skin!!.dp(6f), skin!!.dp(16f), skin!!.dp(10f))
+        navBar.setPadding(skin!!.dp(16f), 0, skin!!.dp(16f), skin!!.dp(10f))
 
-        val pill = LinearLayout(this)
-        pill.orientation = LinearLayout.HORIZONTAL
-        pill.setPadding(skin!!.dp(8f), skin!!.dp(6f), skin!!.dp(8f), skin!!.dp(6f))
-        pill.background = skin!!.glassFor(pill, 26f)
-        UiKit.clipRounded(pill, skin!!.dp(26f).toFloat())
-        skin!!.shadow(pill, 10f)
-        navBar.addView(pill, skin!!.matchWrap())
+        navHolder = FrameLayout(this)
+        navHolder!!.background = skin!!.glassFor(navHolder!!, 28f)
+        UiKit.clipRounded(navHolder!!, skin!!.dp(28f).toFloat())
+        skin!!.shadow(navHolder!!, 8f)
+        // 68 dp = 图标容器 28 + 文字 ~15 + 项内上下 8 + 行内上下 8，留 9 dp 余量。
+        // 62 dp 时文字底部会被胶囊裁掉一截（首页/配置/备份/关于 四个字的下缘发虚）。
+        navBar.addView(navHolder, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(68f)))
 
-        addNavItem(pill, Icon.HOME, "首页")
-        addNavItem(pill, Icon.TUNE, "配置")
-        addNavItem(pill, Icon.ARCHIVE, "备份")
-        addNavItem(pill, Icon.INFO, "关于")
+        navIndicator = View(this)
+        navIndicator!!.background = skin!!.solid(
+                HyperDesign.alpha(skin!!.accent, if (dark) 0.18f else 0.10f), 20f)
+        val ilp = FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
+        ilp.leftMargin = skin!!.dp(6f)
+        ilp.rightMargin = 0
+        ilp.topMargin = skin!!.dp(5f)
+        ilp.bottomMargin = skin!!.dp(5f)
+        navHolder!!.addView(navIndicator, ilp)
+
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.setPadding(skin!!.dp(6f), skin!!.dp(5f), skin!!.dp(6f), skin!!.dp(5f))
+        navHolder!!.addView(row, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        addNavItem(row, Icon.HOME, "首页")
+        addNavItem(row, Icon.TUNE, "配置")
+        addNavItem(row, Icon.ARCHIVE, "备份")
+        addNavItem(row, Icon.INFO, "关于")
         return navBar
+    }
+
+    /**
+     * 把选中指示器滑到第 [index] 项。
+     *
+     * 宽度要在 layout 之后才知道，所以这里用 `post` 兜一次；已经在屏幕上的调用直接算。
+     * 弹簧参数 (0.85, 0.30)：略微过冲，读起来是「滑过去轻轻撞一下」。
+     */
+    private fun moveNavIndicator(index: Int, animate: Boolean) {
+        val holder = navHolder ?: return
+        val ind = navIndicator ?: return
+        val run = Runnable {
+            val w = holder.width
+            if (w <= 0) return@Runnable
+            val inset = skin!!.dp(6f)
+            val cellW = (w - inset * 2) / 4f
+            val lp = ind.layoutParams as FrameLayout.LayoutParams
+            val targetW = Math.max(1, cellW.toInt() - skin!!.dp(8f))
+            if (lp.width != targetW) {
+                lp.width = targetW
+                lp.leftMargin = inset + skin!!.dp(4f)
+                ind.layoutParams = lp
+            }
+            val targetX = cellW * index
+
+            // 用 ViewPropertyAnimator 而不是 HyperMotion.Driver：
+            // Driver 内部那个 ValueAnimator 在「settle 时自我 cancel、下一轮再 start」这条
+            // 路径上不重启（实测指示器永远停在第一格），而 ViewPropertyAnimator 每次
+            // animate() 都会自动取消上一段并从当前值续走，行为确定。
+            // 曲线仍用 UiKit.SPRING —— 轻微过冲，读起来是「滑过去轻轻撞一下」。
+            ind.animate().cancel()
+            if (!animate) {
+                ind.translationX = targetX
+            } else {
+                ind.animate().translationX(targetX)
+                        .setDuration(300L)
+                        .setInterpolator(UiKit.SPRING)
+                        .start()
+            }
+        }
+        if (holder.width > 0) run.run() else holder.post(run)
     }
 }
