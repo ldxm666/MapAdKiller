@@ -13,7 +13,29 @@ $Jdk   = "D:\JDK"
 $Javac = "$Jdk\bin\javac.exe"
 $Keytool = "$Jdk\bin\keytool.exe"
 
+# ── Kotlin 工具链 ────────────────────────────────────────────────────────────
+# 编译器来自 Gradle 8.9 发行版自带的 kotlin-compiler-embeddable（版本 1.9.23）。
+# 本机没有独立 kotlinc，也没有 gradle 命令 —— 直接用 java -cp 调 K2JVMCompiler。
+# 这套 jar 缺任何一个都会 NoClassDefFoundError（trove4j 尤其容易漏）。
+$KotlinLib = "$env:USERPROFILE\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a\gradle-8.9\lib"
+$KotlinJars = @(
+    "kotlin-compiler-embeddable-1.9.23.jar",
+    "kotlin-stdlib-1.9.23.jar",
+    "kotlin-reflect-1.9.23.jar",
+    "kotlin-script-runtime-1.9.23.jar",
+    "trove4j-1.0.20200330.jar",
+    "annotations-24.0.1.jar",
+    "kotlin-daemon-embeddable-1.9.23.jar"
+) | ForEach-Object { Join-Path $KotlinLib $_ }
+$KotlinCp = $KotlinJars -join ";"
+# 注意：$KotlinStdlib 依赖 $App，而 $App = $PSScriptRoot 在下面才赋值 ——
+# 定义放这儿会拼出 "\libs\..." 这种相对空路径，症状是 kotlinc 报
+# "cannot access built-in declaration 'kotlin.String'"（stdlib 不在 classpath 上）。
+# 所以它在 $App 之后定义。
+$Java = "$Jdk\bin\java.exe"
+
 $App = $PSScriptRoot
+$KotlinStdlib = Join-Path $App "libs\kotlin-stdlib-1.9.23.jar"
 $Out = Join-Path $App "dist"
 # 仓库 output\（本脚本位于 app\，故向上一级）
 $Repo = Split-Path $App -Parent
@@ -38,8 +60,13 @@ if (-not (Test-Path "$src\AndroidManifest.xml")) { throw "copy failed" }
 
 # 产物名按 Version.NAME 动态生成 —— 这里曾经硬编码 v2.1.6，改版本号时漏改就会
 # 把新版本号写进内容、却仍然输出旧文件名的 APK（发布时极易传错包）。
-$verText = [System.IO.File]::ReadAllText("$src\src\io\github\ldxm666\mapclean\Version.java")
-if ($verText -notmatch 'NAME\s*=\s*"([^"]+)"') { throw "cannot parse Version.NAME from Version.java" }
+# 版本号来源可能是 Version.java 也可能是 Version.kt（转译后）—— 两处都试。
+$verFile = @("$src\src\io\github\ldxm666\mapclean\Version.kt",
+             "$src\src\io\github\ldxm666\mapclean\Version.java") |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $verFile) { throw "Version.java / Version.kt not found" }
+$verText = [System.IO.File]::ReadAllText($verFile)
+if ($verText -notmatch 'NAME\s*(?::\s*String\s*)?=\s*"([^"]+)"') { throw "cannot parse Version.NAME from $verFile" }
 $VerName = $Matches[1]
 if ($VerName -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$') { throw "unexpected Version.NAME: $VerName" }
 $LspName = "MapClean-lsp-v$VerName.apk"
@@ -52,16 +79,45 @@ Write-Host "[1/6] prepare separate test API stubs (never packaged)"
 & $Javac -encoding UTF-8 -nowarn -source 8 -target 8 -bootclasspath $Aj -d "$src\build\stubs" (Get-ChildItem "$src\stub-src" -Recurse -Filter *.java | % FullName) 2>"$src\build\j1.err"
 if ($LASTEXITCODE -ne 0) { Get-Content "$src\build\j1.err"; throw "stub compile failed" }
 
-Write-Host "[2/6] compile module sources (+ libxposed service jar)"
-& $Javac -encoding UTF-8 -nowarn --release 8 -classpath "$Aj;$src\libs\api-102.0.0.jar;$src\libs\service-classes.jar;$src\libs\interface-102.0.0.jar" -d "$src\build\classes" (Get-ChildItem "$src\src" -Recurse -Filter *.java | % FullName) 2>"$src\build\j2.err"
-if ($LASTEXITCODE -ne 0) { Get-Content "$src\build\j2.err"; throw "module compile failed" }
+# ── Kotlin 先编译 ───────────────────────────────────────────────────────────
+# 混编顺序必须是 kotlinc → javac：
+#   kotlinc 能读 .java 做符号解析（但不产出它们的 class），所以它先跑，
+#   编译结果里就同时包含 kt 和「被 javac 编译前的 java 类型信息」；
+#   然后 javac 以 kotlin 输出为 classpath 编译剩下的 .java，Kotlin 类可见。
+#   反过来做则 Kotlin 看不到 java 源码里定义的类型。
+Write-Host "[2/7] compile Kotlin sources"
+$ktFiles  = @(Get-ChildItem "$src\src" -Recurse -Filter *.kt | % FullName)
+$javaFiles= @(Get-ChildItem "$src\src" -Recurse -Filter *.java | % FullName)
+if ($ktFiles.Count -gt 0) {
+    # kotlinc 的 user classpath 里必须带 stdlib，否则 `listOf` 之类全部解析失败
+    $ktCp = "$Aj;$src\libs\api-102.0.0.jar;$src\libs\service-classes.jar;$src\libs\interface-102.0.0.jar;$KotlinStdlib"
+    & $Java -cp $KotlinCp org.jetbrains.kotlin.cli.jvm.K2JVMCompiler `
+        -no-stdlib -no-reflect -nowarn -jvm-target 1.8 `
+        -classpath $ktCp -d "$src\build\classes" @ktFiles @javaFiles 2>"$src\build\k1.err"
+    if ($LASTEXITCODE -ne 0) { Get-Content "$src\build\k1.err" -ErrorAction SilentlyContinue; throw "kotlin compile failed" }
+    Write-Host "      kotlin: $($ktFiles.Count) files"
+} else {
+    Write-Host "      kotlin: none (pure java build)"
+}
+
+Write-Host "[3/7] compile Java sources (+ libxposed service jar)"
+if ($javaFiles.Count -gt 0) {
+    & $Javac -encoding UTF-8 -nowarn --release 8 -classpath "$Aj;$src\libs\api-102.0.0.jar;$src\libs\service-classes.jar;$src\libs\interface-102.0.0.jar;$src\build\classes;$KotlinStdlib" -d "$src\build\classes" @javaFiles 2>"$src\build\j2.err"
+    if ($LASTEXITCODE -ne 0) { Get-Content "$src\build\j2.err"; throw "module compile failed" }
+    Write-Host "      java: $($javaFiles.Count) files"
+}
 $ErrorActionPreference = $EAP
 
-Write-Host "[3/6] d8 -> classes.dex (module + libxposed service merged)"
+Write-Host "[4/7] d8 -> classes.dex (module + libxposed service merged)"
 & "$Jdk\bin\jar.exe" -cf "$src\build\classes.jar" -C "$src\build\classes" .
 if ($LASTEXITCODE -ne 0) { throw "module classes jar failed" }
 Copy-Item "$src\libs\service-classes.jar" "$src\build\service-classes.jar"
-cmd /c "`"$Bt\d8.bat`" --min-api 26 --lib `"$Aj`" --lib `"$src\libs\api-102.0.0.jar`" --output `"$src\build\dex`" `"$src\build\classes.jar`" `"$src\build\service-classes.jar`" `"$src\libs\interface-102.0.0.jar`" > `"$src\build\d8.log`" 2>&1"
+# kotlin-stdlib 必须进 d8：Kotlin 代码在运行期要它的实现（Intrinsics、CollectionsKt 等）。
+# interface-102.0.0.jar 只做 --lib（编译用），不进 dex。
+$d8Inputs = @("$src\build\classes.jar", "$src\build\service-classes.jar")
+if (Test-Path $KotlinStdlib) { $d8Inputs += $KotlinStdlib }
+$d8Args = ($d8Inputs | ForEach-Object { "`"$_`"" }) -join " "
+cmd /c "`"$Bt\d8.bat`" --min-api 26 --lib `"$Aj`" --lib `"$src\libs\api-102.0.0.jar`" --output `"$src\build\dex`" $d8Args > `"$src\build\d8.log`" 2>&1"
 Get-Content "$src\build\d8.log" -ErrorAction SilentlyContinue | Select-Object -Last 15
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$src\build\dex\classes.dex")) { throw "d8 failed" }
 
@@ -86,7 +142,7 @@ foreach ($symbol in @("Lio/github/ldxm666/bmapclean/MainHook;",
     }
 }
 
-Write-Host "[4/6] aapt2 compile+link, then add dex/META-INF"
+Write-Host "[5/7] aapt2 compile+link, then add dex/META-INF"
 & "$Bt\aapt2.exe" compile --dir "$src\res" -o "$src\build\res.zip" > "$src\build\aapt2c.log" 2>&1
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$src\build\res.zip")) { Get-Content "$src\build\aapt2c.log"; throw "aapt2 compile failed" }
 & "$Bt\aapt2.exe" link -o "$src\build\out\module.apk" --manifest "$src\AndroidManifest.xml" -I $Aj --min-sdk-version 26 --target-sdk-version 34 "$src\build\res.zip" > "$src\build\aapt2l.log" 2>&1
@@ -139,7 +195,7 @@ if ($seven) {
 Pop-Location
 if (-not (Test-Path "$src\build\out\module.apk")) { throw "zip add failed" }
 
-Write-Host "[5/6] zipalign + sign v1+v2+v3"
+Write-Host "[6/7] zipalign + sign v1+v2+v3"
 & "$Bt\zipalign.exe" -P 16 -f 4 "$src\build\out\module.apk" "$src\build\out\module-aligned.apk"
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$src\build\out\module-aligned.apk")) { throw "16 KB zipalign failed" }
 & "$Bt\zipalign.exe" -c -P 16 4 "$src\build\out\module-aligned.apk"
@@ -171,7 +227,7 @@ Get-Content "$src\build\sign.log" -ErrorAction SilentlyContinue | Select-Object 
 & "$Bt\zipalign.exe" -c -P 16 4 "$src\build\out\BMapClean.apk"
 if ($LASTEXITCODE -ne 0) { throw "signed APK 16 KB alignment verification failed" }
 
-Write-Host "[6/6] dist"
+Write-Host "[7/7] dist"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 New-Item -ItemType Directory -Force -Path $Rel | Out-Null
 Copy-Item "$src\build\out\BMapClean.apk" "$Out\BMapClean.apk" -Force
