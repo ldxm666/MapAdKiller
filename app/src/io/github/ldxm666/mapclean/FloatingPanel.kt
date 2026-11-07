@@ -187,8 +187,10 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         // ---- card --------------------------------------------------------
         card = LinearLayout(c)
         card.orientation = LinearLayout.VERTICAL
-        card.background = UiKit.glass(cGlass(), cRimHi(), cRimLo(),
-                UiKit.dpf(c, 26f), UiKit.dp(c, 1f))
+        // 卡片底取 surfaceContainer，**不描边**：miuix 的层级靠页面底色差 + 页边距切分，
+        // 不靠 outline —— 那圈 specular rim 是 Liquid Glass 的残留。圆角走连续曲率
+        // squircle，28dp = 底部弹层 token（HyperDesign.R_DIALOG）。
+        card.background = SquircleDrawable(cGlass(), UiKit.dpf(c, HyperDesign.R_DIALOG))
         card.elevation = 0f
         val cardLp = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
@@ -220,7 +222,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val foot = TextView(c)
         foot.text = "修改即时写入；地图内页面可能需要重新进入才会刷新。"
-        foot.setTextSize(11.5f)
+        foot.setTextSize(HyperDesign.T_BODY3)
+        foot.setLineSpacing(0f, 1.2f)
         foot.setTextColor(cTxS())
         foot.setPadding(UiKit.dp(c, 20f), 0, UiKit.dp(c, 20f), UiKit.dp(c, 14f))
         card.addView(foot)
@@ -228,7 +231,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         // Persistent write-failure line. Hidden while writes work; a toast is gone in two
         // seconds and leaves the user staring at a switch that flipped back.
         val warn = TextView(c)
-        warn.setTextSize(11.5f)
+        warn.setTextSize(HyperDesign.T_BODY3)
+        warn.setLineSpacing(0f, 1.2f)
         warn.setTextColor(cWarn())
         warn.setPadding(UiKit.dp(c, 20f), 0, UiKit.dp(c, 20f), UiKit.dp(c, 10f))
         warn.visibility = View.GONE
@@ -304,13 +308,15 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val title = TextView(ctx)
         title.text = "赞赏支持"
-        title.setTextSize(13.5f)
+        title.setTextSize(HyperDesign.T_BODY3)
+        title.setLineSpacing(0f, 1.2f)
         title.setTextColor(cTxP())
         wrap.addView(title)
 
         val sub = TextView(ctx)
         sub.text = "点这里扫码 · 请作者喝杯咖啡"
-        sub.setTextSize(11f)
+        sub.setTextSize(HyperDesign.T_LABEL)
+        sub.setLineSpacing(0f, 1.2f)
         sub.setTextColor(cTxS())
         sub.setPadding(0, UiKit.dp(ctx, 2f), 0, 0)
         wrap.addView(sub)
@@ -330,7 +336,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val action = TextView(ctx)
         action.text = "恢复默认配置"
-        action.setTextSize(12f)
+        action.setTextSize(HyperDesign.T_CAPTION)
+        action.setLineSpacing(0f, 1.2f)
         action.setTextColor(cAccent())
         action.paintFlags = action.paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
         action.setPadding(UiKit.dp(ctx, 4f), UiKit.dp(ctx, 2f),
@@ -347,9 +354,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val hint = TextView(ctx)
         hint.text = "重新套用模块内置的那套配置；会覆盖当前开关，" + "未设置的项（null）保持原样。"
-        hint.setTextSize(10.5f)
+        hint.setTextSize(HyperDesign.T_LABEL)
+        hint.setLineSpacing(0f, 1.2f)
         hint.setTextColor(cTxS())
-        hint.setLineSpacing(0f, 1.16f)
         val hlp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         hlp.topMargin = UiKit.dp(ctx, 2f)
@@ -457,10 +464,15 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val title = TextView(ctx)
         title.text = "MapAdKiller"
-        title.setTextSize(17f)
-        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
+        // 面板标题 = miuix title2：24sp / Medium(500)。原来 17sp + DEFAULT_BOLD(700)，
+        // 比正文字号还小、字重还重 —— 读起来像一段加粗的正文而不是标题。
+        title.setTextSize(HyperDesign.T_TITLE)
+        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
+                android.graphics.Typeface.NORMAL))
         title.setTextColor(cTxP())
-        title.setLetterSpacing(0.01f)
+        // 24sp 收一点负字距：中文字形本身已是全宽，大字号的默认间距会显得松散
+        // （与模块版 Skin.text 的 sp >= 20f 分支一致）。
+        title.setLetterSpacing(-0.015f)
         title.isSingleLine = true
         title.ellipsize = android.text.TextUtils.TruncateAt.END
         // The title absorbs any shortfall: the version chip and its 「新版本」 badge must never
@@ -486,7 +498,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         titles.addView(meta, metaLp)
 
         val pill = TextView(ctx)
-        pill.setTextSize(11.5f)
+        pill.setTextSize(HyperDesign.T_BODY3)
+        pill.setLineSpacing(0f, 1.2f)
         pill.setPadding(UiKit.dp(ctx, 8f), UiKit.dp(ctx, 3f),
                 UiKit.dp(ctx, 8f), UiKit.dp(ctx, 3f))
         // The pill can only hold a short phrase; the actionable explanation lives on long-press
@@ -516,7 +529,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val close = TextView(ctx)
         close.text = "✕"
-        close.setTextSize(17f)
+        close.setTextSize(HyperDesign.T_BODY1)
+        close.setLineSpacing(0f, 1.2f)
         close.setTextColor(cTxS())
         close.gravity = Gravity.CENTER
         close.contentDescription = "关闭"
@@ -568,7 +582,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val label = TextView(ctx)
         label.text = "GitHub"
-        label.setTextSize(11f)
+        label.setTextSize(HyperDesign.T_LABEL)
+        label.setLineSpacing(0f, 1.2f)
         label.setTextColor(cTxS())
         link.addView(label)
 
@@ -659,8 +674,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
             // app. Say what is actually wrong, not where the user supposedly is.
             pill.text = "○ 只读"
             pill.setTextColor(cDotBad())
-            pill.background = UiKit.plate(cWarnFill(),
-                    UiKit.dpf(ctx, 20f))
+            pill.background = SquircleDrawable(cWarnFill(),
+                    UiKit.dpf(ctx, HyperDesign.R_PILL))
             FloatingConfig.reportNoWritePath("status")
         } else if (refused) {
             // A backend exists but the last write was refused (permissions / IO / disk full).
@@ -668,21 +683,21 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
             pill.text = if (backend == FloatingConfig.BACKEND_REMOTE)
                 "● 已连接 · 写入被拒" else "● 本地 · 写入被拒"
             pill.setTextColor(cWarn())
-            pill.background = UiKit.plate(if (dark) 0x26FFB020 else 0x1AF79009,
-                    UiKit.dpf(ctx, 20f))
+            pill.background = SquircleDrawable(if (dark) 0x26FFB020 else 0x1AF79009,
+                    UiKit.dpf(ctx, HyperDesign.R_PILL))
         } else if (backend == FloatingConfig.BACKEND_REMOTE) {
             pill.text = "● 已连接"
             pill.setTextColor(cDotOk())
-            pill.background = UiKit.plate(if (dark) 0x262BD88A else 0x1A12B76A,
-                    UiKit.dpf(ctx, 20f))
+            pill.background = SquircleDrawable(if (dark) 0x262BD88A else 0x1A12B76A,
+                    UiKit.dpf(ctx, HyperDesign.R_PILL))
         } else {
             // Local SharedPreferences backend: writable in-process, no framework channel
             // needed. This is the state the 免 root build falls back to on devices where the
             // remote channel never arrives.
             pill.text = "● 本地"
             pill.setTextColor(cAccent())
-            pill.background = UiKit.plate(cRipple(),
-                    UiKit.dpf(ctx, 20f))
+            pill.background = SquircleDrawable(cRipple(),
+                    UiKit.dpf(ctx, HyperDesign.R_PILL))
         }
         paintWriteWarn()
     }
@@ -718,7 +733,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     /** The version capsule: one chip, four states, never clipped (WRAP_CONTENT). */
     private fun versionChip(): TextView {
         val chip = TextView(ctx)
-        chip.setTextSize(10.5f)
+        chip.setTextSize(HyperDesign.T_LABEL)
+        chip.setLineSpacing(0f, 1.2f)
         chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
         chip.isSingleLine = true
         chip.gravity = Gravity.CENTER
@@ -746,14 +762,15 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     private fun versionBadge(): TextView {
         val badge = TextView(ctx)
         badge.text = "新版本"
-        badge.setTextSize(9.5f)
+        badge.setTextSize(HyperDesign.T_LABEL)
+        badge.setLineSpacing(0f, 1.2f)
         badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
         badge.setTextColor(0xFFFFFFFF.toInt())
         badge.isSingleLine = true
         badge.gravity = Gravity.CENTER
         badge.setPadding(UiKit.dp(ctx, 5f), UiKit.dp(ctx, 1f),
                 UiKit.dp(ctx, 5f), UiKit.dp(ctx, 1f))
-        badge.background = UiKit.plate(hd().error, UiKit.dpf(ctx, 6f))
+        badge.background = SquircleDrawable(hd().error, UiKit.dpf(ctx, HyperDesign.R_PILL))
         badge.visibility = View.GONE
         versionBadge = badge
         return badge
@@ -793,7 +810,7 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         if (chip != null) {
             chip.text = text
             chip.setTextColor(color)
-            chip.background = UiKit.plate(tint(color), UiKit.dpf(ctx, 10f))
+            chip.background = SquircleDrawable(tint(color), UiKit.dpf(ctx, HyperDesign.R_PILL))
             chip.contentDescription = if (badge)
                 "当前版本 v" + Version.NAME + "，线上有 v" + updateLatest + "，点此查看"
             else
@@ -952,8 +969,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         val wrap = LinearLayout(ctx)
         wrap.orientation = LinearLayout.HORIZONTAL
         wrap.gravity = Gravity.CENTER_VERTICAL
-        wrap.background = UiKit.plate(if (dark) 0x1AFFFFFF else 0x0F000000,
-                UiKit.dpf(ctx, 12f))
+        wrap.background = SquircleDrawable(if (dark) 0x1AFFFFFF else 0x0F000000,
+                UiKit.dpf(ctx, HyperDesign.R_CONTROL))
         wrap.setPadding(UiKit.dp(ctx, 12f), 0, UiKit.dp(ctx, 8f), 0)
 
         val wrapLp = LinearLayout.LayoutParams(
@@ -965,7 +982,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val glyph = TextView(ctx)
         glyph.text = "⌕"
-        glyph.setTextSize(16f)
+        glyph.setTextSize(HyperDesign.T_BODY1)
+        glyph.setLineSpacing(0f, 1.2f)
         glyph.setTextColor(cTxS())
         wrap.addView(glyph)
 
@@ -973,7 +991,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         field.hint = "搜索设置项 / 工具名"
         field.setHintTextColor(cTxS())
         field.setTextColor(cTxP())
-        field.setTextSize(13.5f)
+        field.setTextSize(HyperDesign.T_BODY3)
+        field.setLineSpacing(0f, 1.2f)
         field.isSingleLine = true
         field.background = null
         field.setPadding(UiKit.dp(ctx, 8f), 0, UiKit.dp(ctx, 4f), 0)
@@ -995,7 +1014,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
 
         val count = TextView(ctx)
-        count.setTextSize(11.5f)
+        count.setTextSize(HyperDesign.T_BODY3)
+        count.setLineSpacing(0f, 1.2f)
         count.setTextColor(cTxS())
         count.visibility = View.GONE
         searchCount = count
@@ -1003,7 +1023,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val clear = TextView(ctx)
         clear.text = "✕"
-        clear.setTextSize(13f)
+        clear.setTextSize(HyperDesign.T_CAPTION)
+        clear.setLineSpacing(0f, 1.2f)
         clear.setTextColor(cTxS())
         clear.gravity = Gravity.CENTER
         clear.contentDescription = "清除搜索"
@@ -1060,7 +1081,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         val hs = HorizontalScrollView(ctx)
         hs.isHorizontalScrollBarEnabled = false
         hs.setClipToPadding(false)
-        hs.setPadding(UiKit.dp(ctx, 14f), 0, UiKit.dp(ctx, 14f), UiKit.dp(ctx, 8f))
+        hs.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), 0,
+                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()))
         railScroll = hs      // kept so select() can scroll the chosen chip into view
         // No OnTouchListener here (r12 regression). A listener on the scroller -- or any
         // requestDisallowInterceptTouchEvent() issued from a view *inside* it -- propagates
@@ -1084,10 +1106,11 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
             val index = i
             val chip = TextView(ctx)
             chip.text = groups[i].label
-            chip.setTextSize(13f)
+            chip.setTextSize(HyperDesign.T_CAPTION)
+            chip.setLineSpacing(0f, 1.2f)
             chip.gravity = Gravity.CENTER
-            chip.setPadding(UiKit.dp(ctx, 14f), UiKit.dp(ctx, 7f),
-                    UiKit.dp(ctx, 14f), UiKit.dp(ctx, 7f))
+            chip.setPadding(UiKit.dp(ctx, HyperDesign.S3.toFloat()), UiKit.dp(ctx, 7f),
+                    UiKit.dp(ctx, HyperDesign.S3.toFloat()), UiKit.dp(ctx, 7f))
             val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             if (i > 0) lp.setMarginStart(UiKit.dp(ctx, 7f))
@@ -1150,10 +1173,14 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
                 chip.setTextColor(if (on) 0xFFFFFFFF.toInt() else cTxS())
                 chip.setTypeface(if (on) android.graphics.Typeface.DEFAULT_BOLD
                         else android.graphics.Typeface.DEFAULT)
+                // 选中 / 未选中用同一套几何：squircle 胶囊（R_PILL 在短边上自动退化成全圆角）。
+                // 原来是「选中 = 渐变、未选中 = 圆角矩形」，两种曲线拼在一排上；miuix 的
+                // Tab 指示器是纯色块，没有渐变，所以选中态取 primary 实色。
                 chip.background = if (on)
-                    UiKit.gradient(cAccentTop(), cAccentBottom(), UiKit.dpf(ctx, 18f))
+                    SquircleDrawable(cAccent(), UiKit.dpf(ctx, HyperDesign.R_PILL))
                 else
-                    UiKit.plate(if (dark) 0x1AFFFFFF else 0x0F000000, UiKit.dpf(ctx, 18f))
+                    SquircleDrawable(if (dark) 0x1AFFFFFF else 0x0F000000,
+                            UiKit.dpf(ctx, HyperDesign.R_PILL))
             }
         }
         scrollRailToSelected(index)
@@ -1241,10 +1268,13 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     private fun sectionHeader(title: String, count: Int): TextView {
         val header = TextView(ctx)
         header.text = title + "　·　" + count + " 项"
-        header.setTextSize(11.5f)
-        header.setTextColor(cTxS())
-        header.setPadding(UiKit.dp(ctx, 16f), UiKit.dp(ctx, 14f),
-                UiKit.dp(ctx, 16f), UiKit.dp(ctx, 4f))
+        // 分组标题 = miuix SmallTitle：14sp / Bold(700) / onBackgroundVariant。
+        header.setTextSize(HyperDesign.T_BODY3)
+        header.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
+        header.setTextColor(hd().onBackgroundVariant)
+        header.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()),
+                UiKit.dp(ctx, HyperDesign.S2.toFloat()),
+                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S1.toFloat()))
         return header
     }
 
@@ -1292,7 +1322,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         if (total == 0) {
             val empty = TextView(ctx)
             empty.text = "没有匹配「" + query + "」的设置项"
-            empty.setTextSize(13.5f)
+            empty.setTextSize(HyperDesign.T_BODY3)
+            empty.setLineSpacing(0f, 1.2f)
             empty.setTextColor(cTxS())
             empty.gravity = Gravity.CENTER
             empty.setPadding(0, UiKit.dp(ctx, 40f), 0, UiKit.dp(ctx, 40f))
@@ -1315,26 +1346,29 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         val row = LinearLayout(ctx)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
-        row.setPadding(UiKit.dp(ctx, 14f), UiKit.dp(ctx, 11f),
-                UiKit.dp(ctx, 14f), UiKit.dp(ctx, 11f))
-        row.background = UiKit.rippleBare(cRipple(), UiKit.dpf(ctx, 14f))
+        // 行几何：ROW_PAD(16) 水平 / S2(8) 垂直 / 最小高度 ROW_H(56)。miuix 的设置项行
+        // 不在卡片内画分隔线 —— 行靠自身 padding 形成呼吸，卡片与页面底色差切出边界。
+        row.minimumHeight = UiKit.dp(ctx, HyperDesign.ROW_H.toFloat())
+        row.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()),
+                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()))
+        row.background = UiKit.rippleBare(cRipple(), UiKit.dpf(ctx, HyperDesign.R_CONTROL))
 
         val texts = LinearLayout(ctx)
         texts.orientation = LinearLayout.VERTICAL
 
         val title = TextView(ctx)
         title.text = item.title
-        title.setTextSize(14.5f)
+        title.setTextSize(HyperDesign.T_BODY1)
+        title.setLineSpacing(0f, 1.2f)
         title.setTextColor(cTxP())
-        title.setLineSpacing(0f, 1.14f)
         texts.addView(title)
 
         if (!item.note.isNullOrEmpty()) {
             val note = TextView(ctx)
             note.text = item.note
-            note.setTextSize(11.5f)
+            note.setTextSize(HyperDesign.T_BODY3)
+            note.setLineSpacing(0f, 1.2f)
             note.setTextColor(cTxS())
-            note.setLineSpacing(0f, 1.16f)
             val nlp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             nlp.topMargin = UiKit.dp(ctx, 3f)
@@ -1422,6 +1456,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
      * 用的全是这个文件已有的原子：[UiKit.plate] 做底色、[UiKit.ripple] 做水波、
      * [UiKit.pressable] 做按压反馈，配色取 `cAccent/cTxS/cDotBad`，
      * 和首页「首次使用」卡片是同一套观感。
+     *
+     * 2026：底色原子已从 UiKit.plate（四分之一圆弧）换成 SquircleDrawable
+     * （连续曲率），与模块版 Skin.solid() 同一套几何。
      */
     private fun buildAnnounceBanner(): View? {
         var unread = false
@@ -1440,18 +1477,19 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         val row = LinearLayout(ctx)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
-        row.setPadding(UiKit.dp(ctx, 12f), UiKit.dp(ctx, 10f),
-                UiKit.dp(ctx, 12f), UiKit.dp(ctx, 10f))
+        row.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, 10f),
+                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, 10f))
         val tone = if (unread) cAccent() else cTxS()
         row.background = UiKit.ripple(cRipple(),
-                UiKit.plate((tone and 0x00FFFFFF) or (if (unread) 0x1F000000 else 0x0D000000),
-                        UiKit.dpf(ctx, 14f)), UiKit.dpf(ctx, 14f))
+                SquircleDrawable((tone and 0x00FFFFFF) or (if (unread) 0x1F000000 else 0x0D000000),
+                        UiKit.dpf(ctx, HyperDesign.R_CONTROL)),
+                UiKit.dpf(ctx, HyperDesign.R_CONTROL))
         row.isClickable = true
         UiKit.pressable(row, 0.99f)
 
         if (unread) {
             val dot = View(ctx)
-            dot.background = UiKit.plate(cDotBad(), UiKit.dpf(ctx, 4f))
+            dot.background = SquircleDrawable(cDotBad(), UiKit.dpf(ctx, HyperDesign.R_PILL))
             val dotLp = LinearLayout.LayoutParams(
                     UiKit.dp(ctx, 8f), UiKit.dp(ctx, 8f))
             dotLp.rightMargin = UiKit.dp(ctx, 8f)
@@ -1462,14 +1500,16 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         texts.orientation = LinearLayout.VERTICAL
         val title = TextView(ctx)
         title.text = if (unread) "服务器公告" else "最新公告"
-        title.setTextSize(13f)
+        title.setTextSize(HyperDesign.T_CAPTION)
+        title.setLineSpacing(0f, 1.2f)
         title.setTextColor(if (unread) cAccent() else cTxP())
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
         texts.addView(title)
         if (latest != null) {
             val note = TextView(ctx)
             note.text = latest
-            note.setTextSize(11f)
+            note.setTextSize(HyperDesign.T_LABEL)
+            note.setLineSpacing(0f, 1.2f)
             note.setTextColor(cTxS())
             note.isSingleLine = true
             note.ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1480,7 +1520,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val action = TextView(ctx)
         action.text = if (unread) "查看 ›" else "›"
-        action.setTextSize(12f)
+        action.setTextSize(HyperDesign.T_CAPTION)
+        action.setLineSpacing(0f, 1.2f)
         action.setTextColor(if (unread) cAccent() else cTxS())
         row.addView(action, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -1544,9 +1585,10 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         val row = LinearLayout(ctx)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
-        row.setPadding(UiKit.dp(ctx, 14f), UiKit.dp(ctx, 11f),
-                UiKit.dp(ctx, 14f), UiKit.dp(ctx, 11f))
-        row.background = UiKit.rippleBare(cRipple(), UiKit.dpf(ctx, 14f))
+        row.minimumHeight = UiKit.dp(ctx, HyperDesign.ROW_H.toFloat())
+        row.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()),
+                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()))
+        row.background = UiKit.rippleBare(cRipple(), UiKit.dpf(ctx, HyperDesign.R_CONTROL))
         row.isClickable = true
 
         val texts = LinearLayout(ctx)
@@ -1554,7 +1596,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val title = TextView(ctx)
         title.text = "最新公告"
-        title.setTextSize(14.5f)
+        title.setTextSize(HyperDesign.T_BODY1)
+        title.setLineSpacing(0f, 1.2f)
         title.setTextColor(cTxP())
         texts.addView(title)
 
@@ -1565,9 +1608,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         } catch (ignored: Throwable) {
         }
         note.text = latest ?: "点开查看作者最近发布的一条公告"
-        note.setTextSize(11.5f)
+        note.setTextSize(HyperDesign.T_BODY3)
+        note.setLineSpacing(0f, 1.2f)
         note.setTextColor(cTxS())
-        note.setLineSpacing(0f, 1.16f)
         val nlp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         nlp.topMargin = UiKit.dp(ctx, 3f)
@@ -1578,7 +1621,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val arrow = TextView(ctx)
         arrow.text = "›"
-        arrow.setTextSize(20f)
+        arrow.setTextSize(HyperDesign.T_SUBTITLE)
+        arrow.setLineSpacing(0f, 1.2f)
         arrow.setTextColor(cTxS())
         row.addView(arrow, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -1619,12 +1663,14 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val version = TextView(ctx)
         version.text = "当前版本 v" + Version.NAME
-        version.setTextSize(12f)
+        version.setTextSize(HyperDesign.T_CAPTION)
+        version.setLineSpacing(0f, 1.2f)
         version.setTextColor(cTxS())
         wrap.addView(version)
 
         val update = TextView(ctx)
-        update.setTextSize(12f)
+        update.setTextSize(HyperDesign.T_CAPTION)
+        update.setLineSpacing(0f, 1.2f)
         update.setTextColor(cAccent())
         update.paintFlags = update.paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
         update.setPadding(UiKit.dp(ctx, 4f), UiKit.dp(ctx, 6f),
@@ -1650,7 +1696,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         // 「镜像下载」：GitHub 下载页在国内常常打不开，给一个反代入口。
         // 只在有新版时出现，避免平时占位置。
         val mirror = TextView(ctx)
-        mirror.setTextSize(12f)
+        mirror.setTextSize(HyperDesign.T_CAPTION)
+        mirror.setLineSpacing(0f, 1.2f)
         mirror.setTextColor(cAccent())
         mirror.paintFlags = mirror.paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
         mirror.setPadding(UiKit.dp(ctx, 4f), UiKit.dp(ctx, 2f),
@@ -1773,14 +1820,15 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
             val pill = TextView(ctx)
             pill.text = status
-            pill.setTextSize(12f)
+            pill.setTextSize(HyperDesign.T_CAPTION)
+            pill.setLineSpacing(0f, 1.2f)
             pill.setTextColor(tone)
             pill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
             pill.gravity = Gravity.CENTER
             pill.setPadding(UiKit.dp(ctx, 10f), UiKit.dp(ctx, 5f),
                     UiKit.dp(ctx, 10f), UiKit.dp(ctx, 5f))
-            pill.background = UiKit.plate((tone and 0x00FFFFFF) or 0x22000000,
-                    UiKit.dpf(ctx, 8f))
+            pill.background = SquircleDrawable((tone and 0x00FFFFFF) or 0x22000000,
+                    UiKit.dpf(ctx, HyperDesign.R_PILL))
             val pillLp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             pillLp.bottomMargin = UiKit.dp(ctx, 8f)
@@ -1788,11 +1836,13 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
             val button = TextView(ctx)
             button.text = label
-            button.setTextSize(13.5f)
+            button.setTextSize(HyperDesign.T_BODY3)
+            button.setLineSpacing(0f, 1.2f)
             button.setTextColor(0xFFFFFFFF.toInt())
             button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
             button.gravity = Gravity.CENTER
-            button.setPadding(0, UiKit.dp(ctx, 11f), 0, UiKit.dp(ctx, 11f))
+            button.setPadding(0, UiKit.dp(ctx, 13f), 0, UiKit.dp(ctx, 13f))
+            button.minimumHeight = UiKit.dp(ctx, 40f)
             button.background = UiKit.gradient(cAccentTop(), cAccentBottom(),
                     UiKit.dpf(ctx, 14f))
             button.contentDescription = label
@@ -1807,9 +1857,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
             val hint = TextView(ctx)
             hint.text = caption
-            hint.setTextSize(11f)
-            hint.setTextColor(cTxS())
+            hint.setTextSize(HyperDesign.T_LABEL)
             hint.setLineSpacing(0f, 1.2f)
+            hint.setTextColor(cTxS())
             hint.setPadding(0, UiKit.dp(ctx, 6f), 0, 0)
             wrap.addView(hint, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -1915,16 +1965,18 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val banner = TextView(ctx)
         banner.text = if (all) "净化拦截已开启 · 查看/调整 →" else "净化拦截有项已关闭 · 查看 →"
-        banner.setTextSize(13f)
+        banner.setTextSize(HyperDesign.T_CAPTION)
+        banner.setLineSpacing(0f, 1.2f)
         banner.setTextColor(0xFFFFFFFF.toInt())
         banner.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
         banner.gravity = Gravity.CENTER_VERTICAL
-        banner.setPadding(UiKit.dp(ctx, 14f), UiKit.dp(ctx, 11f),
-                UiKit.dp(ctx, 14f), UiKit.dp(ctx, 11f))
+        banner.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()),
+                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()))
+        // 两种状态同一套几何：squircle 16dp + 纯色。渐变只留给 CTA 按钮。
         banner.background = if (all)
-            UiKit.gradient(cAccentTop(), cAccentBottom(), UiKit.dpf(ctx, 14f))
+            SquircleDrawable(cAccent(), UiKit.dpf(ctx, HyperDesign.R_CARD))
         else
-            UiKit.plate(cWarn(), UiKit.dpf(ctx, 14f))
+            SquircleDrawable(cWarn(), UiKit.dpf(ctx, HyperDesign.R_CARD))
         banner.contentDescription = if (all)
             "净化拦截已开启，点这里查看或调整"
         else
@@ -1939,8 +1991,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val wrap = LinearLayout(ctx)
         wrap.orientation = LinearLayout.VERTICAL
-        wrap.setPadding(UiKit.dp(ctx, 14f), UiKit.dp(ctx, 8f),
-                UiKit.dp(ctx, 14f), UiKit.dp(ctx, 2f))
+        wrap.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()),
+                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, 2f))
         wrap.addView(banner, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         return wrap
@@ -1962,11 +2014,13 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val button = TextView(ctx)
         button.text = action.label()
-        button.setTextSize(13.5f)
+        button.setTextSize(HyperDesign.T_BODY3)
+        button.setLineSpacing(0f, 1.2f)
         button.setTextColor(0xFFFFFFFF.toInt())
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
         button.gravity = Gravity.CENTER
-        button.setPadding(0, UiKit.dp(ctx, 11f), 0, UiKit.dp(ctx, 11f))
+        button.setPadding(0, UiKit.dp(ctx, 13f), 0, UiKit.dp(ctx, 13f))
+        button.minimumHeight = UiKit.dp(ctx, 40f)
         button.background = UiKit.gradient(cAccentTop(), cAccentBottom(),
                 UiKit.dpf(ctx, 14f))
         button.contentDescription = action.label() + "：一次把所有净化拦截打开"
@@ -2043,9 +2097,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
                 "「后 10 分钟」从这一刻开始录。" +
                 "两份 txt 都存到「内部存储/下载/MapClean/」，打开文件管理器点「下载」就能看到；" +
                 "万一系统不给写，会自动落到 Android/data/包名/files/MapClean/。"
-        hint.setTextSize(11f)
+        hint.setTextSize(HyperDesign.T_LABEL)
+        hint.setLineSpacing(0f, 1.2f)
         hint.setTextColor(cTxS())
-        hint.setLineSpacing(UiKit.dp(ctx, 2f).toFloat(), 1.2f)
         hint.setPadding(UiKit.dp(ctx, 2f), UiKit.dp(ctx, 8f), UiKit.dp(ctx, 2f), 0)
         wrap.addView(hint, matchWrap())
         if (CaptureLog.running()) tickCaptureLog(after)
@@ -2055,11 +2109,13 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     private fun captureButton(text: String): TextView {
         val button = TextView(ctx)
         button.text = text
-        button.setTextSize(13.5f)
+        button.setTextSize(HyperDesign.T_BODY3)
+        button.setLineSpacing(0f, 1.2f)
         button.setTextColor(0xFFFFFFFF.toInt())
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
         button.gravity = Gravity.CENTER
-        button.setPadding(0, UiKit.dp(ctx, 11f), 0, UiKit.dp(ctx, 11f))
+        button.setPadding(0, UiKit.dp(ctx, 13f), 0, UiKit.dp(ctx, 13f))
+        button.minimumHeight = UiKit.dp(ctx, 40f)
         button.background = UiKit.gradient(cAccentTop(), cAccentBottom(),
                 UiKit.dpf(ctx, 14f))
         UiKit.pressable(button, 0.97f)
@@ -2106,6 +2162,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
      * stock SeekBar -- [GlassSlider] draws the channel, gradient fill and thumb from the
      * same primitives [GlassSwitch] uses.
      *
+     * 2026：insets 已换成 ROW_PAD / S2，字阶换成 T_BODY1 / T_BODY3。
+     *
      * Live preview vs. persist: the slider reports every stop with `settled=false`
      * (apply now, no disk write) and exactly one `settled=true` when the finger lifts.
      * That is what keeps a drag from firing dozens of `commit()` calls.
@@ -2117,7 +2175,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         // two 4dp strips per row that a horizontal drag could not use -- swiping there flipped
         // the category instead of changing the value. The spacing now lives inside the zone, so
         // the whole 84dp row belongs to the slider.
-        row.setPadding(UiKit.dp(ctx, 14f), 0, UiKit.dp(ctx, 14f), 0)
+        row.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), 0,
+                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), 0)
 
         // ---- one touch surface for the whole row --------------------------------------
         // Device report r6: the label line and the track were two separate blocks, the user
@@ -2148,14 +2207,15 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val title = TextView(ctx)
         title.text = m.title
-        title.setTextSize(14.5f)
+        title.setTextSize(HyperDesign.T_BODY1)
+        title.setLineSpacing(0f, 1.2f)
         title.setTextColor(cTxP())
-        title.setLineSpacing(0f, 1.14f)
         head.addView(title, LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         val value = TextView(ctx)
-        value.setTextSize(13f)
+        value.setTextSize(HyperDesign.T_CAPTION)
+        value.setLineSpacing(0f, 1.2f)
         value.setTextColor(cAccent())
         value.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
         value.gravity = Gravity.END
@@ -2178,9 +2238,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         if (!m.note.isNullOrEmpty()) {
             val note = TextView(ctx)
             note.text = m.note
-            note.setTextSize(11.5f)
+            note.setTextSize(HyperDesign.T_BODY3)
+            note.setLineSpacing(0f, 1.2f)
             note.setTextColor(cTxS())
-            note.setLineSpacing(0f, 1.16f)
             val nlp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             nlp.topMargin = UiKit.dp(ctx, 2f)
@@ -2225,7 +2285,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val action = TextView(ctx)
         action.text = "恢复默认外观"
-        action.setTextSize(12f)
+        action.setTextSize(HyperDesign.T_CAPTION)
+        action.setLineSpacing(0f, 1.2f)
         action.setTextColor(cAccent())
         action.paintFlags = action.paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
         action.setPadding(UiKit.dp(ctx, 4f), UiKit.dp(ctx, 2f),
@@ -2244,9 +2305,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         hint.text = "悬浮球 " + FloatingConfig.BALL_SIZE_DEFAULT + "dp、不透明度 " +
                 FloatingConfig.BALL_ALPHA_DEFAULT + "%；面板跟随屏幕宽度、不透明度 " +
                 FloatingConfig.PANEL_ALPHA_DEFAULT + "%。只影响悬浮窗外观。"
-        hint.setTextSize(10.5f)
+        hint.setTextSize(HyperDesign.T_LABEL)
+        hint.setLineSpacing(0f, 1.2f)
         hint.setTextColor(cTxS())
-        hint.setLineSpacing(0f, 1.16f)
         val hlp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         hlp.topMargin = UiKit.dp(ctx, 2f)
@@ -2297,13 +2358,14 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         val action = TextView(ctx)
         action.text = "关闭悬浮窗"
-        action.setTextSize(13f)
+        action.setTextSize(HyperDesign.T_CAPTION)
+        action.setLineSpacing(0f, 1.2f)
         action.setTextColor(cWarn())
         action.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
         action.gravity = Gravity.CENTER
         action.setPadding(0, UiKit.dp(ctx, 10f), 0, UiKit.dp(ctx, 10f))
-        action.background = UiKit.outlined(cWarnFill(), cWarn(), UiKit.dp(ctx, 1f),
-                UiKit.dpf(ctx, 14f))
+        action.background = SquircleDrawable(cWarnFill(), UiKit.dpf(ctx, HyperDesign.R_CARD),
+                cWarn(), Math.max(1f, UiKit.dpf(ctx, 1f)))
         action.contentDescription = "关闭悬浮球和这个面板；之后可以长按底部「我的」重新打开"
         UiKit.pressable(action, 0.97f)
         action.setOnClickListener(object : View.OnClickListener {
@@ -2317,9 +2379,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         val hint = TextView(ctx)
         hint.text = "关掉后悬浮球和本面板都会消失（右上角 ✕ 只是收起面板，不会关掉悬浮球）。" +
                 "要重新打开：长按底部「我的」标签，在「其他」里打开「悬浮窗入口」。"
-        hint.setTextSize(10.5f)
+        hint.setTextSize(HyperDesign.T_LABEL)
+        hint.setLineSpacing(0f, 1.2f)
         hint.setTextColor(cTxS())
-        hint.setLineSpacing(0f, 1.16f)
         val hlp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         hlp.topMargin = UiKit.dp(ctx, 6f)
@@ -2764,9 +2826,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     private fun groupNote(text: String): TextView {
         val note = TextView(ctx)
         note.text = text
-        note.setTextSize(11.5f)
+        note.setTextSize(HyperDesign.T_BODY3)
+        note.setLineSpacing(0f, 1.2f)
         note.setTextColor(cTxS())
-        note.setLineSpacing(0f, 1.18f)
         note.setPadding(UiKit.dp(ctx, 16f), UiKit.dp(ctx, 10f),
                 UiKit.dp(ctx, 16f), UiKit.dp(ctx, 2f))
         return note

@@ -239,7 +239,7 @@ class MainActivity : Activity() {
                 val bottom = insets.systemWindowInsetBottom
                 // 内容让出底栏高度（68 dp 胶囊 + 10 dp 下边距 + 8 dp 视觉间隙），
                 // 否则列表最后一行会被胶囊压住。
-                contentHost.setPadding(0, top, 0, sk.dp(94f) + bottom)
+                contentHost.setPadding(0, top, 0, sk.dp(112f) + bottom)
                 navBar.setPadding(sk.dp(16f), 0, sk.dp(16f), bottom + sk.dp(10f))
                 return insets
             }
@@ -546,6 +546,19 @@ class MainActivity : Activity() {
 
         /** 行上缓存的 haystack key。用框架不会占用的负数 id，避免再建 ids.xml。 */
         private const val TAG_HAYSTACK = 0x7f0f0001
+
+        /**
+         * 行上的「这是一个可配置项」记号。
+         *
+         * <p>抽屉头行要显示「N 项」计数，而计数必须在行全部建完之后才算得准。与其另建一张
+         * key → 行 的映射（会和真实界面脱节），不如在行根上打个 tag，建完后沿子视图数一遍。
+         * 只有真正承载配置的行（开关 / 滑块 / 离散值）才打，说明文字行不打。
+         */
+        private const val TAG_ITEM = 0x7f0f0002
+
+        /** 卡片内行的上下 padding —— 单行 8 dp（配 56 dp 最小高居中）、带副标题 10 dp。 */
+        private const val ROW_PAD_V = 8
+        private const val ROW_PAD_V_TALL = 10
 
         /** 已经提示过的抓取回执时间戳，**持久化**在 capture_report prefs 的 ack_at。 */
         private const val K_ACK_AT = "ack_at"
@@ -1037,6 +1050,8 @@ class MainActivity : Activity() {
         /** 搜索态专用：卡片外的纯文字分组标题（无背景、无卡片）。 */
         lateinit var label: TextView
         lateinit var chev: View
+        /** 头行右侧的「N 项」计数（行全部建完后由 [refreshDrawerCounts] 填）。 */
+        var count: TextView? = null
         var expanded = false
     }
 
@@ -1046,26 +1061,35 @@ class MainActivity : Activity() {
         s.expanded = false
         s.group = LinearLayout(this)
         s.group.orientation = LinearLayout.VERTICAL
-        // 纯色底 + 1 px 描边，零 elevation。
+        // 主卡片：surfaceContainer 实底 + 16 dp squircle，**不描边**。
         // 这里刻意不用 GlassDrawable：它的「1 dp 深色外圈 + 0.8 dp 白色内圈」双层 rim
         // 在白底上会被看成一条浮在卡片外面的灰色阴影带（外圈 224 被两侧 255/253 夹住），
         // 再叠一层 skin.shadow() 就是用户报的「怪状阴影」。
-        s.group.background = skin!!.glass(18f)
-        UiKit.clipRounded(s.group, dp(18f).toFloat())
+        s.group.background = skin!!.solid(skin!!.surface, Skin.R_CARD.toFloat())
+        UiKit.clipRounded(s.group, dp(Skin.R_CARD.toFloat()).toFloat())
+        skin!!.shadow(s.group, 1f)
 
         val head = LinearLayout(this)
         head.orientation = LinearLayout.HORIZONTAL
         head.gravity = Gravity.CENTER_VERTICAL
-        head.minimumHeight = dp(58)
-        head.setPadding(dp(18), dp(12), dp(14), dp(12))
-        head.background = UiKit.rippleBare(cRipple(), dp(18f).toFloat())
-        UiKit.pressable(head, 0.995f)
+        head.minimumHeight = dp(HyperDesign.ROW_H.toFloat())
+        head.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(8), dp(HyperDesign.ROW_PAD.toFloat()), dp(8))
+        head.background = UiKit.rippleBare(cRipple(), dp(Skin.R_INNER.toFloat()).toFloat())
+        UiKit.pressable(head, HyperDesign.PRESS_ROW)
 
         head.addView(skin!!.rowTitle(title),
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
-        s.chev = Icon(this, Icon.CHEVRON, cTxS())
-        head.addView(s.chev, LinearLayout.LayoutParams(dp(18), dp(18)))
+        // 计数紧贴右侧：小灰字，和标题同一行 —— 别让它在最右边单独立柱。
+        val cnt = skin!!.text("", Skin.T_CAPTION, Skin.REGULAR, skin!!.text3)
+        val cntLp = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        cntLp.rightMargin = dp(Skin.S2.toFloat())
+        head.addView(cnt, cntLp)
+        s.count = cnt
+
+        s.chev = Icon(this, Icon.CHEVRON, skin!!.text3)
+        head.addView(s.chev, LinearLayout.LayoutParams(dp(16), dp(16)))
 
         head.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
@@ -1077,27 +1101,47 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 搜索态的分组标题：卡片外的纯文字，与抽屉头行互斥显示（平时 GONE）。
-        s.label = skin!!.section(title)
+        // 左缘与卡片内行标题对齐：本页根容器已带 12 dp 页边距，标题只补卡内那 16 dp。
+        s.label = sectionLabel(title)
         val llp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        llp.topMargin = dp(14)
-        llp.leftMargin = dp(4)
+        llp.topMargin = dp(Skin.S4.toFloat())
         s.label.visibility = View.GONE
         list!!.addView(s.label, llp)
 
         s.card = LinearLayout(this)
         s.card.orientation = LinearLayout.VERTICAL
-        s.card.setPadding(dp(6), dp(4), dp(6), dp(10))
+        // 卡内不再留左右 padding：行自带 16 dp，加起来正好等于分组标题的 16 dp。
+        s.card.setPadding(0, 0, 0, dp(6f))
         s.card.visibility = View.GONE
         s.group.addView(s.card, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val glp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        glp.topMargin = dp(8)
+        glp.topMargin = dp(HyperDesign.CARD_GAP.toFloat())
         list!!.addView(s.group, glp)
         secs.add(s)
         return s
+    }
+
+    /**
+     * 把每张抽屉卡片的「N 项」填上。
+     *
+     * <p>计数必须等行全部建完才算得准，所以放在整页构建的末尾统一扫一遍：只数打了
+     * [TAG_ITEM] 的行（开关 / 滑块 / 离散值），说明文字行不算 —— 否则「18 项」里
+     * 一半是标点，用户点开发现只有九个开关。
+     */
+    private fun refreshDrawerCounts(pageSecs: MutableList<Sec>) {
+        for (i in pageSecs.indices) {
+            val s = pageSecs[i]
+            val cnt = s.count ?: continue
+            var n = 0
+            for (j in 0 until s.card.childCount) {
+                if (s.card.getChildAt(j).getTag(TAG_ITEM) != null) n++
+            }
+            cnt.text = if (n > 0) n.toString() + " 项" else ""
+        }
     }
 
     /**
@@ -1410,12 +1454,14 @@ class MainActivity : Activity() {
         } finally {
             list = old
         }
+        refreshDrawerCounts(pageSecs)
         addVersionFooter(root, "首页开关：强停百度地图后重开即可生效；" +
                 "「我的」页开关：关掉后重开该页即生效（数据层/JS 层在页面加载时读配置）")
-        val reset = skin!!.text("全部恢复显示（清空百度侧配置）", 12f, Skin.REGULAR, cDotBad())
+        val reset = skin!!.text("全部恢复显示（清空百度侧配置）", Skin.T_CAPTION, Skin.MEDIUM,
+                cDotBad())
         reset.gravity = Gravity.CENTER
-        reset.setPadding(0, dp(10), 0, dp(6))
-        reset.background = UiKit.rippleBare(cRipple(), dp(12f).toFloat())
+        reset.setPadding(0, dp(12), 0, dp(8))
+        reset.background = UiKit.rippleBare(cRipple(), dp(Skin.R_INNER.toFloat()).toFloat())
         reset.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
                 var ok = false
@@ -1449,6 +1495,7 @@ class MainActivity : Activity() {
         } finally {
             list = old
         }
+        refreshDrawerCounts(pageSecs)
         addVersionFooter(root, "改动后请强停对应地图 App 并重新打开以生效；开关可随时单独开/关")
         return sv
     }
@@ -1531,6 +1578,7 @@ class MainActivity : Activity() {
         } finally {
             list = old
         }
+        refreshDrawerCounts(pageSecs)
         addVersionFooter(root, "适配腾讯地图 11.7.0。底栏 / 工具宫格 / 设置家在重新进入首页时生效；" +
                 "「我的」页与「大家都在看」在重新进入对应页面时生效。" +
                 "工具逐项开关需要先打开一次腾讯地图首页（模块会在真实进程里学到工具目录）。")
@@ -1823,10 +1871,13 @@ class MainActivity : Activity() {
     /** 百度组的开关行（配置 group 与高德不同，写 bmapclean_config） */
     private fun addBmapSwitch(card: LinearLayout, title: String, key: String, note: String?) {
         val row = newSwitchRow(card, key, title, note)
-        val label = text(title, 14.5f, Typeface.NORMAL, cTxP())
-        label.setPadding(0, dp(11), dp(10), dp(11))
-        label.setLineSpacing(0f, 1.15f)
-        row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        // 短备注折进行内当副标题（miuix 的 title + summary 两行结构）；长段落仍在行下单独排，
+        // 否则一条六行说明会把整行撑成一大块，开关孤零零挂在右侧中间。
+        val inline = rowNote(note)
+        val label = skin!!.rowText(title, inline)
+        val labelLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        labelLp.rightMargin = dp(Skin.S2.toFloat())
+        row.addView(label, labelLp)
 
         val sw = makeSwitch()
         sw.setLabel(title)
@@ -1862,7 +1913,7 @@ class MainActivity : Activity() {
                 sw.performClick()
             }
         })
-        if (!note.isNullOrEmpty()) addNoteRow(card, note)
+        if (!note.isNullOrEmpty() && rowNote(note) == null) addNoteRow(card, note)
     }
 
     /**
@@ -1886,10 +1937,11 @@ class MainActivity : Activity() {
     /** 腾讯组的开关行（第三个配置 group：tmapclean_config） */
     private fun addTmapSwitch(card: LinearLayout, title: String, key: String, note: String?) {
         val row = newSwitchRow(card, key, title, note)
-        val label = text(title, 14.5f, Typeface.NORMAL, cTxP())
-        label.setPadding(0, dp(11), dp(10), dp(11))
-        label.setLineSpacing(0f, 1.15f)
-        row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        // 与百度页同一套：短备注进行内当副标题，长段落留在行下。
+        val label = skin!!.rowText(title, rowNote(note))
+        val labelLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        labelLp.rightMargin = dp(Skin.S2.toFloat())
+        row.addView(label, labelLp)
 
         val sw = makeSwitch()
         sw.setLabel(title)
@@ -1925,13 +1977,13 @@ class MainActivity : Activity() {
                 sw.performClick()
             }
         })
-        if (!note.isNullOrEmpty()) addNoteRow(card, note)
+        if (!note.isNullOrEmpty() && rowNote(note) == null) addNoteRow(card, note)
     }
 
     private fun addVersionFooter(root: LinearLayout, tip: String) {
-        val t = text(tip, 12f, Typeface.NORMAL, cTxS())
-        t.setLineSpacing(0f, 1.2f)
-        t.setPadding(dp(4), dp(16), 0, dp(2))
+        val t = skin!!.text(tip, Skin.T_CAPTION, Skin.REGULAR, skin!!.text3)
+        t.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S4.toFloat()),
+                dp(HyperDesign.ROW_PAD.toFloat()), dp(2))
         root.addView(t, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
@@ -2240,6 +2292,20 @@ class MainActivity : Activity() {
             btns.addView(b, blp2)
         }
         dlg.setView(box)
+        // 弹窗入场：从 0.92 放大到 1 + 淡入。
+        //
+        // 这是全站**唯一**的弹窗出口（30 多处调用都走这里），所以一处就够覆盖全部。
+        // 之前是硬弹出来 —— Android 默认 Dialog 的窗口动画在这里被
+        // `setBackgroundDrawable(透明)` 抹掉了，等于完全没有过渡。
+        box.alpha = 0f
+        box.scaleX = 0.92f
+        box.scaleY = 0.92f
+        dlg.setOnShowListener(object : android.content.DialogInterface.OnShowListener {
+            override fun onShow(dialogInterface: android.content.DialogInterface) {
+                box.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                        .setDuration(240L).setInterpolator(UiKit.SPRING).start()
+            }
+        })
         dlg.show()
         val w = dlg.getWindow()
         if (w != null) {
@@ -2673,6 +2739,99 @@ class MainActivity : Activity() {
     }
 
     /**
+     * 主卡片 —— miuix `Card`：`surfaceContainer` 实底、16 dp squircle、**不加描边**。
+     *
+     * <p>浅色下页面是 #F7F7F7、卡片是 #FFFFFF，靠 12 dp 页边距 + 16 dp 圆角切出层级；
+     * 深色下页面 #000000、卡片 #242424，卡片是"提亮"而不是压暗。这和旧版
+     * `glassFor()` 那种"同色 + 描边"的组合相反 —— 后者整页读起来像一堆线框盒子。
+     *
+     * <p>卡片自身**不带内边距**：每一行自带左右 16 dp，这样行标题的左缘（页面 12 + 16）
+     * 才能和分组标题（28）严格对齐。需要整块文字时用 [Skin.card]。
+     */
+    private fun newSurfaceCard(): LinearLayout {
+        val card = LinearLayout(this)
+        card.orientation = LinearLayout.VERTICAL
+        card.background = skin!!.solid(skin!!.surface, Skin.R_CARD.toFloat())
+        UiKit.clipRounded(card, dp(Skin.R_CARD.toFloat()).toFloat())
+        skin!!.shadow(card, 1f)
+        return card
+    }
+
+    /**
+     * 卡片内的一行：左右 16 dp、上下 8/10 dp、最小高 56 dp、行级涟漪 + 0.98 按压。
+     *
+     * <p>`tall = true` 用于带副标题的行：标题 17 + 副标题 14 两行叠加，最小高提到 64，
+     * 上下 padding 各 10 —— 这样单行行和双行行的视觉节奏一致，不会一行高一行矮地跳。
+     */
+    private fun newCardRow(tall: Boolean): LinearLayout {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.minimumHeight = dp((if (tall) HyperDesign.ROW_H_TALL else HyperDesign.ROW_H).toFloat())
+        val v = dp((if (tall) ROW_PAD_V_TALL else ROW_PAD_V).toFloat())
+        row.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), v, dp(HyperDesign.ROW_PAD.toFloat()), v)
+        row.background = UiKit.rippleBare(cRipple(), dp(Skin.R_INNER.toFloat()).toFloat())
+        UiKit.pressable(row, HyperDesign.PRESS_ROW)
+        return row
+    }
+
+    /**
+     * 分组标题 —— 14 sp Bold、`onBackgroundVariant`、上 24 / 下 8、左缘与行标题对齐。
+     *
+     * <p>**不复用 `Skin.section()`**：那个方法自带的 28 dp 是「页面 12 + 卡片 16」的合并值，
+     * 而本页的根容器已经带了 12 dp 页边距，直接叠上去会变成 40 dp —— 标题比行标题右移
+     * 一整格，这正是"分组标题飘着"的来源。这里只留卡片内的 16 dp，由根容器补齐到 28。
+     */
+    private fun sectionLabel(label: String): TextView {
+        val t = skin!!.text(label, 14f, Skin.BOLD, HyperDesign.of(dark).onBackgroundVariant)
+        t.setPadding(dp(Skin.S4.toFloat()), dp(Skin.S2.toFloat()),
+                dp(Skin.S4.toFloat()), dp(Skin.S2.toFloat()))
+        return t
+    }
+
+    /** 加一个分组标题：上间距 16 + 标题自带 8 = 24 dp，下间距 8 dp。 */
+    private fun addSectionTitle(parent: LinearLayout, label: String) {
+        val lp = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        lp.topMargin = dp(Skin.S4.toFloat())
+        parent.addView(sectionLabel(label), lp)
+    }
+
+    /**
+     * 纯链接行 —— 关于页/备份页的次级列表用：标题 + 可选说明 + 右侧外链箭头。
+     *
+     * <p>**没有行内图标块**。旧版每行前面挂一个 38 dp 的灰底方块，视觉上读起来像
+     * "图标没加载出来"；LSPosed 的设置页本身就不放行内图标，标题直接顶到左内边距。
+     *
+     * @param danger true 时标题走危险色（「恢复默认设置」用）
+     * @param iconKind 右侧箭头；危险行固定用 CHEVRON
+     */
+    private fun plainLinkRow(title: String, summary: String?, danger: Boolean, action: Runnable,
+                             iconKind: Int = Icon.EXTERNAL): LinearLayout {
+        val row = newCardRow(summary != null)
+        val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
+        col.addView(skin!!.text(title, Skin.T_ROW, Skin.MEDIUM,
+                if (danger) skin!!.danger else skin!!.text))
+        if (summary != null) {
+            val c = skin!!.text(summary, Skin.T_BODY, Skin.REGULAR, skin!!.text2)
+            val clp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            clp.topMargin = dp(2f)
+            col.addView(c, clp)
+        }
+        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(Icon(this, if (danger) Icon.CHEVRON else iconKind,
+                skin!!.text3), fixed(skin!!, 16, 16))
+        row.setOnClickListener(object : View.OnClickListener {
+            override fun onClick(v: View) {
+                action.run()
+            }
+        })
+        return row
+    }
+
+    /**
      * 行间分割线 —— 左缩进 16 dp，与文字左边缘对齐。
      *
      * <p>HyperOS 的分割线不从卡片边缘起笔。全宽分割线会把卡片切成"一格一格的表格"，
@@ -2698,15 +2857,18 @@ class MainActivity : Activity() {
         return d
     }
 
-    /** 行容器：60dp 最小高、行级涟漪、可点回弹 */
+    /** 行容器：56 dp 最小高、左右 16 dp、行级涟漪、可点回弹 */
     private fun newRow(card: LinearLayout): LinearLayout {
         if (card.childCount > 0) card.addView(divider())
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
-        row.minimumHeight = dp(56)
-        row.setPadding(dp(8), dp(2), dp(8), dp(2))
+        row.minimumHeight = dp(HyperDesign.ROW_H.toFloat())
+        row.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(ROW_PAD_V.toFloat()),
+                dp(HyperDesign.ROW_PAD.toFloat()), dp(ROW_PAD_V.toFloat()))
         row.background = UiKit.rippleBare(cRipple(), dp(12f).toFloat())
+        // 标记成「一个可配置项」：抽屉头行据此显示「N 项」。
+        row.setTag(TAG_ITEM, java.lang.Boolean.TRUE)
         return row
     }
 
@@ -2725,6 +2887,20 @@ class MainActivity : Activity() {
         sb.append('\n').append(key ?: "")
         row.setTag(TAG_HAYSTACK, sb.toString())
         return row
+    }
+
+    /**
+     * 备注要不要折进行内当副标题。
+     *
+     * <p>miuix 的设置项行是「标题 17 + summary 14」两行结构，但这里的备注有一半是
+     * 三五行长的原理说明。判断标准很朴素：单行、60 字以内 → 当副标题；否则留在行下
+     * 当段落。两边都不丢字，只是排版不同。
+     */
+    private fun rowNote(note: String?): String? {
+        if (note == null || note.isEmpty()) return null
+        if (note.length > 60) return null
+        if (note.indexOf('\n') >= 0) return null
+        return note
     }
 
     /** 行上缓存的 haystack key。用框架不会占用的负数 id，避免再建 ids.xml。 */
@@ -2785,6 +2961,7 @@ class MainActivity : Activity() {
         val slp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(56f))
         row.addView(slider, slp)
+        row.setTag(TAG_ITEM, java.lang.Boolean.TRUE)
         card.addView(row, skin!!.matchWrap())
     }
 
@@ -2841,16 +3018,19 @@ class MainActivity : Activity() {
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
         row.addView(choices, skin!!.matchWrap())
+        row.setTag(TAG_ITEM, java.lang.Boolean.TRUE)
         card.addView(row, skin!!.matchWrap())
     }
 
     private fun addSwitch(card: LinearLayout, title: String, key: String) {
         val row = newSwitchRow(card, key, title, null)
 
-        val label = text(title, 14.5f, Typeface.NORMAL, cTxP())
-        label.setPadding(0, dp(11), dp(10), dp(11))
-        label.setLineSpacing(0f, 1.15f)
-        row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        // 标题 17 sp / Medium —— miuix 设置项行的两级字号（标题 17 + 副标题 14）。
+        // 没有行内图标块：标题直接顶到 16 dp 内边距，与分组标题、卡片左缘成一条线。
+        val label = skin!!.rowText(title, null)
+        val labelLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        labelLp.rightMargin = dp(Skin.S2.toFloat())
+        row.addView(label, labelLp)
 
         val sw = makeSwitch()
         sw.setLabel(title)
@@ -2886,9 +3066,10 @@ class MainActivity : Activity() {
     private fun addLocalSwitch(card: LinearLayout, title: String, key: String) {
         val row = newRow(card)
 
-        val label = text(title, 14.5f, Typeface.NORMAL, cTxP())
-        label.setPadding(0, dp(11), dp(10), dp(11))
-        row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val label = skin!!.rowText(title, null)
+        val labelLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        labelLp.rightMargin = dp(Skin.S2.toFloat())
+        row.addView(label, labelLp)
 
         val sw = makeSwitch()
         sw.setLabel(title)
@@ -2988,11 +3169,12 @@ class MainActivity : Activity() {
     private fun tintBg(): Int = if (dark) HyperDesign.alpha(skin!!.accent, 0.20f) else 0x1A0A6CF5
 
     /** 说明文字：左侧细色条 + 淡色正文，与开关行区分开 */
+    /** 说明文字：左右与行标题对齐（16 dp），14 sp / onSurfaceVariantSummary。 */
     private fun addNoteRow(card: LinearLayout, s: String) {
-        // A hint belongs to the row above, so it is a quiet 12 sp line, not its own entry.
-        val t = skin!!.text(s, 12f, Skin.REGULAR, cTxS())
-        t.setLineSpacing(dp(2).toFloat(), 1.25f)
-        t.setPadding(dp(16), dp(2), dp(16), dp(10))
+        // A hint belongs to the row above, so it is a quiet 14 sp line, not its own entry.
+        val t = skin!!.text(s, Skin.T_BODY, Skin.REGULAR, skin!!.text2)
+        t.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(2),
+                dp(HyperDesign.ROW_PAD.toFloat()), dp(10))
         card.addView(t, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
@@ -3034,6 +3216,12 @@ class MainActivity : Activity() {
     private var appIndex = 0
     private var backupStatus: TextView? = null
     private var configSummary: TextView? = null
+    /** 分段控件的滑动指示器（选中项底下的白色 squircle 滑块）。 */
+    private var segmentIndicator: View? = null
+    /** 分段控件里承载 chip 的横排容器，用来按 chip 的 left/width 定位指示器。 */
+    private var segmentTrack: LinearLayout? = null
+    /** 与 appPageIds 一一对应：该页对应的地图 App 未安装时为 true（chip 置灰、点击只提示）。 */
+    private val appDisabled: MutableList<Boolean> = ArrayList()
 
     /* ────────────────────────────────────────────────────────────── 首页 */
 
@@ -4254,19 +4442,40 @@ class MainActivity : Activity() {
 
         val head = LinearLayout(this)
         head.orientation = LinearLayout.VERTICAL
-        head.setPadding(skin!!.dp(Skin.S5.toFloat()), skin!!.dp(Skin.S3.toFloat()), skin!!.dp(Skin.S5.toFloat()), 0)
+        // 文字左缘统一落在 28 dp（页边距 12 + 卡内 16）—— 和分组标题、行标题同一条竖线。
+        val textInset = HyperDesign.PAGE_PAD + HyperDesign.ROW_PAD
+        head.setPadding(skin!!.dp(textInset.toFloat()), skin!!.dp(Skin.S3.toFloat()),
+                skin!!.dp(textInset.toFloat()), 0)
         head.addView(skin!!.display("配置"))
-        val sub = skin!!.caption("按应用调整模块开关")
+        val sub = skin!!.caption(if (embedded()) "当前地图的开关分组" else "按应用调整模块开关")
         val subLp = skin!!.matchWrap()
         subLp.topMargin = skin!!.dp(3f)
         head.addView(sub, subLp)
         head.background = skin!!.headerScrim()
         screen.addView(head, skin!!.matchWrap())
 
+        // 分段控件 —— miuix TabRow 的做法：整条 surfaceContainerHigh 底，选中项是**一块浮在
+        // 上面的滑块**（带投影），切换时滑块整体平移。旧版是「给选中项描一圈边」的胶囊，
+        // 读起来像两个按钮各穿了一件外套，且没有"选中块在移动"的方向感。
+        val segWrap = FrameLayout(this)
+        segWrap.setPadding(skin!!.dp(4f), skin!!.dp(4f), skin!!.dp(4f), skin!!.dp(4f))
+        segWrap.background = skin!!.solid(skin!!.surface2, Skin.R_CONTROL.toFloat())
+        UiKit.clipRounded(segWrap, dp(Skin.R_CONTROL.toFloat()).toFloat())
+        val indicator = View(this)
+        // 深色下 surfaceContainer 与 surfaceContainerHigh 同值（都是 #242424），白色滑块会整个
+        // 消失在轨道里；改用 secondaryVariant（深色 #434343）—— 仍是 token，不新造颜色。
+        indicator.background = skin!!.solid(
+                if (dark) HyperDesign.of(true).secondaryVariant else skin!!.surface,
+                Skin.R_CONTROL.toFloat())
+        UiKit.clipRounded(indicator, dp(Skin.R_CONTROL.toFloat()).toFloat())
+        skin!!.shadow(indicator, 2f)
+        segWrap.addView(indicator, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
         val segment = LinearLayout(this)
         segment.orientation = LinearLayout.HORIZONTAL
-        segment.setPadding(skin!!.dp(4f), skin!!.dp(4f), skin!!.dp(4f), skin!!.dp(4f))
-        segment.background = skin!!.solid(skin!!.surface2, Skin.R_INNER.toFloat())
+        segWrap.addView(segment, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(40f)))
+        segmentTrack = segment
+        segmentIndicator = indicator
         if (embedded()) {
             addAppChip(segment, if (embeddedAmap()) "高德地图" else "百度地图")
         } else {
@@ -4274,17 +4483,24 @@ class MainActivity : Activity() {
             addAppChip(segment, "高德地图")
             addAppChip(segment, "腾讯地图")
         }
+        // 换横竖屏 / 密度变化后 chip 会被重新量宽，指示器得跟着回到选中项下面。
+        segment.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(v: View, left: Int, top: Int, right: Int, bottom: Int,
+                                       oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int) {
+                layoutSegmentIndicator(false)
+            }
+        })
         val segLp = skin!!.matchWrap()
         segLp.topMargin = skin!!.dp(Skin.S4.toFloat())
-        segLp.leftMargin = skin!!.dp(Skin.S5.toFloat())
-        segLp.rightMargin = skin!!.dp(Skin.S5.toFloat())
-        screen.addView(segment, segLp)
+        segLp.leftMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
+        segLp.rightMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
+        screen.addView(segWrap, segLp)
 
         configSummary = skin!!.footnote("")
         val cslp = skin!!.matchWrap()
-        cslp.topMargin = skin!!.dp(Skin.S3.toFloat())
-        cslp.leftMargin = skin!!.dp((Skin.S5 + 2).toFloat())
-        cslp.rightMargin = skin!!.dp(Skin.S5.toFloat())
+        cslp.topMargin = skin!!.dp(Skin.S2.toFloat())
+        cslp.leftMargin = skin!!.dp(textInset.toFloat())
+        cslp.rightMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
         screen.addView(configSummary, cslp)
 
         // 内置版只读说明条：不是脚注 —— 整页置灰之后，这一条是用户唯一的出口提示，
@@ -4297,23 +4513,27 @@ class MainActivity : Activity() {
         embeddedNotice!!.background = skin!!.solid(skin!!.surface2, Skin.R_INNER.toFloat())
         val noticeLp = skin!!.matchWrap()
         noticeLp.topMargin = skin!!.dp(Skin.S3.toFloat())
-        noticeLp.leftMargin = skin!!.dp(Skin.S5.toFloat())
-        noticeLp.rightMargin = skin!!.dp(Skin.S5.toFloat())
+        noticeLp.leftMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
+        noticeLp.rightMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
         screen.addView(embeddedNotice, noticeLp)
 
         val searchBar = finder!!.bar()
+        // 搜索框也收进同一套语言：卡片底 + 12 dp squircle，高度 48（miuix 输入框
+        // 上下 16 + 17 sp 正文 ≈ 52，这里略收，避免把首屏挤满）。
+        searchBar.background = skin!!.solid(skin!!.surface, Skin.R_CONTROL.toFloat())
+        UiKit.clipRounded(searchBar, dp(Skin.R_CONTROL.toFloat()).toFloat())
         val searchLp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(44f))
-        searchLp.topMargin = skin!!.dp(Skin.S3.toFloat())
-        searchLp.leftMargin = skin!!.dp(Skin.S5.toFloat())
-        searchLp.rightMargin = skin!!.dp(Skin.S5.toFloat())
+                ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(48f))
+        searchLp.topMargin = skin!!.dp(Skin.S2.toFloat())
+        searchLp.leftMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
+        searchLp.rightMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
         screen.addView(searchBar, searchLp)
         val resultsHost = finder!!.resultsHost()
         try {
             if (resultsHost is android.widget.HorizontalScrollView) {
                 val hs = resultsHost
                 hs.clipToPadding = false
-                hs.setPadding(skin!!.dp(Skin.S5.toFloat()), skin!!.dp(Skin.S2.toFloat()), skin!!.dp(Skin.S5.toFloat()), 0)
+                hs.setPadding(skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), skin!!.dp(Skin.S2.toFloat()), skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), 0)
                 // 结果统计胶囊：SwitchFinder 里 results 是 VERTICAL 的，塞进横向滚动容器后
                 // 会一个个竖着排（截图里「百度 · 2」「高德 · 2」各占一行）。这里掰回横排。
                 if (hs.childCount > 0 && hs.getChildAt(0) is LinearLayout) {
@@ -4339,14 +4559,66 @@ class MainActivity : Activity() {
             addAppPage(buildAmapPage(), PAGE_AMAP)
             addAppPage(buildTmapPage(), PAGE_TMAP)
         }
-        selectApp(0)
+        // 没装的地图：该段置灰 40%，点它只弹一行提示。
+        // 直接切过去会得到一整页「读不到任何配置」的空壳 —— 用户以为模块坏了，其实是 App 没装。
+        appDisabled.clear()
+        for (i in appPageIds.indices) {
+            val off = !appPageInstalled(appPageIds[i])
+            appDisabled.add(off)
+            if (i < appChips.size && off) appChips[i].alpha = 0.4f
+        }
+        var initial = 0
+        for (i in appDisabled.indices) {
+            if (!appDisabled[i]) {
+                initial = i
+                break
+            }
+        }
+        selectApp(initial)
+        segment.post(Runnable { layoutSegmentIndicator(false) })
         probeEmbeddedBuilds()
         return screen
     }
 
+    /** 该页对应的地图 App 是否装着。内置版的"页"就是宿主自己，恒为已安装。 */
+    private fun appPageInstalled(pageId: Int): Boolean {
+        if (embedded()) return true
+        val pkg = hostPackageOf(pageId) ?: return true
+        return installedVersion(pkg) != null
+    }
+
+    /**
+     * 把选中滑块挪到第 [appIndex] 段的下面。
+     *
+     * <p>指示器是背景层里一个独立 View，靠 `translationX` 平移 —— 这正是 miuix TabRow 的实现
+     * （每个项自己换背景的话，200 ms 的移动就无从谈起，切换只会"啪"地跳一下）。
+     * 宽度跟 chip 实测宽走：等分时都一样，横竖屏/密度变化后由 layout 监听重新对齐。
+     */
+    private fun layoutSegmentIndicator(animate: Boolean) {
+        val track = segmentTrack ?: return
+        val ind = segmentIndicator ?: return
+        if (appIndex < 0 || appIndex >= track.childCount) return
+        val chip = track.getChildAt(appIndex)
+        if (chip.width <= 0) return
+        val lp = ind.layoutParams
+        if (lp != null && lp.width != chip.width) {
+            lp.width = chip.width
+            ind.layoutParams = lp
+        }
+        val target = chip.left.toFloat()
+        ind.animate().cancel()
+        if (animate) {
+            ind.animate().translationX(target).setDuration(200L)
+                    .setInterpolator(UiKit.STANDARD).start()
+        } else {
+            ind.translationX = target
+        }
+    }
+
     private fun addAppChip(segment: LinearLayout, label: String) {
         val index = appChips.size
-        val chip = skin!!.text(label, Skin.T_CAPTION + 0.5f, Skin.MEDIUM, skin!!.text2)
+        // 16 sp / Medium —— 分段控件读的是 miuix body1，不是标签尺寸；旧版 13.5 sp 像三颗 chip。
+        val chip = skin!!.text(label, 16f, Skin.MEDIUM, skin!!.text2)
         chip.gravity = Gravity.CENTER
         chip.isClickable = true
         chip.setOnClickListener(object : View.OnClickListener {
@@ -4354,9 +4626,8 @@ class MainActivity : Activity() {
                 selectApp(index)
             }
         })
-        val lp = LinearLayout.LayoutParams(
-                0, skin!!.dp(38f), 1f)
-        if (index > 0) lp.leftMargin = skin!!.dp(2f)
+        // 等分铺满；不再留 2 dp 缝 —— "当前在哪一段"由背景滑块表达，不靠描边。
+        val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
         segment.addView(chip, lp)
         appChips.add(chip)
     }
@@ -4372,6 +4643,18 @@ class MainActivity : Activity() {
     /** 切换地图应用（0 百度 / 1 高德 / 2 腾讯；内置版只有一个，下标恒为 0）。 */
     private fun selectApp(index: Int) {
         if (index < 0 || index >= appPages.size) return
+        if (index < appDisabled.size && appDisabled[index]) {
+            var anyEnabled = false
+            for (i in appDisabled.indices) {
+                if (!appDisabled[i]) anyEnabled = true
+            }
+            // 三家都没装的极端情况下仍然显示一页：整块空白比"只读的一页"更让人以为模块坏了。
+            if (anyEnabled) {
+                Toast.makeText(this@MainActivity, appChips[index].text.toString()
+                        + " 未安装，装好后重新打开本页即可配置", Toast.LENGTH_SHORT).show()
+                return
+            }
+        }
         appIndex = index
         for (i in 0 until appPages.size) {
             appPages[i].visibility = if (i == index) View.VISIBLE else View.GONE
@@ -4379,16 +4662,11 @@ class MainActivity : Activity() {
         for (i in 0 until appChips.size) {
             val chip = appChips[i]
             val on = i == index
-            chip.setTextColor(if (on) skin!!.accent else skin!!.text2)
+            chip.setTextColor(if (on) skin!!.text else skin!!.text2)
             chip.setTypeface(if (on) Skin.MEDIUM else Skin.REGULAR)
-            chip.background = if (on) skin!!.border(skin!!.surface, skin!!.stroke, 11f) else null
-            if (on) {
-                chip.scaleX = 0.96f
-                chip.scaleY = 0.96f
-                chip.animate().scaleX(1f).scaleY(1f)
-                        .setDuration(220L).setInterpolator(UiKit.SPRING).start()
-            }
+            chip.background = null
         }
+        layoutSegmentIndicator(true)
         if (configSummary != null && index < appChips.size && index < appPageIds.size) {
             val pageId = appPageIds[index]
             val count = if (pageId == PAGE_BAIDU) bmapSwitches.size
@@ -4666,12 +4944,16 @@ class MainActivity : Activity() {
         sv.isVerticalScrollBarEnabled = false
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setPadding(skin!!.dp(Skin.S5.toFloat()), skin!!.dp(Skin.S3.toFloat()), skin!!.dp(Skin.S5.toFloat()), skin!!.dp(Skin.S7.toFloat()))
+        root.setPadding(skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), skin!!.dp(Skin.S3.toFloat()),
+                skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), skin!!.dp(Skin.S7.toFloat()))
         sv.addView(root, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val head = LinearLayout(this)
         head.orientation = LinearLayout.VERTICAL
+        // 标题与卡片内文字同一条竖线（页边距 12 + 卡内 16 = 28）。
+        val textInset = HyperDesign.ROW_PAD
+        head.setPadding(skin!!.dp(textInset.toFloat()), 0, skin!!.dp(textInset.toFloat()), 0)
         head.addView(skin!!.display("备份"))
         val sub = skin!!.caption("配置文件 · 快照 · 跨设备迁移")
         val subLp = skin!!.matchWrap()
@@ -4681,35 +4963,37 @@ class MainActivity : Activity() {
         root.addView(head, skin!!.matchWrap())
 
         backupStatus = skin!!.text("", Skin.T_CAPTION, Skin.REGULAR, skin!!.text3)
+        // 初始为空 —— 直接 GONE，否则空行在首卡上方留一条 18 dp 的空白。
+        backupStatus!!.visibility = View.GONE
         val bslp = skin!!.matchWrap()
-        bslp.topMargin = skin!!.dp(Skin.S3.toFloat())
+        bslp.topMargin = skin!!.dp(Skin.S2.toFloat())
+        bslp.leftMargin = skin!!.dp(textInset.toFloat())
+        bslp.rightMargin = skin!!.dp(textInset.toFloat())
         root.addView(backupStatus, bslp)
 
         // 导出
-        val export = skin!!.card()
-        val exportHead = LinearLayout(this)
-        exportHead.orientation = LinearLayout.HORIZONTAL
-        exportHead.gravity = Gravity.CENTER_VERTICAL
-        exportHead.addView(iconTile(Icon.DOWNLOAD, skin!!.text2, skin!!.surface2), fixed(skin!!, 40, 40))
-        val exportText = LinearLayout(this)
-        exportText.orientation = LinearLayout.VERTICAL
-        exportText.addView(skin!!.rowTitle("导出配置文件"))
-        exportText.addView(skin!!.caption("保存为 .json 文件，可用于备份或迁移到其它设备"))
-        val etLp = LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        etLp.leftMargin = skin!!.dp(Skin.S3.toFloat())
-        exportHead.addView(exportText, etLp)
-        export.addView(exportHead, skin!!.matchWrap())
-
-        val exportNote = skin!!.footnote("将包含全部开关：" + configCounts())
-        val enLp = skin!!.matchWrap()
-        enLp.topMargin = skin!!.dp(Skin.S3.toFloat())
-        export.addView(exportNote, enLp)
-
-        val exportBtn = skin!!.primaryButton("导出 JSON 文件")
-        val ebLp = skin!!.matchWrap()
-        ebLp.topMargin = skin!!.dp(Skin.S4.toFloat())
-        export.addView(exportBtn, ebLp)
+        // 主操作是**文字按钮**，不是全宽实心蓝：miuix 的主操作要么描边、要么纯文字，
+        // 一整条实心蓝压在页面上会把"导出"抬成整页唯一重点 —— 它只是四件事之一。
+        val export = newSurfaceCard()
+        val exportRow = newCardRow(true)
+        val exportLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        exportLp.rightMargin = dp(Skin.S2.toFloat())
+        exportRow.addView(skin!!.rowText("导出配置文件",
+                "保存为 .json 文件，可用于备份或迁移 · 将包含全部开关：" + configCounts()),
+                exportLp)
+        val exportBtn = skin!!.textButton("导出")
+        // 文字按钮也要 40 dp 的触摸高度（miuix Button 的最小尺寸 58×40）：
+        // 13.5 sp 的字加自带 padding 只有 28 dp，手指按起来是在赌。
+        exportBtn.minimumHeight = dp(40f)
+        exportRow.addView(exportBtn, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // 点整行 = 点按钮：miuix 的设置项行是整行可点，只有一个 28 dp 的文字按钮可点会很别扭。
+        exportRow.setOnClickListener(object : View.OnClickListener {
+            override fun onClick(v: View) {
+                exportBtn.performClick()
+            }
+        })
+        export.addView(exportRow, skin!!.matchWrap())
         exportBtn.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
                 ConfigBackup.bind(configStore(), configSchema(), packageName)
@@ -4722,28 +5006,32 @@ class MainActivity : Activity() {
                 }
             }
         })
-        root.addView(export, withTop(skin!!, Skin.S4))
+        root.addView(export, withTop(skin!!, HyperDesign.CARD_GAP))
 
         // 导入
-        val imp = skin!!.card()
-        val impHead = LinearLayout(this)
-        impHead.orientation = LinearLayout.HORIZONTAL
-        impHead.gravity = Gravity.CENTER_VERTICAL
-        impHead.addView(iconTile(Icon.UPLOAD, skin!!.text2, skin!!.surface2), fixed(skin!!, 40, 40))
-        val impText = LinearLayout(this)
-        impText.orientation = LinearLayout.VERTICAL
-        impText.addView(skin!!.rowTitle("导入配置文件"))
-        impText.addView(skin!!.caption("选择 .json 文件，先预览再写入，不会静默覆盖"))
-        val itLp = LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        itLp.leftMargin = skin!!.dp(Skin.S3.toFloat())
-        impHead.addView(impText, itLp)
-        imp.addView(impHead, skin!!.matchWrap())
-
-        val importBtn = skin!!.secondaryButton("选择 JSON 文件")
-        val ibLp = skin!!.matchWrap()
-        ibLp.topMargin = skin!!.dp(Skin.S4.toFloat())
-        imp.addView(importBtn, ibLp)
+        val imp = newSurfaceCard()
+        val impRow = newCardRow(true)
+        val impLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        impLp.rightMargin = dp(Skin.S2.toFloat())
+        impRow.addView(skin!!.rowText("导入配置文件",
+                "选择 .json 文件，先预览再写入，不会静默覆盖"),
+                impLp)
+        val importBtn = skin!!.textButton("选择文件")
+        importBtn.minimumHeight = dp(40f)
+        impRow.addView(importBtn, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        impRow.setOnClickListener(object : View.OnClickListener {
+            override fun onClick(v: View) {
+                importBtn.performClick()
+            }
+        })
+        imp.addView(impRow, skin!!.matchWrap())
+        // 副行：兼容说明单独一行、13 sp、比正文淡一档 —— 它是补充，不是第二条操作。
+        val importHint = skin!!.text("兼容旧版「复制粘贴」的文本：存成 .json 后同样可以导入。",
+                Skin.T_CAPTION, Skin.REGULAR, skin!!.text3)
+        importHint.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), 0,
+                dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S3.toFloat()))
+        imp.addView(importHint, skin!!.matchWrap())
         importBtn.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
                 ConfigBackup.bind(configStore(), configSchema(), packageName)
@@ -4752,33 +5040,30 @@ class MainActivity : Activity() {
                 if (error != null) setBackupStatus(error, true)
             }
         })
-        val importHint = skin!!.footnote("兼容旧版「复制粘贴」的文本：存成 .json 后同样可以导入。")
-        val ihLp = skin!!.matchWrap()
-        ihLp.topMargin = skin!!.dp(Skin.S3.toFloat())
-        imp.addView(importHint, ihLp)
-        root.addView(imp, withTop(skin!!, Skin.S3))
+        root.addView(imp, withTop(skin!!, HyperDesign.CARD_GAP))
 
         // 本机快照
-        val snap = skin!!.card()
-        snap.addView(skin!!.rowTitle("本机快照"))
-        val snapNote = skin!!.caption("保存在本机；重装应用或清除数据后失效")
-        val snLp = skin!!.matchWrap()
-        snLp.topMargin = skin!!.dp(3f)
-        snap.addView(snapNote, snLp)
+        val snap = newSurfaceCard()
+        val snapTitle = skin!!.rowText("本机快照", "保存在本机；重装应用或清除数据后失效")
+        snapTitle.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S4.toFloat()),
+                dp(HyperDesign.ROW_PAD.toFloat()), 0)
+        snap.addView(snapTitle, skin!!.matchWrap())
 
         val snapRow = LinearLayout(this)
         snapRow.orientation = LinearLayout.HORIZONTAL
-        val saveBtn = skin!!.secondaryButton("保存快照")
-        val restoreBtn = skin!!.secondaryButton("恢复快照")
+        snapRow.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S2.toFloat()),
+                dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S1.toFloat()))
+        val saveBtn = skin!!.textButton("保存快照")
+        val restoreBtn = skin!!.textButton("恢复快照")
+        saveBtn.minimumHeight = dp(40f)
+        restoreBtn.minimumHeight = dp(40f)
         val sbLp = LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         sbLp.rightMargin = skin!!.dp(Skin.S2.toFloat())
         snapRow.addView(saveBtn, sbLp)
         snapRow.addView(restoreBtn, LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val srLp = skin!!.matchWrap()
-        srLp.topMargin = skin!!.dp(Skin.S4.toFloat())
-        snap.addView(snapRow, srLp)
+        snap.addView(snapRow, skin!!.matchWrap())
         saveBtn.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
                 saveSnapshot()
@@ -4795,44 +5080,38 @@ class MainActivity : Activity() {
                         "恢复", Runnable { restoreSnapshot() }, null, null, "取消", null)
             }
         })
-        root.addView(snap, withTop(skin!!, Skin.S3))
+        root.addView(snap, withTop(skin!!, HyperDesign.CARD_GAP))
 
         // 高级：文本方式
-        skin!!.addSection(root, "高级")
-        val advanced = skin!!.listCard()
-        advanced.addView(advancedRow(Icon.COPY, "复制配置文本", "发给其它设备粘贴导入", Runnable { exportConfig() }))
-        advanced.addView(skin!!.hairline())
-        advanced.addView(advancedRow(Icon.PASTE, "从剪贴板导入", "粘贴旧版文本并预览", Runnable { importConfig() }))
-        root.addView(advanced, skin!!.matchWrap())
+        // 次级卡片：纯链接、无按钮、无图标块 —— 整张卡只有一个「入口」的身份，
+        // 层级靠"没有主操作"来体现，而不是再换一套颜色。
+        val advanced = newSurfaceCard()
+        val advLabel = skin!!.text("高级", Skin.T_CAPTION, Skin.MEDIUM, skin!!.text3)
+        advLabel.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S3.toFloat()),
+                dp(HyperDesign.ROW_PAD.toFloat()), dp(2))
+        advanced.addView(advLabel, skin!!.matchWrap())
+        advanced.addView(plainLinkRow("复制配置文本", "发给其它设备粘贴导入", false,
+                Runnable { exportConfig() }), skin!!.matchWrap())
+        advanced.addView(plainLinkRow("从剪贴板导入", "粘贴旧版文本并预览", false,
+                Runnable { importConfig() }), skin!!.matchWrap())
+        root.addView(advanced, withTop(skin!!, HyperDesign.CARD_GAP))
 
-        val danger = skin!!.card()
-        danger.background = skin!!.glassFor(danger, Skin.R_CARD.toFloat())
-        danger.addView(advancedRow(Icon.TRASH, "恢复默认设置", "清空本模块写入的开关，回到出厂值",
+        // 恢复默认：破坏性操作单独一张卡、标题走危险色，不跟上面两条链接混在一张卡里。
+        val danger = newSurfaceCard()
+        danger.addView(plainLinkRow("恢复默认设置", "清空本模块写入的开关，回到出厂值", true,
                 Runnable {
                     glassDialog("恢复默认？", "恢复" + settingsTargetLabel() +
                             "的默认开关，强停地图 App 后生效。",
                             "恢复默认", Runnable { resetConfig() }, null, null, "取消", null)
-                }))
-        root.addView(danger, withTop(skin!!, Skin.S3))
+                }), skin!!.matchWrap())
+        root.addView(danger, withTop(skin!!, HyperDesign.CARD_GAP))
         return sv
-    }
-
-    private fun advancedRow(kind: Int, title: String, caption: String, action: Runnable): View {
-        val row = skin!!.row()
-        val icon = Icon(this, kind, skin!!.text2)
-        row.addView(icon, fixedMargin(skin!!, 20, 20, 14))
-        row.addView(skin!!.rowText(title, caption), LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                action.run()
-            }
-        })
-        return row
     }
 
     private fun setBackupStatus(message: String?, error: Boolean) {
         if (backupStatus == null) return
+        // 空状态不留一行空白：TextView 即使没有文字也占一个行高，会在首卡上方顶出 18 dp 空洞。
+        backupStatus!!.visibility = if (message.isNullOrEmpty()) View.GONE else View.VISIBLE
         backupStatus!!.text = message
         backupStatus!!.setTextColor(if (error) skin!!.danger else skin!!.text3)
     }
@@ -4862,25 +5141,21 @@ class MainActivity : Activity() {
         sv.isVerticalScrollBarEnabled = false
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setPadding(skin!!.dp(Skin.S5.toFloat()), skin!!.dp(Skin.S3.toFloat()), skin!!.dp(Skin.S5.toFloat()), skin!!.dp(Skin.S7.toFloat()))
+        // 顶部不留内边距：hero 自己带 24 dp，加起来正好是「上 24」。
+        root.setPadding(skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), 0,
+                skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), skin!!.dp(Skin.S6.toFloat()))
         sv.addView(root, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.VERTICAL
-        head.addView(skin!!.display("关于"))
-        val sub = skin!!.caption("版本信息 · 作者链接 · 通用设置")
-        val subLp = skin!!.matchWrap()
-        subLp.topMargin = skin!!.dp(3f)
-        head.addView(sub, subLp)
-        head.background = skin!!.headerScrim()
-        root.addView(head, skin!!.matchWrap())
+        // ── 顶部 hero：图标 / 应用名 / 版本 / 一句话定位 ─────────────────────────
+        // 取代原来的「关于 + 身份卡 + 版本胶囊」三件套：那三样说的是同一件事，
+        // 却占了 3 个视觉层级，标题在最左、版本胶囊贴最右、中间一大片空。
+        val hero = LinearLayout(this)
+        hero.orientation = LinearLayout.VERTICAL
+        val textInset = HyperDesign.ROW_PAD
+        hero.setPadding(skin!!.dp(textInset.toFloat()), skin!!.dp(Skin.S6.toFloat()),
+                skin!!.dp(textInset.toFloat()), skin!!.dp(Skin.S6.toFloat()))
 
-        // 应用身份卡
-        val identity = skin!!.card()
-        val identityRow = LinearLayout(this)
-        identityRow.orientation = LinearLayout.HORIZONTAL
-        identityRow.gravity = Gravity.CENTER_VERTICAL
         val logo = FrameLayout(this)
         var launcher: Drawable? = null
         try {
@@ -4894,69 +5169,70 @@ class MainActivity : Activity() {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
         UiKit.clipRounded(logo, skin!!.dp(14f).toFloat())
-        identityRow.addView(logo, fixedMargin(skin!!, 56, 56, 14))
-        val nameCol = LinearLayout(this)
-        nameCol.orientation = LinearLayout.VERTICAL
-        nameCol.addView(skin!!.title("MapAdKiller"))
-        nameCol.addView(skin!!.caption("版本 " + Version.LABEL + " · 构建 " + Version.CODE))
-        identityRow.addView(nameCol, LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        identityRow.addView(skin!!.chip(if (embedded()) "整合版" else "模块版",
-                skin!!.accentSoft, skin!!.accent))
-        identity.addView(identityRow, skin!!.matchWrap())
+        hero.addView(logo, LinearLayout.LayoutParams(skin!!.dp(56f), skin!!.dp(56f)))
 
-        root.addView(identity, withTop(skin!!, Skin.S4))
+        // 24 sp：T_TITLE 这一档，skin.text 会自动带 -0.015 字距（20 sp 以上收一点才不散）。
+        hero.addView(skin!!.text("MapAdKiller", HyperDesign.T_TITLE, Skin.MEDIUM, skin!!.text),
+                withTop(skin!!, Skin.S3))
+        hero.addView(skin!!.caption("v" + Version.LABEL + " · "
+                        + (if (embedded()) "免 root 整合版" else "LSPosed 模块")),
+                withTop(skin!!, Skin.S1))
+        hero.addView(skin!!.caption("开源 · 免费 · 无广告"), withTop(skin!!, 2))
+        root.addView(hero, skin!!.matchWrap())
+
+        // 卡片一「项目」：三行纯链接，没有行内图标块，右侧只留一个小外链箭头。
+        addSectionTitle(root, "项目")
+        val links = newSurfaceCard()
+        links.addView(plainLinkRow("GitHub 主页", "github.com/ldxm666/MapAdKiller", false,
+                Runnable { openUrl(Version.REPO) }), skin!!.matchWrap())
+        links.addView(plainLinkRow("Telegram 群组", "反馈 / 交流 / 第一时间更新", false,
+                Runnable { openUrl(Version.TG) }), skin!!.matchWrap())
+        links.addView(plainLinkRow("赞赏支持", "感谢投喂 · 扫码请作者喝杯咖啡", false,
+                Runnable { showDonateDialog() }, Icon.CHEVRON), skin!!.matchWrap())
+        root.addView(links, skin!!.matchWrap())
+
+        // 卡片二「声明」：一段说明文字。14 sp / 行距 1.2 / onBackgroundVariant ——
+        // 声明是"读"的内容，不是"点"的内容，所以不给行、不给按钮、不给分隔线。
+        addSectionTitle(root, "声明")
+        val note = skin!!.card()
+        val body = skin!!.text("本模块免费开源，禁止任何形式的倒卖。\n" +
+                "不上传你的配置与使用数据；联网只用于检查更新和拉取公告。\n" +
+                "广告与推荐内容的拦截规则随地图版本变化，升级地图后请回来看一眼开关状态。\n" +
+                "遇到问题请带上机型、地图版本与日志到 GitHub Issues 或 Telegram 群反馈。",
+                Skin.T_BODY, Skin.REGULAR, HyperDesign.of(dark).onBackgroundVariant)
+        note.addView(body, skin!!.matchWrap())
+        root.addView(note, skin!!.matchWrap())
 
         // 支持版本：模块真正验证过的地图版本，和本机安装版本并排显示
-        skin!!.addSection(root, "支持版本")
-        val versions = skin!!.listCard()
-        var firstVersion = true
+        addSectionTitle(root, "支持版本")
+        val versions = newSurfaceCard()
         for (i in Version.TARGETS.indices) {
             val pkg = Version.TARGETS[i][0]
             if (embedded() && pkg != embeddedHost) continue
-            if (!firstVersion) versions.addView(skin!!.hairline())
-            firstVersion = false
-            val row = skin!!.row()
+            val row = newCardRow(true)
             row.isClickable = false
-            val col = LinearLayout(this)
-            col.orientation = LinearLayout.VERTICAL
-            col.addView(skin!!.rowTitle(Version.TARGETS[i][1]))
-            val rec = skin!!.caption("推荐版本 " + recommendedVersion(pkg))
-            val recLp = skin!!.matchWrap()
-            recLp.topMargin = skin!!.dp(2f)
-            col.addView(rec, recLp)
-            row.addView(col, LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(skin!!.rowText(Version.TARGETS[i][1],
+                    "推荐版本 " + recommendedVersion(pkg)),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             val installed = installedVersion(pkg)
             val match = installed != null && installed.startsWith(Version.TARGETS[i][2])
-            row.addView(skin!!.chip(if (installed == null) "未安装" else (if (match) "本机 " + installed else "本机 " + installed),
-                    if (installed == null) skin!!.chipBg else (if (match) (if (dark) HyperDesign.alpha(skin!!.success, 0.14f) else HyperDesign.alpha(skin!!.success, 0.12f))
-                    else (if (dark) 0x2AFBBF24 else 0x1AF79009)),
-                    if (installed == null) skin!!.text3 else (if (match) skin!!.success else skin!!.warn)))
-            versions.addView(row)
+            val chipLp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            chipLp.leftMargin = dp(Skin.S2.toFloat())
+            row.addView(skin!!.chip(
+                    if (installed == null) "未安装" else "本机 " + installed,
+                    if (installed == null) skin!!.chipBg
+                    else (if (match) HyperDesign.alpha(skin!!.success, if (dark) 0.14f else 0.12f)
+                    else HyperDesign.alpha(skin!!.warn, if (dark) 0.16f else 0.10f)),
+                    if (installed == null) skin!!.text3
+                    else (if (match) skin!!.success else skin!!.warn)), chipLp)
+            versions.addView(row, skin!!.matchWrap())
         }
         root.addView(versions, skin!!.matchWrap())
 
-        // 链接卡
-        skin!!.addSection(root, "链接")
-        val links = skin!!.listCard()
-        val mark = GithubMark(this)
-        mark.setColor(skin!!.text)
-        links.addView(linkRow(mark, "GitHub 仓库", "github.com/ldxm666/MapAdKiller", Version.REPO))
-        links.addView(skin!!.hairline())
-        links.addView(linkRow(Icon(this, Icon.DOWNLOAD, skin!!.accent),
-                "版本发布", "最新安装包与更新日志", Version.RELEASES))
-        links.addView(skin!!.hairline())
-        links.addView(linkRow(Icon(this, Icon.SEND, skin!!.accent),
-                "Telegram 群组", "反馈 / 交流 / 第一时间更新", Version.TG))
-        links.addView(skin!!.hairline())
-        links.addView(linkRow(Icon(this, Icon.INFO, skin!!.text2),
-                "问题反馈", "GitHub Issues", Version.ISSUES))
-        root.addView(links, skin!!.matchWrap())
-
         // 通用设置
-        skin!!.addSection(root, "通用")
-        val general = newCard()
+        addSectionTitle(root, "通用")
+        val general = newSurfaceCard()
         if (embedded()) {
             addNoteRow(general, "当前为免 root 整合版：设置只作用于本地图，配置保存在本地图的嵌入式模块服务中。")
             if (embeddedAmap()) addSwitch(general, "调试日志", Config.K_DEBUG_LOG)
@@ -4968,17 +5244,9 @@ class MainActivity : Activity() {
         }
         root.addView(general, skin!!.matchWrap())
 
-        // 说明
-        skin!!.addSection(root, "说明")
-        val note = skin!!.card()
-        val body = skin!!.body("本模块免费开源，禁止任何形式的倒卖。\n" +
-                "广告与推荐内容的拦截规则随地图版本变化，升级地图后请回来看一眼开关状态。\n" +
-                "遇到问题请带上机型、地图版本与日志到 GitHub Issues 或 Telegram 群反馈。")
-        body.setLineSpacing(skin!!.dp(3f).toFloat(), 1.25f)
-        note.addView(body, skin!!.matchWrap())
-        root.addView(note, skin!!.matchWrap())
-
-        val foot = skin!!.footnote("MapAdKiller v" + Version.LABEL + " · 免费开源 · 禁止倒卖")
+        // 底部：版本号居中 13 sp 灰字，下方留 24 dp（由根容器的下内边距给出）。
+        val foot = skin!!.text("MapAdKiller v" + Version.LABEL,
+                Skin.T_CAPTION, Skin.REGULAR, skin!!.text3)
         foot.gravity = Gravity.CENTER
         val flp = skin!!.matchWrap()
         flp.topMargin = skin!!.dp(Skin.S6.toFloat())

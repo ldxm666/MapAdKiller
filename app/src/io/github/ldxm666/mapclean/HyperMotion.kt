@@ -294,11 +294,25 @@ class HyperMotion private constructor() {
 
         private fun start() {
             val existing = clock
+            if (existing != null && existing.isRunning) return
+
+            // ★ 不要复用已经 cancel 过的 ValueAnimator。
+            //
+            // 这个 animator 会在自己的 update listener 里 `a.cancel()`（弹簧停下时）。
+            // 从 listener 内部 cancel 之后，它的内部状态停在 STOPPED，之后再 `start()`
+            // 有概率**直接返回、不重新排帧** —— 不同 ROM 表现还不一致。
+            //
+            // 症状就是「第一次能动，之后就死了」：
+            //   · 底栏指示器永远停在第一格（已实测）；
+            //   · 开关拨一次之后滑块不再移动，只剩颜色跳变（用户报的就是这个）。
+            //
+            // 每次新建一个。ValueAnimator 很轻，1ms 无限重复只是为了拿每一帧的回调，
+            // 真正的生命周期由 [spring] 的 advance() 决定，与 animator 无关。
             if (existing != null) {
-                if (existing.isRunning) return
-                lastNs = 0L
-                existing.start()
-                return
+                try {
+                    existing.cancel()
+                } catch (ignored: Throwable) {
+                }
             }
             val fresh = ValueAnimator.ofFloat(0f, 1f)
             fresh.duration = 1L

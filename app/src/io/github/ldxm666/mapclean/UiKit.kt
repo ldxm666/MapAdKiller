@@ -181,7 +181,16 @@ class UiKit private constructor() {
                     if (from == target) return
                     val a = ValueAnimator.ofFloat(from, target)
                     a.duration = if (target < from) DUR_QUICK else DUR_BASE
-                    a.interpolator = if (target < from) DECELERATE else SPRING
+                    // 松手那一下用 **CycleInterpolator** 而不是普通的弹簧曲线。
+                    //
+                    // 手法抄自 android_ui_motion_suite/ElasticViews（skydoves，MIT）：
+                    // 它把「按下 → 缩」和「松手 → 弹回」拆成两段，回程用一条会越过终点的
+                    // 振荡曲线，于是字面上"弹"一下 —— 而不是单调地滑回原尺寸。
+                    //
+                    // 1.4 个周期：越过 1.0 一次再回来，多了会显得廉价、少了感觉不到。
+                    // 振幅随缩放比例走：压得越深，回弹越大，手感才一致。
+                    a.interpolator = if (target < from) DECELERATE
+                    else android.view.animation.CycleInterpolator(1.4f)
                     a.addUpdateListener(object : ValueAnimator.AnimatorUpdateListener {
                         override fun onAnimationUpdate(animator: ValueAnimator) {
                             val s = animator.animatedValue as Float
