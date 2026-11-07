@@ -11,7 +11,7 @@ from build_nonroot import inspect_elf, sha256
 from verify_module import verify_dependency_jars
 
 ROOT = Path(__file__).resolve().parent.parent
-ROOT_FILES = {".gitignore", "README.md", "LICENSE", "CHANGELOG.md"}
+ROOT_FILES = {".gitignore", "README.md", "LICENSE", "CHANGELOG.md", "BUILD.md"}
 APP_FILES = {"app/AndroidManifest.xml", "app/build.ps1"}
 SOURCE_TREES = {"app/src", "app/stub-src", "app/res", "app/META-INF", "app/native", "docs", "registry-pack"}
 EXCLUDED_PARTS = {".git", ".codex", ".agents", ".aws", "__pycache__", ".idea", ".vscode", "evidence", "shots"}
@@ -24,6 +24,10 @@ def source_files(source: Path):
     jars = {"app/libs/" + item["localJar"] for item in dependencies["artifacts"]}
     libs = jars | {"app/libs/README-aidl.md", "app/libs/dependencies.json"}
     libs |= {f"app/libs/{abi}/libmapclean_labels.so" for abi in NATIVE_ABIS}
+    # libamapbldpatch.so is this project's own single-translation-unit build of
+    # app/native/amap_buildings.c. Shipping it keeps the package buildable without an NDK;
+    # rebuild it with `python app/native/build_buildings.py` after touching the .c.
+    libs |= {"app/libs/arm64-v8a/libamapbldpatch.so"}
     for path in sorted(source.rglob("*")):
         if not path.is_file():
             continue
@@ -43,7 +47,12 @@ def source_files(source: Path):
         if path.suffix.lower() == ".so":
             if name not in libs:
                 raise ValueError("Unexpected native library in source package")
-            inspect_elf(path.read_bytes())
+            # inspect_elf enforces the Xposed Modern-Native-Hook contract (exported
+            # native_init). libmapclean_labels.so is the only library that contract
+            # applies to; libamapbldpatch.so is a plain JNI library loaded by the
+            # module's own System.loadLibrary call and has no native_init export.
+            if name.endswith("/libmapclean_labels.so"):
+                inspect_elf(path.read_bytes())
         # Reject accidental GitHub credentials without echoing their contents.
         if path.suffix.lower() in {".md", ".java", ".py", ".ps1", ".json", ".properties", ".txt", ".cpp", ".h", ".c", ".xml", ".prop"}:
             if re.search(rb"\b(?:github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,})", path.read_bytes()):
