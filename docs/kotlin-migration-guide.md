@@ -275,3 +275,63 @@ Kotlin 的 `::class.java` 和 `javaClass` 等价于 Java 的 `getClass()`。
 2. 目录结构保持 `app/src/io/github/ldxm666/<pkg>/`
 3. 不修改任何 `res/`、`META-INF/`、`libs/`
 4. 报告：文件数、行数、发现的 bug 清单（文件:行 + 现象 + 是否已修）
+
+---
+
+## 八、转译后必须同步改动的构建工具
+
+`javac` 单遍编译的时代，很多工具脚本里都写死了「源码一定是 .java」。
+转成 Kotlin 之后这些假设全部失效，而且**失败方式很隐蔽**：不是报错，而是
+悄悄产出一个少了类的包。
+
+### 8.1 `app/build.ps1`
+
+| 改动 | 原因 |
+|---|---|
+| 新增 `[2/7] compile Kotlin sources`（kotlinc 先跑） | kotlinc 能读 `.java` 做符号解析但不产出，所以它先跑；javac 再以 kotlin 输出为 classpath 编译剩余 java。反过来做 Kotlin 看不到 java 里的类型 |
+| 版本号正则兼容 `Version.kt` | 原来硬读 `Version.java` |
+| d8 输入加 `kotlin-stdlib` | 运行期要 `Intrinsics` / `CollectionsKt` |
+| **d8 输入必须保留 `interface-102.0.0.jar`** | 见下 |
+
+**最容易踩的一条**：`interface-102.0.0.jar` 必须作为 **d8 输入**，不能只当 `--lib`。
+
+它里面有 `IXposedService` 的 AIDL 生成类（`$Stub` / `$Stub$Proxy` / `$Default`）。
+我们的代码只静态引用 `IXposedService.Stub.asInterface()`，`$Stub$Proxy` 与 `$Default`
+**没有任何字节码直接引用它们** —— jar 一旦只当 `--lib`，d8 就不会把这两个类打进 dex。
+运行时 `XposedServiceHelper.onBinderReceived` 一调 `asInterface` 就：
+
+```
+java.lang.NoClassDefFoundError: Failed resolution of:
+    Lio/github/libxposed/service/IXposedService$Stub;
+```
+
+表现是**框架状态永远「连接中」、作用域读数「未知」、所有开关只显示默认值**。
+看起来像网络问题或框架没启用，实际是打包少了一个类。
+
+> 教训：`javap` 核对「方法签名一致」不够，还要核对**哪些类进了 dex**。
+> 验证方法：`unzip -p app.apk classes.dex | strings | grep 'IXposedService\$Stub\$Proxy'`
+
+### 8.2 `tools/build_variant.py`（内置版构建）
+
+四处硬依赖 `.java` 的地方，不改就连编译都进不去：
+
+1. **版本号**：`build_variant.py` 原来硬读 `Version.java` → 改为优先 `Version.kt`、回落 `.java`。
+2. **编译阶段**：`build_slim_module` 是 javac 单遍。树里已无 `.java`（除生成的桩），
+   必然 `程序包 FloatingPanel 不存在`。补 kotlinc→javac 混编，并把 `kotlin-stdlib`
+   加进 d8 输入。配套：
+   - 所有 `.java`-only 的 glob / 裁剪名单 / `keepFiles` 匹配改成按 **stem + 扩展名**
+   - 写桩之前**删掉同名 `.kt` 孪生**，否则同一个 FQN 声明两次
+3. **白名单反读**：`check_host_whitelist` 只扫外层类。Kotlin 把 `@JvmStatic` 编译成
+   静态桥方法，真正的 const-string 在 `$Companion` 里 → 误报「名单里一个字符串都没有」。
+   改为同时扫外层与 `$Companion`，仍然 fail-closed。
+4. **桩调用 internal 成员**：`App.listenEmbedded()` 声明为 `@JvmStatic internal fun`，
+   Kotlin 把 internal 成员的 JVM 名改写成 `listenEmbedded$main`。
+   桩里必须直接写 `listenEmbedded$main()`。
+   **故意不用反射** —— 名字再变是编译期失败，而不是悄悄变成空调用。
+   （这条是免 root 面板「只读 · 服务未连接」的老病根。）
+
+### 8.3 一条推论
+
+只要项目里同时存在 Java 与 Kotlin，**任何「按扩展名收集源文件」的脚本都要复查**。
+本项目里这样做的有：`build.ps1`、`build_variant.py`、`build_source_zip.py`、
+`module_prune.py`。Kotlin 转译那一轮只改了第一个，其余三个是后来逐个踩出来的。
