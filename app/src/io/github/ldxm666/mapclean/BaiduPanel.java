@@ -35,7 +35,7 @@ final class BaiduPanel {
         // 横着滑三屏才能找到想调的东西，用户反馈「太臃肿、分类很差」。
         // 现在按「用户在哪一屏看到它」归并成 6 页，页内用分段标题区分：
         //   界面（底栏/首页宫格/通勤/我的页）· 内容（天气行程/推荐流/搜索区）
-        //   · 地图（标注，动态列表单列）· 路线 · 省电（含悬浮窗）· 其他（诊断+版本）
+        //   · 地图（标注，动态列表单列）· 路线 · 净化（含悬浮窗）· 其他（诊断+版本）
         return new PanelTypes.Group[]{
             new PanelTypes.Group("界面", sections(
                     Spec.CAT_BAR, Spec.CAT_TOOLS, Spec.CAT_HC, Spec.CAT_MINE),
@@ -54,7 +54,7 @@ final class BaiduPanel {
             new PanelTypes.Group("路线", sections(Spec.CAT_ROUTE),
                     "地铁 / 公交方案详情页上的浮层与推荐位。改动后需彻底关闭再打开百度。"),
 
-            new PanelTypes.Group("省电", powerSections(), POWER_NOTE,
+            new PanelTypes.Group("净化", powerSections(), POWER_NOTE,
                     new PanelTypes.Action() {
                         @Override public String label() { return "一键省电（全部开启拦截）"; }
                         @Override public int run() {
@@ -97,7 +97,7 @@ final class BaiduPanel {
     }
 
     /**
-     * 「省电」页的分段。
+     * 「净化」页的分段。
      *
      * <p>⚠ 这些开关都是**安装期门控**（{@code Cfg.installGate}）：关闭时对应实现根本不装进
      * 方法链 —— 这正是用户要的「关闭 = 不加载、零性能开销」，代价是需要重启宿主。

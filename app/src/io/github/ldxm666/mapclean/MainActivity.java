@@ -2504,11 +2504,19 @@ public final class MainActivity extends Activity {
         return lp;
     }
 
+    /**
+     * 行间分割线 —— 左缩进 16 dp，与文字左边缘对齐。
+     *
+     * <p>HyperOS 的分割线不从卡片边缘起笔。全宽分割线会把卡片切成"一格一格的表格"，
+     * 缩进之后才读得出"这是一个分组内的多行"。缩进量等于行的左右 padding。
+     */
     private View divider() {
         View d = new View(this);
         d.setBackgroundColor(skin == null ? 0x0F000000 : skin.divider);
-        d.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1))));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        lp.leftMargin = dp(HyperDesign.DIVIDER_INSET);
+        d.setLayoutParams(lp);
         return d;
     }
 

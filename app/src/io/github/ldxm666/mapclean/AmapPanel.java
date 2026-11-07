@@ -65,7 +65,7 @@ final class AmapPanel {
                         + "容器高度写死在页面里，模块只能隐藏无法回收空间。如实告知。"),
             }, (String) null, POWER_CHIP),
 
-            // ── 2 省电 ────────────────────────────────────────────────────
+            // ── 2 净化 ────────────────────────────────────────────────────
             // 必须停在第 2 位：chip 行是横滚的，用户已经两次因为「看不到入口」报障。
             new PanelTypes.Group(POWER_CHIP, powerSections(), POWER_NOTE,
                     new PanelTypes.Action() {
@@ -102,6 +102,9 @@ final class AmapPanel {
                     + "重新打开标签后，被移除的标签需首页重建（退出再进）才回来。"),
 
             // ── 4 地图 ────────────────────────────────────────────────────
+            // ── 4 地图（含巡航）──────────────────────────────────────────
+            // 巡航并入本页：它管的是"地图在什么条件下自己进入巡航态"，属于地图行为，
+            // 不是独立功能。此前单列一页，chip 行横滚时要多划一格才看得到。
             new PanelTypes.Group("地图", new PanelTypes.Item[]{
                 // 真正的实现在原生层：libmapclean_labels.so 改写 map_assets/style_*X_Main
                 // 样式 protobuf，只把兴趣点要素置不可见，道路 / 水域 / 地名全部保留。
@@ -115,12 +118,6 @@ final class AmapPanel {
                         "启用第三方标注过滤",
                         "默认关闭；开启会恢复第三方标注过滤，但可能影响地图帧率。",
                         true),
-            }),
-
-            // ── 5 巡航 ────────────────────────────────────────────────────
-            // 开关 + 阈值同页。2.2.8 之前开关在「首页」、滑块在这里，用户反馈「开了没反应」
-            // 有一半是根本没找到开关。默认值由 Config 决定，模块接管的判据见 AmapCruise。
-            new PanelTypes.Group("巡航", new PanelTypes.Item[]{
                 new PanelTypes.Item(Config.K_CRUISE_OFFICIAL, "使用高德原生自动进入巡航（推荐）",
                         "恢复高德自己的那条链路：官方状态机本来就在，只是没人布防。"
                         + "开启后由高德自己判（车速 20km/h 持续 10 秒），进入动作走官方 JS 桥，"
@@ -139,14 +136,18 @@ final class AmapPanel {
                         "速度持续达标多少秒后进入巡航。高德官方云控是 5 秒，这个值调小会更灵敏。",
                         "秒", steps(Config.CRUISE_SEC_MIN, Config.CRUISE_SEC_MAX, 1), null,
                         Config.CRUISE_SEC_DEFAULT),
-            }, "只影响高德。松手即生效，不用重启。改完开车走一段即可验证；"
+            }, "只影响高德。巡航两项松手即生效，不用重启；改完开车走一段即可验证，"
                     + "可在 logcat 搜 event=cruise_tick 看实时判据。"),
 
             // ── 6 首页工具（逐项） ────────────────────────────────────────
             // 目录是「学」出来的（首启扫描首页宫格），行数几十条，所以单列一页放最后。
             new PanelTypes.Group("首页工具", toolSections(), TOOL_NOTE),
 
-            // ── 7 实验（默认全关） ────────────────────────────────────────
+            // ── 6 其他（实验特性 + 公告 + 版本）────────────────────────────
+            // 实验并进本页：两项实验开关加一个目标帧率滑块，此前单列一页纯粹是因为
+            // about 标志只认纯 Item 页 —— 现在 Group 支持 (items, metrics, note, about)，
+            // 一页就能同时承载。chip 行横滚，少一页就少一次"看不到入口"。
+            //
             // 这两行动的是**高德自己的地图渲染**，不是广告也不是界面：判错就是地图错乱，
             // 所以缺省必须是"什么都不做"（见 Config.defaultVisible 里那两个键）。
             //
@@ -154,7 +155,7 @@ final class AmapPanel {
             // "改完要强停重开高德"。尤其是建筑那条：native 补丁是进程级全局的，
             // 就算之后把开关关掉，也要重启宿主才能把楼块恢复回来。不写这句，
             // 用户会当成"这个开关关不掉"。
-            new PanelTypes.Group("实验", new PanelTypes.Item[]{
+            new PanelTypes.Group("其他", concat(othersItems(), new PanelTypes.Item[]{
                 new PanelTypes.Item(Config.K_AMAP_FPS_ON, "帧率上限（实验）",
                         "默认关闭。开启后地图出帧被限制在下面选的目标帧率。"
                         + "改变的是渲染回调的节拍，不是把引擎调快 —— 高德本身跑不满时不会拉高。"
@@ -167,17 +168,13 @@ final class AmapPanel {
                         + "不做任何 Java 层可见性改写。"
                         + "⚠ 改完要强停并重开高德才生效；补丁一旦打上是**进程级全局**的，"
                         + "之后把开关关掉也要重启高德，楼块才会回来。"),
-            }, new PanelTypes.Metric[]{
+            }), new PanelTypes.Metric[]{
                 new PanelTypes.Metric(Config.K_AMAP_FPS_TARGET, "目标帧率",
                         "只在上面「帧率上限」打开时起作用。", " 帧",
                         new int[]{60, 90, 120}, null, 60),
             }, "实验特性只影响高德，默认全关。行尾标 ⚠ 的两项都需要强停重开高德；"
-                    + "可在 logcat 搜 event=fps_sample / event=building_patch 看实际生效情况。"),
-
-            // ── 8 其他 ────────────────────────────────────────────────────
-            // `true` = 底部渲染「当前版本 / 检查更新」两行（免 root 内置版没有 MainActivity，
-            // 悬浮面板是它唯一的设置界面，所以版本与更新入口必须在这里）。
-            new PanelTypes.Group("其他", othersItems(), null, true),
+                    + "可在 logcat 搜 event=fps_sample / event=building_patch 看实际生效情况。",
+                    true),
         };
     }
 
@@ -188,6 +185,14 @@ final class AmapPanel {
      * 没有悬浮窗（{@code FloatingHooks.install} 一条 hook 都不装），留着这一行只会让人困惑
      * —— 用户明确要求"应用内悬浮窗整条移除，只给免 root 用"。内置版保持原样。
      */
+    /** 把两段 Item 拼成一个数组 —— 其他页要同时挂动态项（悬浮球）和固定项（实验）。 */
+    private static PanelTypes.Item[] concat(PanelTypes.Item[] a, PanelTypes.Item[] b) {
+        PanelTypes.Item[] out = new PanelTypes.Item[a.length + b.length];
+        System.arraycopy(a, 0, out, 0, a.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
+    }
+
     private static PanelTypes.Item[] othersItems() {
         java.util.List<PanelTypes.Item> out =
                 new java.util.ArrayList<PanelTypes.Item>();
@@ -202,12 +207,16 @@ final class AmapPanel {
     }
 
     /**
-     * 省电页的 chip 文字。
+     * 净化页的 chip 文字。
      *
      * <p>两个字是刻意的：chip 行是横向滚动的，组名越长，它越容易被裁在屏幕边缘 —— 用户已经
-     * 两次因为「看不到入口」而报障。完整名字「省电 / 后台」写在这一页的说明第一句里。
+     * 两次因为「看不到入口」而报障。完整名字写在说明第一句里。
+     *
+     * <p>叫「净化」而不是原来的「省电」：这一页现在装的是推送长连接、后台进程、埋点上报、
+     * 开屏广告 —— 只有第一条真的省电，其余都是去广告。老用户可能在找「省电」，所以说明
+     * 第一句里保留了「省电 / 后台」原词。
      */
-    private static final String POWER_CHIP = "省电";
+    private static final String POWER_CHIP = "净化";
 
     /**
      * 省电页的说明：把最容易误读的语义放在最上面，末尾再加安装期门控的生效条件。
@@ -220,7 +229,7 @@ final class AmapPanel {
      * 每行不再重复这句，避免 11 行都在说同一件事。
      */
     private static final String POWER_NOTE =
-            "省电 / 后台。这一页的开关：开 = 该行为已被拦截（默认全开）；关 = 恢复高德原生行为。"
+            "净化 / 后台（原「省电」页）。这一页的开关：开 = 该行为已被拦截（默认全开）；关 = 恢复高德原生行为。"
             + "关掉推送长连接后，行程提醒 / 消息 / 家人地图会恢复，但 ACCS 长连接会重新占用 CPU。"
             + "⚠ 本页开关改动后需强停并重开高德才生效（关闭时会彻底不加载对应实现，零性能开销）。";
 
@@ -238,7 +247,7 @@ final class AmapPanel {
     };
 
     /**
-     * 省电 / 后台 的四段开关。
+     * 净化 / 后台 的四段开关。
      *
      * <p>只在高德侧注册：{@code push_*} / {@code subproc_*} / {@code track_off} /
      * {@code alimama_*} 的实现（{@code AmapJob}/{@code AmapTrack}/{@code AmapAlimama}/

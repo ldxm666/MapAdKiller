@@ -700,7 +700,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
             // app. Say what is actually wrong, not where the user supposedly is.
             statusPill.setText("○ 只读");
             statusPill.setTextColor(cDotBad());
-            statusPill.setBackground(UiKit.plate(dark ? 0x26FF6B70 : 0x1AE5484D,
+            statusPill.setBackground(UiKit.plate(cWarnFill(),
                     UiKit.dpf(context, 20f)));
             FloatingConfig.reportNoWritePath("status");
         } else if (refused) {
@@ -722,7 +722,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
             // remote channel never arrives.
             statusPill.setText("● 本地");
             statusPill.setTextColor(cAccent());
-            statusPill.setBackground(UiKit.plate(dark ? 0x267AB1FF : 0x140A6CF5,
+            statusPill.setBackground(UiKit.plate(cRipple(),
                     UiKit.dpf(context, 20f)));
         }
         paintWriteWarn();
@@ -804,7 +804,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
         versionBadge.setGravity(Gravity.CENTER);
         versionBadge.setPadding(UiKit.dp(context, 5), UiKit.dp(context, 1),
                 UiKit.dp(context, 5), UiKit.dp(context, 1));
-        versionBadge.setBackground(UiKit.plate(0xFFD92D20, UiKit.dpf(context, 6f)));
+        versionBadge.setBackground(UiKit.plate(hd().error, UiKit.dpf(context, 6f)));
         versionBadge.setVisibility(GONE);
         return versionBadge;
     }
@@ -831,7 +831,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
                 break;
             case U_NEW:
                 text = "v" + Version.NAME + " → v" + updateLatest;
-                color = dark ? 0xFFFF8A80 : 0xFFD92D20;     // red
+                color = hd().error;
                 badge = true;
                 break;
             default:
@@ -1373,7 +1373,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
 
         final GlassSwitch sw = new GlassSwitch(context);
         sw.setLabel(item.title);
-        sw.setTrackColors(dark ? 0x2E8A94A4 : 0x2E8A94A4, cAccent());
+        sw.setTrackColors(hd().secondary, cAccent());
         // Hydrate without animating: the sheet must not fire a wave of toggles on open.
         // `strict` items are read literally (labels_on defaults to false); everything else goes
         // through the visibility table, which is what makes the 「关闭…」 rows default to ON.
@@ -1920,7 +1920,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
         boolean all = allOn(groups[target]);
 
         final TextView banner = new TextView(context);
-        banner.setText(all ? "省电拦截已开启 · 查看/调整 →" : "省电拦截有项已关闭 · 查看 →");
+        banner.setText(all ? "净化拦截已开启 · 查看/调整 →" : "净化拦截有项已关闭 · 查看 →");
         banner.setTextSize(13f);
         banner.setTextColor(0xFFFFFFFF);
         banner.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
@@ -1931,8 +1931,8 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
                 ? UiKit.gradient(cAccentTop(), cAccentBottom(), UiKit.dpf(context, 14f))
                 : UiKit.plate(cWarn(), UiKit.dpf(context, 14f)));
         banner.setContentDescription(all
-                ? "省电拦截已开启，点这里查看或调整"
-                : "省电拦截有项已关闭，点这里查看");
+                ? "净化拦截已开启，点这里查看或调整"
+                : "净化拦截有项已关闭，点这里查看");
         UiKit.pressable(banner, 0.97f);
         banner.setOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
@@ -1978,7 +1978,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
         button.setPadding(0, UiKit.dp(context, 11), 0, UiKit.dp(context, 11));
         button.setBackground(UiKit.gradient(cAccentTop(), cAccentBottom(),
                 UiKit.dpf(context, 14f)));
-        button.setContentDescription(action.label() + "：一次把所有省电拦截打开");
+        button.setContentDescription(action.label() + "：一次把所有净化拦截打开");
         UiKit.pressable(button, 0.97f);
         button.setOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
@@ -1989,7 +1989,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
                     Log.w(TAG, "event=action_fail err=" + t.getClass().getName());
                 }
                 sync();                      // rows below must show the new state at once
-                toast(written > 0 ? "已开启全部省电拦截" : writeFailedHint());
+                toast(written > 0 ? "已开启全部净化拦截" : writeFailedHint());
                 refreshStatus();
                 Log.i(TAG, "event=power_all written=" + written);
             }
@@ -2148,7 +2148,7 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
 
         final GlassSlider slider = new GlassSlider(context);
         slider.setStops(m.values.length);
-        slider.setTrackColors(dark ? 0x2E8A94A4 : 0x1F8A94A4, cAccent(), cAccentTop());
+        slider.setTrackColors(hd().sliderBackground, cAccent(), cAccentTop());
         slider.setTrackBandDp(48f);
         // Hydrate without notifying: opening the sheet must not write to storage.
         int position = m.positionOf(FloatingConfig.readInt(m.key, m.def));
@@ -2826,19 +2826,35 @@ public final class FloatingPanel extends FrameLayout implements PanelTypes {
 
     /* ------------------------------------------------------------------ 配色 */
 
-    private int cBg()       { return dark ? 0xFF0E1013 : 0xFFF2F3F7; }
-    private int cGlass()    { return dark ? 0xF21D2027 : 0xF7FFFFFF; }
-    private int cRimHi()    { return dark ? 0x40FFFFFF : 0x8CFFFFFF; }
-    private int cRimLo()    { return dark ? 0x08FFFFFF : 0x14FFFFFF; }
-    private int cTxP()      { return dark ? 0xFFF2F4F8 : 0xFF171B23; }
-    private int cTxS()      { return dark ? 0xFF98A0AC : 0xFF7A8290; }
-    private int cAccent()   { return dark ? 0xFF7AB1FF : 0xFF0A6CF5; }
-    private int cRipple()   { return dark ? 0x267AB1FF : 0x140A6CF5; }
-    private int cDotOk()    { return dark ? 0xFF2BD88A : 0xFF12B76A; }
-    private int cDotBad()   { return dark ? 0xFFFF6B70 : 0xFFE5484D; }
+    /**
+     * 色板全部转发到 {@link HyperDesign} —— 这里此前是一份独立的 Liquid Glass 色板
+     * （11 个私有方法、73 处硬编码 ARGB），和模块 App 的 {@link Skin} 各说各话。
+     * 改一次主题要动两个文件，且内置版和模块版的观感对不上。
+     *
+     * <p>方法名保持不变：调用点遍布 2844 行，改名没有收益。
+     */
+    private HyperDesign hd() {
+        if (hdCache == null || hdCache.dark != dark) hdCache = HyperDesign.of(dark);
+        return hdCache;
+    }
+
+    private HyperDesign hdCache;
+
+    private int cBg()       { return hd().background; }
+    /** 卡片底。HyperOS 浅色下与页面同色，靠页边距和圆角切分。 */
+    private int cGlass()    { return hd().surfaceContainer; }
+    /** 描边两端：HyperOS 不用高光边，只保留一点方向感。 */
+    private int cRimHi()    { return HyperDesign.mix(hd().outline, 0xFFFFFFFF, dark ? 0.10f : 0.55f); }
+    private int cRimLo()    { return hd().outline; }
+    private int cTxP()      { return hd().onSurface; }
+    private int cTxS()      { return hd().onSurfaceVariantSummary; }
+    private int cAccent()   { return hd().primary; }
+    private int cRipple()   { return HyperDesign.alpha(hd().primary, dark ? 0.16f : 0.10f); }
+    private int cDotOk()    { return dark ? 0xFF34D399 : 0xFF12A150; }
+    private int cDotBad()   { return hd().error; }
     /** Warning tone for the one action that removes the entry point (关闭悬浮窗). */
-    private int cWarn()     { return dark ? 0xFFFF8A8F : 0xFFD92D20; }
-    private int cWarnFill() { return dark ? 0x1FFF6B70 : 0x0FD92D20; }
-    private int cAccentTop()    { return dark ? 0xFF4C8DFF : 0xFF3D82FF; }
-    private int cAccentBottom() { return dark ? 0xFF2563EB : 0xFF0A5CE0; }
+    private int cWarn()     { return dark ? 0xFFFFB020 : 0xFFC77700; }
+    private int cWarnFill() { return HyperDesign.alpha(cWarn(), dark ? 0.16f : 0.10f); }
+    private int cAccentTop()    { return HyperDesign.mix(hd().primary, 0xFFFFFFFF, dark ? 0.10f : 0.18f); }
+    private int cAccentBottom() { return HyperDesign.mix(hd().primary, 0xFF000000, dark ? 0.14f : 0.10f); }
 }

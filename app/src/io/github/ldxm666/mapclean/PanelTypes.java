@@ -142,6 +142,16 @@ static final class Group {
      * 于是「开 → 调阈值」的阅读顺序天然成立。
      */
     Group(String label, Item[] items, Metric[] metrics, String note) {
+        this(label, items, metrics, note, false);
+    }
+
+    /**
+     * 带 {@code about} 的版本 —— 「其他」页要同时挂实验开关、目标帧率滑块和版本行。
+     *
+     * <p>此前 about 只能和纯 Item 页搭配，所以「实验」被迫单列一页：它有两个开关和
+     * 一个滑块，而版本行只认 about 页。chip 行是横滚的，多一页就多一次「看不到入口」。
+     */
+    Group(String label, Item[] items, Metric[] metrics, String note, boolean about) {
         this.label = label;
         this.items = items;
         this.sections = null;
@@ -149,7 +159,7 @@ static final class Group {
         this.note = note;
         this.action = null;
         this.link = null;
-        this.about = false;
+        this.about = about;
     }
 
     /** Numeric rows: the 外观 page. */

@@ -39,10 +39,13 @@ public final class GlassSwitch extends View {
         void onCheckedChanged(GlassSwitch view, boolean checked);
     }
 
-    private static final float TRACK_W_DP = 50f;
-    private static final float TRACK_H_DP = 30f;
-    private static final float THUMB_DP = 24f;
-    private static final float PAD_DP = 3f;
+    // miuix Switch.kt：轨道 49x28，滑块 20，上下各留 4，行程 21 dp。
+    private static final float TRACK_W_DP = 49f;
+    private static final float TRACK_H_DP = 28f;
+    private static final float THUMB_DP = 20f;
+    private static final float PAD_DP = 4f;
+    /** 按下 / 拖动时滑块放大倍数（miuix Switch.kt:105）。 */
+    private static final float THUMB_PRESS_SCALE = 1.127f;
     /** Vertical footprint: keeps the capsule centred inside a finger-sized hit box. */
     private static final float TOUCH_H_DP = 48f;
 
@@ -57,11 +60,12 @@ public final class GlassSwitch extends View {
     private boolean pressed;
 
     private ValueAnimator anim;
+    private HyperMotion.Driver driver;
     private OnCheckedChange listener;
     private String label;
 
-    private int trackOff = 0x2E8A94A4;
-    private int trackOn = 0xFF0A6CF5;
+    private int trackOff = 0xFFE6E6E6;   // secondary
+    private int trackOn = 0xFF3482FF;    // primary
     private int thumbOff = 0xFFFFFFFF;
     private int thumbOn = 0xFFFFFFFF;
 
@@ -115,21 +119,32 @@ public final class GlassSwitch extends View {
         animateTo(target);
     }
 
+    /**
+     * 滑块位移走物理弹簧 {@code spring(0.7, 987)}（miuix Switch.kt:87）。
+     *
+     * <p>用弹簧而不是补间，是因为连续点击时补间会从当前值重新起步、视觉上"顿一下"；
+     * 弹簧把当前速度带进下一段，中途打断是连续的。
+     */
     private void animateTo(float target) {
         cancelAnim();
-        anim = ValueAnimator.ofFloat(progress, target);
-        anim.setDuration(target > progress ? 240L : 180L);
-        anim.setInterpolator(target > progress ? UiKit.SPRING : UiKit.ACCELERATE);
-        anim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override public void onAnimationUpdate(ValueAnimator a) {
-                progress = (Float) a.getAnimatedValue();
-                invalidate();
-            }
-        });
-        anim.start();
+        if (driver == null) {
+            driver = new HyperMotion.Driver(
+                    HyperMotion.Spring.ofStiffness(
+                            HyperMotion.D_SWITCH_MOVE, HyperMotion.K_SWITCH_MOVE, progress),
+                    new HyperMotion.Driver.Sink() {
+                        @Override public void onValue(float value) {
+                            progress = value;
+                            invalidate();
+                        }
+                    });
+        }
+        driver.to(target);
     }
 
     private void cancelAnim() {
+        if (driver != null) {
+            driver.cancel();
+        }
         if (anim != null) {
             anim.cancel();
             anim = null;
@@ -163,8 +178,7 @@ public final class GlassSwitch extends View {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 pressed = true;
-                animate().cancel();
-                animate().scaleX(0.94f).scaleY(0.94f).setDuration(90L).start();
+                HyperMotion.press(this, true, HyperDesign.PRESS_SWITCH);
                 invalidate();
                 return true;
             case MotionEvent.ACTION_MOVE: {
@@ -195,9 +209,7 @@ public final class GlassSwitch extends View {
     }
 
     private void releasePress() {
-        animate().cancel();
-        animate().scaleX(1f).scaleY(1f).setDuration(UiKit.DUR_BASE)
-                .setInterpolator(UiKit.SPRING).start();
+        HyperMotion.press(this, false, HyperDesign.PRESS_SWITCH);
     }
 
     /** A user tap: flip, animate, notify. Programmatic {@link #setChecked} stays silent. */
@@ -215,10 +227,18 @@ public final class GlassSwitch extends View {
         setContentDescription((label == null ? "开关" : label) + (checked ? "，已开启" : "，已关闭"));
     }
 
+    /**
+     * HyperOS 开关绘制 —— 平实轨道 + 纯白滑块，没有任何高光或玻璃质感。
+     *
+     * <p>改自 Liquid Glass：那一版有"内圈 1 px 高光 + 滑块顶部月牙高光 + 按下时轨道外
+     * 发光"，读起来是玻璃胶囊。HyperOS 是纯色填充，厚度感只靠滑块下方一层极淡的投影。
+     *
+     * <p>位移用 clamp 后的 progress，弹簧过冲时滑块不会冲出轨道；缩放用原始值，
+     * 让放大动作带一点过冲的弹性。
+     */
     @Override protected void onDraw(Canvas canvas) {
-        // Position uses a clamped value so the spring overshoot cannot fling the thumb
-        // outside the capsule; the squash keeps the raw value for its momentum read.
         float p = Math.max(0f, Math.min(1f, progress));
+        float raw = progress;
         int track = UiKit.blend(trackOff, trackOn, p);
         int thumb = UiKit.blend(thumbOff, thumbOn, p);
         int dim = enabled ? 255 : 120;
@@ -230,35 +250,31 @@ public final class GlassSwitch extends View {
         paint.setStyle(Paint.Style.FILL);
         paint.setAlpha(dim);
 
-        // Soft accent halo behind the capsule while it is being held.
-        if (pressed) {
-            paint.setColor((trackOn & 0x00FFFFFF) | 0x33000000);
-            rect.set(left - pad * 2f, top - pad * 2f, left + trackW + pad * 2f, top + trackH + pad * 2f);
-            canvas.drawRoundRect(rect, radius + pad * 2f, radius + pad * 2f, paint);
-        }
-
+        // 轨道：纯色全圆矩形，无描边无内高光。
         rect.set(left, top, left + trackW, top + trackH);
         paint.setColor(track);
         canvas.drawRoundRect(rect, radius, radius, paint);
 
-        // Inner top rim: a hairline of light so the track reads as a glass channel.
-        paint.setColor(0x1FFFFFFF);
-        rect.set(left + 1f, top + 1f, left + trackW - 1f, top + trackH - 1f);
-        canvas.drawRoundRect(rect, radius - 1f, radius - 1f, paint);
+        // 滑块：按下时放大到 1.127，用弹簧过冲值驱动，松手弹回。
+        float scale = 1f;
+        if (pressed) {
+            scale = THUMB_PRESS_SCALE;
+        } else if (Math.abs(raw - p) > 0.001f) {
+            // 弹簧过冲中：把超出的部分转成一点点放大，读作惯性
+            scale = 1f + Math.min(0.08f, Math.abs(raw - p) * 0.5f);
+        }
+        float r = thumbSize * 0.5f * scale;
 
-        // Thumb squashes horizontally mid-throw, which reads as momentum.
-        float squash = 1f + 0.16f * (float) Math.sin(Math.PI * p);
-        float tw = thumbSize * squash;
-        float th = thumbSize / squash;
-        float cx = left + pad + thumbSize * 0.5f + (trackW - pad * 2f - thumbSize) * p;
+        // 行程：未选中距左 4，选中距右 4，行程 = 49 - 20 - 8 = 21 dp
+        float travel = trackW - pad * 2f - thumbSize;
+        float cx = left + pad + thumbSize * 0.5f + travel * p;
 
-        paint.setColor(0x33000000);
-        canvas.drawCircle(cx, cy + th * 0.06f, th / 2f, paint);
+        // 滑块投影：极淡，只制造一点离面感（HyperOS 不用阴影做层级）
+        paint.setColor(0x1F000000);
+        canvas.drawCircle(cx, cy + r * 0.10f, r, paint);
+
         paint.setColor(thumb);
-        canvas.drawCircle(cx, cy, th / 2f, paint);
-        // Highlight crescent on top of the thumb for a glassy read.
-        paint.setColor(0x40FFFFFF);
-        canvas.drawCircle(cx, cy - th * 0.18f, tw / 2f * 0.78f, paint);
+        canvas.drawCircle(cx, cy, r, paint);
 
         paint.setAlpha(255);
     }

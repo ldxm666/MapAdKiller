@@ -38,17 +38,17 @@ final class Skin {
     static final int S6 = 24;
     static final int S7 = 32;
 
-    static final int R_CARD = 28;
-    static final int R_INNER = 14;
-    static final int R_CONTROL = 12;
+    static final int R_CARD = (int) HyperDesign.R_CARD;        // 16
+    static final int R_INNER = (int) HyperDesign.R_CONTROL;     // 12
+    static final int R_CONTROL = (int) HyperDesign.R_CONTROL;   // 12
     static final int R_PILL = 999;
 
-    static final float T_DISPLAY = 30f;
-    static final float T_TITLE = 18f;
-    static final float T_ROW = 15f;
-    static final float T_BODY = 13.5f;
-    static final float T_CAPTION = 12f;
-    static final float T_LABEL = 11f;
+    static final float T_DISPLAY = HyperDesign.T_DISPLAY;   // 32
+    static final float T_TITLE = HyperDesign.T_SUBTITLE;    // 20
+    static final float T_ROW = HyperDesign.T_BODY1;         // 17
+    static final float T_BODY = HyperDesign.T_BODY3;        // 14
+    static final float T_CAPTION = HyperDesign.T_CAPTION;   // 13
+    static final float T_LABEL = HyperDesign.T_LABEL;       // 11
 
     static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
     static final Typeface REGULAR = Typeface.create("sans-serif", Typeface.NORMAL);
@@ -80,64 +80,58 @@ final class Skin {
     Skin(Context context, boolean dark) {
         this.context = context;
         this.dark = dark;
-        if (dark) {
-            bg = 0xFF0A0B0E;
-            surface = 0xFF15171C;
-            surface2 = 0x991B2130;
-            rimHi = 0x66FFFFFF;
-            rimLo = 0x0AFFFFFF;
-            stroke = 0xFF262A32;
-            divider = 0x1FFFFFFF;
-            text = 0xFFF4F6FB;
-            text2 = 0xFFA7B0C4;
-            text3 = 0xFF6F7A90;
-            accent = 0xFF7FA8FF;
-            accentSoft = 0x337FA8FF;
-            onAccent = 0xFF06101F;
-            success = 0xFF34D399;
-            warn = 0xFFFBBF24;
-            danger = 0xFFF87171;
-            chipBg = 0x33FFFFFF;
-            navBg = 0xE6121720;
-        } else {
-            bg = 0xFFFFFFFF;
-            surface = 0xFFFFFFFF;
-            surface2 = 0xFFF5F6F9;
-            rimHi = 0xFFFFFFFF;
-            rimLo = 0xFFFFFFFF;
-            stroke = 0xFFE8EBF0;
-            divider = 0xFFF0F2F5;
-            text = 0xFF0F1420;
-            text2 = 0xFF5D6675;
-            text3 = 0xFF98A1B0;
-            accent = 0xFF2F6BFF;
-            accentSoft = 0xFFEDF2FF;
-            onAccent = 0xFFFFFFFF;
-            success = 0xFF12A150;
-            warn = 0xFFC77700;
-            danger = 0xFFD92D20;
-            chipBg = 0xFFF3F5F8;
-            navBg = 0xFFFFFFFF;
-        }
+        // 色板唯一来源：HyperDesign。此前这里是一份手抄的 Liquid Glass 色板，
+        // 悬浮面板里还有第二份（cBg/cGlass/…），改配色要动两个地方。
+        HyperDesign h = HyperDesign.of(dark);
+        bg = h.background;
+        surface = h.surfaceContainer;          // 卡片底：浅色白 / 深色 #242424
+        surface2 = h.surface;                  // 次级面：浅色 #F7F7F7 / 深色纯黑
+        stroke = h.outline;
+        divider = h.dividerLine;
+        text = h.onSurface;
+        text2 = h.onSurfaceVariantSummary;
+        text3 = h.onSurfaceContainerVariant;
+        accent = h.primary;
+        accentSoft = h.tertiaryContainer;
+        onAccent = h.onPrimary;
+        success = dark ? 0xFF34D399 : 0xFF12A150;
+        warn = dark ? 0xFFFBBF24 : 0xFFC77700;
+        danger = h.error;
+        chipBg = h.surfaceContainerHigh;
+        navBg = h.surfaceContainer;
+        // 描边渐变的两端：HyperOS 不用高光边，两端都取 outline，
+        // 只让左上略亮一点点，保留一点方向感而不抢眼。
+        rimHi = HyperDesign.mix(h.outline, 0xFFFFFFFF, dark ? 0.10f : 0.55f);
+        rimLo = h.outline;
     }
 
     /** Base tint painted over the blurred backdrop inside every glass pane. */
     int glassTint() {
-        return dark ? 0xFF15171C : 0xFFF3F4F8;
+        return surface;
     }
 
     /** Soft veil behind a page title so dark type stays legible over the photo. */
     Drawable headerScrim() {
         return new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{dark ? 0xE60A0B0E : 0xE6FFFFFF, dark ? 0x000A0B0E : 0x00FFFFFF});
+                new int[]{HyperDesign.alpha(bg, 0.90f), HyperDesign.alpha(bg, 0f)});
     }
 
-    GlassDrawable glassFor(View host, float radiusDp) {
-        return new GlassDrawable(host, dp(radiusDp), glassTint(), dark);
+    /**
+     * 卡片底 —— HyperOS 是实色 + 1 px 描边，不是半透明玻璃。
+     *
+     * <p>改自 Liquid Glass：那一版是"高光外圈 + 白色内圈 + 半透明body"，靠层叠制造
+     * 厚度感。HyperOS 反过来 —— 实色面，用 {@code outline} 一条描边界定边界，浅色下
+     * 几乎不用阴影。保留方法名和签名，419 处调用方一行不用改。
+     */
+    Drawable glassFor(View host, float radiusDp) {
+        return border(surface, stroke, radiusDp);
     }
 
-    GlassDrawable glassFor(View host, float radiusDp, int tint) {
-        return new GlassDrawable(host, dp(radiusDp), tint, dark);
+    /** 带色调的卡片 —— 用于状态卡（成功/警告/危险）。色调只染 12% 和描边 30%。 */
+    Drawable glassFor(View host, float radiusDp, int tint) {
+        int fill = HyperDesign.mix(surface, tint, dark ? 0.16f : 0.10f);
+        int line = HyperDesign.mix(stroke, tint, dark ? 0.34f : 0.30f);
+        return border(fill, line, radiusDp);
     }
 
     int dp(float value) {
@@ -186,10 +180,10 @@ final class Skin {
     LinearLayout card() {
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(S4), dp(S4), dp(S4), dp(S4));
+        card.setPadding(dp(S4), dp(S3), dp(S4), dp(S3));
         card.setBackground(glassFor(card, R_CARD));
         UiKit.clipRounded(card, dp(R_CARD));
-        shadow(card, 7f);
+        shadow(card, 1f);
         return card;
     }
 
@@ -199,7 +193,7 @@ final class Skin {
         card.setPadding(dp(S1), dp(S2), dp(S1), dp(S2));
         card.setBackground(glassFor(card, R_CARD));
         UiKit.clipRounded(card, dp(R_CARD));
-        shadow(card, 7f);
+        shadow(card, 1f);
         return card;
     }
 
@@ -239,10 +233,12 @@ final class Skin {
         return UiKit.ripple(dark ? 0x33FFFFFF : 0x14000000, border(fill, line, radiusDp), dp(radiusDp));
     }
 
+    /** 行间分割线 —— 左缩进 16 dp，与文字左边缘对齐（HyperOS 不从卡片边缘起笔）。 */
     View hairline() {
         View v = new View(context);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        lp.leftMargin = dp(HyperDesign.DIVIDER_INSET);
         v.setLayoutParams(lp);
         v.setBackgroundColor(divider);
         return v;
@@ -252,9 +248,9 @@ final class Skin {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(56));
-        row.setPadding(dp(S2), dp(S2), dp(S2), dp(S2));
-        row.setBackground(UiKit.rippleBare(dark ? 0x22FFFFFF : 0x0F000000, dp(R_INNER)));
+        row.setMinimumHeight(dp(HyperDesign.ROW_H));
+        row.setPadding(dp(HyperDesign.ROW_PAD), dp(S2), dp(HyperDesign.ROW_PAD), dp(S2));
+        row.setBackground(new HyperRipple(dark ? 0xFFFFFFFF : 0xFF000000, dp(R_INNER)));
         row.setClickable(true);
         return row;
     }
@@ -351,11 +347,18 @@ final class Skin {
      * API 28+ lets us tint spot and ambient shadows, so the plate looks lit rather than
      * dirty; older versions simply get a lower elevation.
      */
+    /**
+     * 阴影 —— HyperOS 克制使用。
+     *
+     * <p>浅色下卡片靠 {@code outline} 描边区分层级，阴影只保留 1 dp 的接地感；
+     * 深色下卡片本身比背景更黑，再叠阴影会糊成一片，所以进一步压到 0.5 倍。
+     */
     void shadow(View v, float elevationDp) {
-        v.setElevation(dp(elevationDp));
+        float e = dark ? elevationDp * 0.5f : elevationDp;
+        v.setElevation(dp(e));
         if (android.os.Build.VERSION.SDK_INT >= 28) {
-            v.setOutlineSpotShadowColor(dark ? 0x80000000 : 0x26000000);
-            v.setOutlineAmbientShadowColor(dark ? 0x40000000 : 0x1A000000);
+            v.setOutlineSpotShadowColor(dark ? 0x66000000 : 0x14000000);
+            v.setOutlineAmbientShadowColor(dark ? 0x33000000 : 0x0D000000);
         }
     }
 
