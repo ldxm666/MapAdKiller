@@ -245,6 +245,14 @@ class MainActivity : Activity() {
             }
         })
 
+        // 高德发行版判定：一行日志，排障时直接 grep event=amap_edition
+        try {
+            io.github.ldxm666.mapadkiller.H.log(
+                    android.util.Log.INFO, "MapAdKiller",
+                    AmapEdition.describe(AmapEdition.detect(this)))
+        } catch (ignored: Throwable) {
+        }
+
         attachScrollAnimations()
         showTab(TAB_HOME, false)
         renderStatus()
@@ -4029,6 +4037,17 @@ class MainActivity : Activity() {
         var caption = "推荐 " + (if (recommended == null) "—" else recommended)
         if (version == null) caption += if (embedded()) " · 未安装" else " · 本机未安装"
         else caption += " · 本机 " + version + (if (count > 0) " · " + count + " 项" else "")
+        // 高德两个发行版是**两次独立构建**（DEX 全不同、native 地址不同），
+        // 混淆名会重排，所以"现在装的是哪个版"直接决定用哪套锚点 —— 必须在界面上写清，
+        // 否则用户报"某功能没反应"时，第一步就卡在不知道他装的是哪版。
+        if (AmapEdition.PKG_AMAP == pkg) {
+            val ed = AmapEdition.detect(this)
+            caption += " · " + ed.label()
+            if (ed.edition == AmapEdition.Edition.UNKNOWN) {
+                // 认不出时不猜，只提示：猜错会让 native 补丁打错地址。
+                caption += "（无法识别，部分功能不启用）"
+            }
+        }
         row.addView(skin!!.rowText(label, caption), LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 

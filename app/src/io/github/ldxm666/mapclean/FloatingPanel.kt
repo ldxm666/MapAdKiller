@@ -2,7 +2,14 @@ package io.github.ldxm666.mapclean
 
 import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.graphics.Shader
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
