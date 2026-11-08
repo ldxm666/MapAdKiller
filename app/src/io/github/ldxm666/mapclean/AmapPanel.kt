@@ -152,8 +152,8 @@ class AmapPanel private constructor() {
                             )
                         ),
                     ), "底栏是常驻的；「我的页」「内容卡片」要滚动进去才看得到。" +
-                            "四个标签全部关闭时只剩「首页」，此时整条底栏会整体隐藏；" +
-                            "重新打开标签后，被移除的标签需首页重建（退出再进）才回来。"
+                            "开关实时隐藏或恢复宿主已有标签，无需重启；只剩「首页」时整条底栏隐藏。" +
+                            "宿主当前没有提供的标签不会凭空新增；关闭当前标签时会返回首页。"
                 ),
 
                 // ── 4 地图 ────────────────────────────────────────────────────
@@ -989,9 +989,8 @@ class AmapPanel private constructor() {
          */
         @JvmStatic
         fun apply(key: String?) {
-            invalidate()
             try {
-                io.github.ldxm666.mapadkiller.AmapNativeHome.onConfigChanged(key)
+                Config.invalidate(key)
             } catch (ignored: Throwable) {
             }
             try {

@@ -4,7 +4,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.MotionEvent
 import android.view.ViewTreeObserver
-import java.util.ArrayList
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
 import io.github.libxposed.api.XposedInterface
@@ -13,7 +13,7 @@ import io.github.libxposed.api.XposedInterface
  * The original 115 dp cap leaves a narrow selected pill after removing tabs.
  *
  * <p>另外：**只剩「首页」(Main) 一个标签时，整条底部栏隐藏**，而不是留一个孤立图标。
- * 只从 `init(List)` 里删掉 4 个 tab 是不够的 —— `tabContainer` 自带皮肤背景、
+ * 只隐藏 4 个 tab 是不够的 —— `tabContainer` 自带皮肤背景、
  * elevation 阴影和左右 padding，它们会原样留在屏幕上，也就是用户看到的「孤零零一个首页
  * 图标 + 一条空条」。所以「只剩一个」必须把 `LiteTabBar` 整个 GONE，并把自身与
  * 宿主包装容器的高度归零（宿主可能按固定高度预留空间 ⇒ 地图底部出现白条）。
@@ -25,36 +25,11 @@ object AmapTabLayout {
         H.hookSig(barClass, "init", "amap_tab_padding",
             object : XposedInterface.Hooker {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
-                    val source = chain.getArg(0) as List<*>
-                    val kept = ArrayList<Any?>()
-                    val ids = ArrayList<String>()
-                    var extra = 0
-                    for (tab in source) {
-                        val id = tabId(tab)
-                        if (visible(id)) {
-                            kept.add(tab)
-                            ids.add(id)
-                        }
-                        if (!known(id)) extra++
-                    }
-                    if (kept.isEmpty()) {
-                        // 源列表本身为空。注意「首页」Main 恒 visible（[visible] 对未知 id
-                        // 返回 true），所以「4 个开关全关」走不到这里，这里只是防御：不重建，
-                        // 免得 init 内部按 List.size() 做除法/最小值运算踩空。
-                        note(chain.getThisObject(), ids, extra)
-                        val result = chain.proceed()
-                        settle(chain.getThisObject())
-                        return result
-                    }
-                    val own = H.getObjectField(chain.getThisObject(), "mTabs")
-                    if (own is MutableList<*>) {
-                        @Suppress("UNCHECKED_CAST")
-                        val tabs = own as MutableList<Any?>
-                        tabs.clear()
-                        tabs.addAll(kept)
-                    }
-                    note(chain.getThisObject(), ids, extra)
-                    val result = chain.proceed(arrayOf<Any?>(kept))
+                    // Keep the host's complete model/view/controller list. Filtering at init
+                    // destroys disabled tabs and makes re-enabling them impossible until restart.
+                    // GONE children retain their native indices and LinearLayout redistributes
+                    // the remaining weights without rebuilding callbacks or the selected model.
+                    val result = chain.proceed()
                     val container = H.getObjectField(chain.getThisObject(), "tabContainer")
                     if (container is View) container.setPadding(0, 0, 0, 0)
                     settle(chain.getThisObject())
@@ -93,6 +68,9 @@ object AmapTabLayout {
         H.hookSig(layout, "setTabId", "amap_embedded_home_entry", object : XposedInterface.Hooker {
             override fun intercept(chain: XposedInterface.Chain): Any? {
                 val result = chain.proceed()
+                val view = chain.getThisObject() as View
+                val id = chain.getArg(0) as? String
+                if (id != null) synchronized(viewIds) { viewIds[view] = id }
                 // BootHomeTabPage's default page is the stable Main tab and cannot be hidden.
                 if ("Main" == chain.getArg(0))
                     io.github.ldxm666.mapclean.EmbeddedSettings.bindEntry(chain.getThisObject() as View, MainHook.PKG_AMAP)
@@ -193,8 +171,17 @@ object AmapTabLayout {
         }
     }
 
+    private val viewIds = WeakHashMap<View, String>()
+
     private fun viewId(view: View?): String {
         if (view == null) return ""
+        synchronized(viewIds) { viewIds[view]?.let { return it } }
+        // 17.02 CN and Play expose setTabId + a private tabId field, but NO getTabId.
+        val stored = H.getObjectField(view, "tabId") as? String
+        if (stored != null) {
+            synchronized(viewIds) { viewIds[view] = stored }
+            return stored
+        }
         try {
             return view.javaClass.getMethod("getTabId").invoke(view).toString()
         } catch (ignored: Exception) {
@@ -213,7 +200,7 @@ object AmapTabLayout {
     // ══════════════════════════════════════════════════════════════════════════
     //
     // 判定只看**这个 LiteTabBar 实例自己的事实**，不用全局状态：
-    //   ids   = init 实际保留下来的 tab id（Main + 没被关掉的那几个）；
+    //   ids   = 宿主原生模型列表的完整 id（包括当前被隐藏的标签）；
     //   extra = init 参数里有多少个本模块不认识的标签。
     // 每次复核时按当前配置重新数一遍 ids：`live = ids 里仍 visible 的个数`。
     //   live <= 1  ⇒ 只剩「首页」⇒ 整条栏 GONE（这就是 Bug3 的验收条件）；
@@ -222,7 +209,7 @@ object AmapTabLayout {
     // 为什么不用「配置里开了几个开关」当门槛：宿主给的 tab 列表不是固定的 —— 17.02 实测
     // 同一台设备可能只给「首页 + 我的」两个 tab，此时把「我的」关掉后 kept 只剩 Main，
     // 但「探索/长按说话/打车」三个键仍是默认 true ⇒ 配置总数算出 4 ⇒ 永不隐藏 ⇒ bug 还在。
-    // 只有按**实际建出来的 id** 数才两种形态都对。
+    // 只有按宿主实际提供的 id 数才两种形态都对；关闭的 View 保留原生索引以支持恢复。
     //
     // 用 id 实时重算而不是只在 init 时算一次，是为了**关闭方向实时生效**：用户把标签逐个
     // 关到只剩首页时，布局复核那一帧就会把整条栏收掉，不用退出首页。
@@ -230,19 +217,31 @@ object AmapTabLayout {
     // 防抖/幂等：hide()/show() 只在状态真的变了时才动 View，`applying` 兜住递归
     // （setLayoutParams → requestLayout → onGlobalLayout → apply 这条环）。
     private class BarState {
-        var built: Int = -1              // init 实际保留的 tab 数（日志/排查用）
+        var built: Int = -1              // 原生 tab 数（日志/排查用）
         var extra: Int = 0               // init 参数里本模块不认识的标签数；>0 ⇒ 永不整条隐藏
-        var ids: Array<String>? = null   // init 实际保留的 tab id，用来实时算「现在还剩几个标签」
+        var ids: Array<String>? = null   // 完整模型 id，用来实时算「现在还剩几个标签」
         var selfHeight: Int = Integer.MIN_VALUE    // 隐藏前 LiteTabBar 自己的 lp.height
         var parentHeight: Int = Integer.MIN_VALUE  // 隐藏前宿主包装容器（若唯一子 View）的 lp.height
         var hidden: Boolean = false      // 是否由**我们**隐藏（宿主的 GONE 不算，避免抢它的可见性）
         var logged: Boolean = false      // 是否已打过一条判定日志（每实例只打一条，避免刷屏）
         var vto: ViewTreeObserver? = null        // 已挂过复核监听的那个 ViewTreeObserver
         var fix: Runnable? = null        // 布局后复核用的 Runnable（每实例复用，避免每次布局都 new）
+        val itemVisibility = WeakHashMap<View, Int>()
     }
 
     private val states = WeakHashMap<View, BarState>()
     private var applying = false
+
+    /** Shared by embedded writes and libxposed remote preference notifications. */
+    @JvmStatic
+    fun refresh(key: String?) {
+        if (key != null && !key.startsWith("tab_")) return
+        val bars = synchronized(states) { states.keys.toTypedArray() }
+        for (bar in bars) {
+            val ref = WeakReference(bar)
+            bar.post { ref.get()?.let { settle(it) } }
+        }
+    }
 
     private fun state(bar: View): BarState {
         synchronized(states) {
@@ -253,14 +252,6 @@ object AmapTabLayout {
             }
             return st
         }
-    }
-
-    private fun note(bar: Any?, ids: List<String>, extra: Int) {
-        if (bar !is View) return
-        val st = state(bar)
-        st.built = ids.size
-        st.ids = ids.toTypedArray()
-        st.extra = extra
     }
 
     /** 本模块认识的标签 id：Main（首页，恒显示）+ 4 个可关的。其余一律当「未知标签」保守处理。 */
@@ -309,6 +300,7 @@ object AmapTabLayout {
         val st = state(bar)
         st.built = ids.size
         st.ids = ids
+        st.extra = ids.count { !known(it) }
     }
 
     private var failLogged = false
@@ -322,26 +314,49 @@ object AmapTabLayout {
     private fun apply(bar: View?) {
         if (bar == null || applying) return
         val st = state(bar)
-        val want = shouldHide(st)
-        // 幂等：状态一致就一个 View 调用都不发。唯一的例外是「该隐藏但高度还没归零」——
-        // init 时 LiteTabBar 往往还没 addView（getLayoutParams() 为 null），那时只来得及
-        // setVisibility(GONE)；attach 之后再补一次高度归零，否则父布局仍可能留一条白条。
-        val need = want != st.hidden || (want && st.selfHeight == Integer.MIN_VALUE)
-        if (!need) {
-            // 每个 bar 实例只留一条「判定结果」日志，供批验时一眼确认走的是哪条分支。
+        applying = true
+        try {
+            val container = H.getObjectField(bar, "tabContainer") as? ViewGroup
+            if (container != null) {
+                returnToMainIfNeeded(bar, container)
+                for (i in 0 until container.childCount) {
+                    val child = container.getChildAt(i)
+                    val id = viewId(child)
+                    if (!visible(id)) {
+                        if (!st.itemVisibility.containsKey(child)) st.itemVisibility[child] = child.visibility
+                        if (child.visibility != View.GONE) child.visibility = View.GONE
+                    } else {
+                        val original = st.itemVisibility.remove(child)
+                        if (original != null && child.visibility != original) child.visibility = original
+                    }
+                }
+            }
+            val want = shouldHide(st)
+            // Reassert only our own collapse after a host layout; do not reveal a bar
+            // that the host itself hid for navigation, a sheet or another page.
+            if (want && (!st.hidden || bar.visibility != View.GONE || bar.layoutParams?.height != 0)) hide(bar, st)
+            else if (!want && st.hidden) show(bar, st)
             if (!st.logged) {
                 st.logged = true
                 H.log("event=tab_bar_state" + diag(st) + " note=保持原样")
             }
-            return
-        }
-        applying = true
-        try {
-            if (want) hide(bar, st) else show(bar, st)
         } catch (t: Throwable) {
             fail(t)                    // 同上：绝不让异常冒到 HookGuard 那里把钩子摘掉
         } finally {
             applying = false
+        }
+    }
+
+    /** Use the retained native click controller so hiding the active tab leaves a valid page. */
+    private fun returnToMainIfNeeded(bar: View, container: ViewGroup) {
+        val selected = H.getObjectField(bar, "mCurrentTab") ?: return
+        if (visible(tabId(selected))) return
+        for (i in 0 until container.childCount) {
+            val child = container.getChildAt(i)
+            if (viewId(child) != "Main") continue
+            val listener = child.javaClass.getMethod("getOnItemClickListener").invoke(child) ?: return
+            listener.javaClass.getMethod("onTabClick", View::class.java).invoke(listener, child)
+            return
         }
     }
 
@@ -398,9 +413,7 @@ object AmapTabLayout {
         if (bar.visibility != View.VISIBLE) bar.visibility = View.VISIBLE
         st.hidden = false
         st.logged = true
-        // 诚实的边界：这里只把**栏**恢复出来，标签 View 是 init 时按 kept 建的，已经不存在了。
-        // 要让重新打开的标签真的出现，需要首页重建（退出再进首页 / 重启高德）。
-        H.log("event=tab_bar_restored" + diag(st) + " note=重新打开的标签需要首页重建后才出现")
+        H.log("event=tab_bar_restored" + diag(st) + " note=恢复原生标签与底栏高度")
     }
 
     /** 高度归零（GONE 之后父布局若仍按固定高度预留空间，地图底部就会留一条白条）。返回保存的原高度。 */
@@ -416,8 +429,10 @@ object AmapTabLayout {
 
     private fun restore(view: View, saved: Int) {
         val lp = view.layoutParams ?: return
-        lp.height = if (saved == Integer.MIN_VALUE) ViewGroup.LayoutParams.WRAP_CONTENT else saved
-        view.layoutParams = lp
+        if (saved != Integer.MIN_VALUE && lp.height != saved) {
+            lp.height = saved
+            view.layoutParams = lp
+        }
     }
 
     /**
@@ -436,13 +451,23 @@ object AmapTabLayout {
             val st = state(bar)
             if (st.vto === vto) return              // 同一个 VTO 只挂一次；detach 后 VTO 换了会重挂
             st.vto = vto
-            val fix: Runnable = st.fix ?: Runnable { apply(bar) }.also { st.fix = it }
+            val ref = WeakReference(bar)
+            val fix: Runnable = st.fix ?: Runnable { ref.get()?.let { apply(it) } }.also { st.fix = it }
             vto.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
                 override fun onGlobalLayout() {
                     try {
                         // 直接闭包住 st，不再走 state() 的同步 map 查 —— 这个回调在**每次布局**
                         // 都会跑，热路径上不该有锁。判据不一致才 post 一帧去改。
-                        if (st.hidden != shouldHide(st)) bar.post(fix)
+                        val target = ref.get() ?: return
+                        val container = H.getObjectField(target, "tabContainer") as? ViewGroup
+                        var changed = st.hidden != shouldHide(st)
+                                || (st.hidden && (target.visibility != View.GONE || target.layoutParams?.height != 0))
+                        if (container != null) for (i in 0 until container.childCount) {
+                            val child = container.getChildAt(i)
+                            if ((!visible(viewId(child)) && child.visibility != View.GONE)
+                                    || (visible(viewId(child)) && st.itemVisibility.containsKey(child))) changed = true
+                        }
+                        if (changed) { target.removeCallbacks(fix); target.post(fix) }
                     } catch (t: Throwable) {
                         // 这个回调跑在 ViewRootImpl.performTraversals 里，抛出去就是**整个 App 崩**
                         fail(t)

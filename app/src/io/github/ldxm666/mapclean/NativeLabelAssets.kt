@@ -4,8 +4,6 @@ import android.os.Build
 import android.util.Log
 
 import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
 import java.util.Arrays
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -257,25 +255,7 @@ class NativeLabelAssets private constructor() {
                     val entryName = findEntry(zip, abi) ?: continue
                     val source: ZipEntry = zip.getEntry(entryName) ?: continue
 
-                    // The module APK's length is part of the file name so a rebuilt library never
-                    // gets shadowed by a stale extraction of the same ABI.
-                    val target = File(directory, abi + "-" + moduleApk.length() + "-" + FILE)
-                    if (!target.isFile || target.length() != source.size) {
-                        zip.getInputStream(source).use { input: InputStream ->
-                            FileOutputStream(target).use { out: FileOutputStream ->
-                                val buffer = ByteArray(1 shl 16)
-                                var read: Int
-                                while (true) {
-                                    read = input.read(buffer)
-                                    if (read <= 0) break
-                                    out.write(buffer, 0, read)
-                                }
-                            }
-                        }
-                        target.setReadable(true, true)
-                        target.setExecutable(true, true)
-                        target.setWritable(false, false)
-                    }
+                    val target = NativeLibraryCache.extract(zip, source.name, directory, abi)
                     System.load(target.absolutePath)
                     loadedFrom = entryName
                     loadedPath = target.absolutePath

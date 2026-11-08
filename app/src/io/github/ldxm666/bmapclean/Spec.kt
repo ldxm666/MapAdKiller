@@ -113,28 +113,11 @@ class Spec private constructor() {
         const val K_MINE_CARNAV = "mine_carnav"
         const val K_MINE_SPORT = "mine_sport"
         const val K_MINE_BUILD = "mine_build"
-        /**
-         * 下面这些键直接对应**服务端 JSON 字段 / 原生下发字段**（键名全部实证自 bundle 里的真实引用），
-         * 由 {@link MineData} 在数据层摘除，而不是在视图层隐藏：
-         *   car           → 我的车（s-if 闸门就是 serverData.car）
-         *   voice_card    → 热门语音（s-if 闸门是 serverData.voice_card）
-         *   phoneInfo.gk  → 天天领钱 / 出行保+借钱 / 我的店铺 / 导航车标 **四张卡共用这一个闸门**
-         *   qt=ads 的 campaign / banner 数组 → 热门活动 / 资源位
-         */
+        /** Separate render-loop cards; never alter shared phoneInfo.gk or server data. */
         const val K_MINE_OPS = "mine_ops"
         const val K_MINE_AD = "mine_ad"
 
-        /**
-         * 「我的」页规则**总闸** —— **默认关闭（熔断后回退）**。
-         *
-         * 事故记录（同一处的三次回归，已触发两次熔断规则）：
-         *   ① v0.1.7 `sectionRoot` 阈值单位错误 → 整页根被当区块摘除 = 白屏；
-         *   ② v0.1.8 宫格被"壳"容器连坐误伤；
-         *   ③ v0.3.0 加了 `restackColumn`（translationY 手工竖向重排）后**整页被清空**。
-         * 结论：该页由 Talos/Yoga 自绘，**视图层**（GONE / 移除 / translation 重排）无法可靠地
-         * 做到「隐藏且不留白」；正确做法是改 Talos 的**数据/模型层**，让被清的区块根本不进布局。
-         * 在那条链做出来并验证之前，本模块不碰这一页。
-         */
+        /** Master gate (default on). Off renders the complete original card model. */
         const val K_MINE_APPLY = "mine_apply"
 
         /**
@@ -192,7 +175,15 @@ class Spec private constructor() {
             return false
         }
 
-        /** 运营卡闸门：两者任一被关就摘 phoneInfo.gk（JS 里这四张卡共用它） */
+        /** Enabling an individual card also enables its otherwise blocking master. */
+        @JvmStatic
+        fun isMineChild(key: String): Boolean {
+            return key == K_MINE_GRID || key == K_MINE_CAR || key == K_MINE_VOICE ||
+                    key == K_MINE_CARNAV || key == K_MINE_SPORT || key == K_MINE_BUILD ||
+                    key == K_MINE_OPS || key == K_MINE_AD
+        }
+
+        /** Legacy implementation only; no production hook uses this shared gate. */
         @JvmStatic
         fun opsHidden(): Boolean {
             return !Cfg.visible(K_MINE_OPS, defaultVisible(K_MINE_OPS))
@@ -421,7 +412,7 @@ class Spec private constructor() {
                                 Row(K_AI_NOW, "AI此刻 / 首页主提示卡", "包含 AI 天气和行程主提示；默认关闭，重开百度生效。", false))),
                         Cat(CAT_FEED, "推荐信息流", "独立控制频道入口和推荐内容。", arrayOf<Row>(
                                 Row(K_FEED, "显示推荐信息流", null, true), Row(K_FEED_CHIPS, "频道栏", null, false), Row(K_FEED_QUALITY, "推荐内容", null, false))),
-                        Cat(CAT_MINE, "「我的」页", "逐卡过滤；运营卡与导航车标各自控制。", arrayOf<Row>(
+                        Cat(CAT_MINE, "「我的」页", "逐卡显示、即时恢复；顶部宫格可独立开启。更新安装后需重启一次百度以替换旧页面脚本。", arrayOf<Row>(
                                 Row(K_MINE_APPLY, "启用「我的」页精简", "关闭后还原该页原始内容。", true),
                                 Row(K_MINE_OPS, "广告 / 运营卡", "天天领钱、出行保、借钱、我的店铺。", false),
                                 Row(K_MINE_AD, "热门活动 / 资源位", null, false), Row(K_MINE_VOICE, "热门语音", null, false),

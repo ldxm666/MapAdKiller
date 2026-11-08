@@ -62,7 +62,7 @@ public final class BaiduTabRoutingTest {
         slots[4].getHitRect(bounds);check(bounds.equals(new Rect(500,0,1000,100)),"Mine owns actual right-half rectangle");
         for(int i=1;i<4;i++){
             check(slots[i].getVisibility()==View.GONE,"hidden proxy has no layout region");
-            check(!slots[i].isEnabled() && !slots[i].isClickable() && !slots[i].hasOnClickListeners(),"hidden proxy has no enabled click handler");
+            check(!slots[i].isEnabled() && slots[i].hasOnClickListeners(),"hidden proxy is disabled while retaining its native click handler");
         }
         int mineBefore=clicked[4],homeBefore=clicked[0],taxiBefore=clicked[3];
         for(int pass=0;pass<20;pass++){
@@ -90,6 +90,9 @@ public final class BaiduTabRoutingTest {
         View.OnClickListener[] voiceListeners=listeners.clone();voiceListeners[2]=null;
         BaiduTabRouting.applyProxyRow(row,slots,all,voiceListeners);measure(row);tap(row,500);
         check(!slots[2].hasOnClickListeners() && voiceTouches[0]==1 && clicked[2]==thirdBefore,"visible voice slot retains SDK TouchListener without creating click");
+        BaiduTabRouting.applyProxyRow(row,slots,two,voiceListeners);measure(row);
+        BaiduTabRouting.applyProxyRow(row,slots,all,voiceListeners);measure(row);tap(row,500);
+        check(voiceTouches[0]==2 && clicked[2]==thirdBefore,"voice touch handler survives hide and re-enable without SDK rebinding");
         boolean[] none={false,false,false,false,false};
         BaiduTabRouting.applyProxyRow(row,slots,none,listeners);measure(row);
         check(row.getWeightSum()==0,"hidden complete bar has no proxy weights");

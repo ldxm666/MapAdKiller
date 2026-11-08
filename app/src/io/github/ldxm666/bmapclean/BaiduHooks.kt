@@ -93,35 +93,16 @@ class BaiduHooks private constructor() {
             // 版本更新：检查不发、弹窗不弹。默认生效，无开关（用户明确要求）。
             BaiduUpdateBlock.install(cl)
 
-            // ★★ 修复（与「百度转发被删掉」同型的漏装事故）：下面三个安装器**此前没有任何
-            //   调用点** —— 类的代码齐全、设置页的开关也照常生成，但 install 从没被调用过，
-            //   表现就是「开关拨了完全没反应，日志里也一条 miss 都没有」。
-            //     · HomeClean 是全模块**唯一**做「逐项」粒度的地方：tab_*（K_TAB）、
-            //       tool_*（K_TOOL，含 22.0.50 新增的智行/新能源/停车助手…）、
-            //       hc_home / hc_company / hc_setting、wx_card。installUi 只做整块开关。
-            //       它链尾的 Report.send("scan", …) 还是设置页「最近一次规则执行」的**唯一**
-            //       数据源（App.lastReportAt 靠 scan_ts；hook_ts 那条发得太早会被系统丢掉）。
-            //     · MineData / MineJs 是「我的」页的**数据层 / JS 层**实现。该页的视图层方案
-            //       已在 HomeClean.applyMine 首行 `if (true) return 0` 整体停用（v0.4.0），
-            //       所以不装这两个类 = mine_ops / mine_ad / mine_voice / mine_car /
-            //       mine_carnav / mine_sport / mine_build / mine_grid 八个开关全部无效。
-            //   三者都自带 installed 幂等闸门 + 失效安全（Spec.mineEnabled() 关掉时立即返回，
-            //   一行都不改宿主行为），且各自独立 try —— 一个炸掉不能让后面的 installUi 整块不装。
+            // Native home tools/tabs still use HomeClean. Mine cards use the single Talos
+            // render binding below; never mix it with legacy gk or Array.prototype filters.
             try {
                 HomeClean.install(cl)
             } catch (t: Throwable) {
                 H.log(Log.WARN, MainHook.TAG, "event=install_failed part=home_clean", t)
             }
-            try {
-                MineData.install(cl)
-            } catch (t: Throwable) {
-                H.log(Log.WARN, MainHook.TAG, "event=install_failed part=mine_data", t)
-            }
-            try {
-                MineJs.install(cl)
-            } catch (t: Throwable) {
-                H.log(Log.WARN, MainHook.TAG, "event=install_failed part=mine_js", t)
-            }
+            // Mine cards now have one reversible render binding (BaiduTalos/BaiduMineCards).
+            // Do not install the old phoneInfo.gk gate or Array.prototype patches: they affect
+            // sibling cards and survive in cached runtimes after a switch is enabled again.
 
             // UI half runs in the same pass: deferring it moved the cost into the first-frame
             // window instead of removing it (measured worse), so keep the single install pass.

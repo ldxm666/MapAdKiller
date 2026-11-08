@@ -21,7 +21,7 @@ class BaiduPoiLayer private constructor() {
 
     companion object {
 
-        private const val SCHEMA = "poi-file-assets-v9"
+        private const val SCHEMA = "poi-file-assets-v10"
         private val STYLES = arrayOf("map.sty", "traffic.sty", "weakmap.sty", "reduct.sty", "weaktraffic.sty", "weakreduct.sty")
         private var cachedKey: String? = null
         private var cachedDirectory: File? = null
@@ -234,7 +234,7 @@ class BaiduPoiLayer private constructor() {
         }
 
         /**
-         * 缓存键 = SCHEMA + 每个源 STY 的 路径/大小/mtime + **当前隐藏的分类集合**。
+         * 缓存键 = SCHEMA + 每个源 STY 的路径/大小/内容 + **当前隐藏的分类集合**。
          *
          * <p>最后一项是 2.2.7 补的。以前键里只有源文件，于是「改了开关」和「没改」算出来的键
          * 一模一样，直接复用旧缓存 —— 表现就是「开关拨了没反应」。分类按名字排序后参与摘要，
@@ -246,7 +246,11 @@ class BaiduPoiLayer private constructor() {
             val cats = ArrayList<String>(hidden)
             java.util.Collections.sort(cats)
             for (cat in cats) fingerprint(digest, "cat=" + cat)
-            for (style in styles) fingerprint(digest, style.canonicalPath + ":" + style.length() + ":" + style.lastModified())
+            for (style in styles) {
+                fingerprint(digest, style.canonicalPath + ":" + style.length())
+                digest.update(read(style))
+                digest.update(0.toByte())
+            }
             val out = StringBuilder()
             val hex = "0123456789abcdef".toCharArray()
             for (b in digest.digest()) {

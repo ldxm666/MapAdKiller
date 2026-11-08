@@ -5,6 +5,8 @@ import android.util.Log
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import java.lang.ref.WeakReference
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -30,7 +32,8 @@ object H {
     val miss = AtomicInteger()
 
     // Resolve named members once per runtime class, including missing members.
-    // ClassValue releases these caches together with the host class loader.
+    // Weak keys and weak values avoid retaining a host class loader on Android < 14.
+    // java.lang.ClassValue is unavailable there; using it prevents H from loading.
     private class Members {
         val fields = ConcurrentHashMap<String, FieldSlot>()
         val methods = ConcurrentHashMap<String, MethodSlot>()
@@ -40,12 +43,14 @@ object H {
 
     private class MethodSlot(val value: Method?)
 
-    private val MEMBERS: ClassValue<Members> = object : ClassValue<Members>() {
-        override fun computeValue(type: Class<*>): Members = Members()
+    private val MEMBERS = WeakHashMap<Class<*>, WeakReference<Members>>()
+
+    private fun members(type: Class<*>): Members = synchronized(MEMBERS) {
+        MEMBERS[type]?.get() ?: Members().also { MEMBERS[type] = WeakReference(it) }
     }
 
     private fun namedField(type: Class<*>, name: String): Field? {
-        val members = MEMBERS.get(type)
+        val members = members(type)
         val cached = members.fields[name]
         if (cached != null) return cached.value
         var found: Field? = null
@@ -74,7 +79,7 @@ object H {
         val key = StringBuilder(name).append('(')
         for (param in params) key.append(param.name).append(';')
         val signature = key.append(')').toString()
-        val members = MEMBERS.get(type)
+        val members = members(type)
         val cached = members.methods[signature]
         if (cached != null) return cached.value
         var found: Method? = null

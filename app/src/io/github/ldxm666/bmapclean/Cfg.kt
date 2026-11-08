@@ -72,9 +72,10 @@ class Cfg private constructor() {
         private var snapshot: Map<String, *> = java.util.Collections.emptyMap<String, Any?>()
         @Volatile
         private var expires = 0L
-        private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _: SharedPreferences?, _: String? ->
+        private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _: SharedPreferences?, key: String? ->
             expires = 0
             refreshFlags()
+            refreshViews(key)
         }
         @Volatile
         private var dbgAt = 0L
@@ -239,7 +240,8 @@ class Cfg private constructor() {
 
         /** 配置变了：丢快照 + 重算所有 {@link Flag}。面板写完必须调一次。 */
         @JvmStatic
-        fun invalidate() {
+        @JvmOverloads
+        fun invalidate(key: String? = null) {
             expires = 0
             dbgAt = 0
             // ★★ 2.3.0：也要丢掉「已定案的读后端」。
@@ -248,6 +250,14 @@ class Cfg private constructor() {
             // 于是读出来还是旧值 ⇒ 用户看到「关掉又自己开了」。
             resetBackend()
             refreshFlags()
+            refreshViews(key)
+        }
+
+        /** Runs in the host for both local edits and framework remote notifications. */
+        private fun refreshViews(key: String?) {
+            BaiduMineCards.refresh(key)
+            if (key == null || key == Spec.K_TOOLS || key.startsWith(Spec.K_TOOL)) BaiduToolGrid.refresh()
+            if (key == null || key == Spec.K_HC || Spec.isCommuteChild(key)) BaiduCommute.refresh()
         }
 
         /** 宿主本地 prefs（永久缓存，文件句柄本身就是稳定的）。 */
@@ -457,7 +467,7 @@ class Cfg private constructor() {
             val okLocal = commitBool(local(), key, value)
             val okRemote = commitBool(remote(), key, value)
             var ok = if (embedded) okLocal else (okRemote || okLocal)
-            invalidate()
+            invalidate(key)
 
             // ★★ 回读自校验（最后一道保险）。
             // 用户反馈的「关掉切个页面又自己开了」本质是：
@@ -471,7 +481,7 @@ class Cfg private constructor() {
                     val got = if (back is Boolean) back else !value
                     if (got != value) {
                         if (commitBool(local(), key, value)) {
-                            invalidate()
+                            invalidate(key)
                             ok = true
                             H.log("event=cfg_write_recover key=" + key + " via=local")
                         } else {
@@ -502,7 +512,7 @@ class Cfg private constructor() {
             val okLocal = commitInt(local(), key, value)
             val okRemote = commitInt(remote(), key, value)
             val ok = if (embedded) okLocal else (okRemote || okLocal)
-            invalidate()
+            invalidate(key)
             return ok
         }
 
@@ -512,6 +522,7 @@ class Cfg private constructor() {
                 val editor = p.edit().putBoolean(key, value)
                 // An enabled child must not remain silently gated by a disabled parent.
                 if (value && Spec.isCommuteChild(key)) editor.putBoolean(Spec.K_HC, true)
+                if (value && Spec.isMineChild(key)) editor.putBoolean(Spec.K_MINE_APPLY, true)
                 editor.commit()
             } catch (t: Throwable) {
                 false
@@ -534,7 +545,7 @@ class Cfg private constructor() {
             val okLocal = commitString(local(), key, value)
             val okRemote = commitString(remote(), key, value)
             val ok = if (embedded) okLocal else (okRemote || okLocal)
-            invalidate()
+            invalidate(key)
             return ok
         }
 

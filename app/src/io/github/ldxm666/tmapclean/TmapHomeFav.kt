@@ -227,8 +227,10 @@ object TmapHomeFav {
      * 被本模块收掉的区块：{@code view → 归属}。开关重开时只恢复<b>我们收过的</b>，
      * 绝不把应用自己藏起来的节点翻出来。
      */
-    private val HIDDEN: MutableMap<View, String> =
-        java.util.Collections.synchronizedMap(WeakHashMap<View, String>())
+    private class Hidden(val kind: String, val visibility: Int)
+
+    private val HIDDEN: MutableMap<View, Hidden> =
+        java.util.Collections.synchronizedMap(WeakHashMap<View, Hidden>())
 
     /** 区块视图 → 归属（只在结构变化时重建，避免每次回调都遍历树）。 */
     private val SECTIONS: MutableMap<View, String> =
@@ -449,12 +451,11 @@ object TmapHomeFav {
 
         // ②b 上一轮可能是"整块收"（两个开关都关、Litho 还没挂载时走的退路）。
         //     现在要按区块收，必须先把整块放回去，否则区块永远收不出来、开关也放不回来。
-        if (header != null && "whole" == HIDDEN[header]) {
+        if (header != null && "whole" == HIDDEN[header]?.kind) {
             try {
-                header.visibility = View.VISIBLE
+                restoreOwned(header)
             } catch (ignored: Throwable) {
             }
-            HIDDEN.remove(header)
             TmapPanelFit.request(anyInside)
             val again = header
             again.postDelayed(object : Runnable {
@@ -684,17 +685,15 @@ object TmapHomeFav {
         if (v == null) return false
         try {
             if (visible) {
-                if (kind == HIDDEN[v]) {
-                    v.visibility = View.VISIBLE
-                    HIDDEN.remove(v)
+                if (kind == HIDDEN[v]?.kind) {
+                    restoreOwned(v)
                     H.log(Log.INFO, MainHook.TAG, "homecard SHOW section=" + kind)
                     return true
                 }
                 return false
             }
             if (v.visibility != View.GONE) {
-                v.visibility = View.GONE
-                HIDDEN.put(v, kind)
+                hideOwned(v, kind)
                 H.log(
                     Log.INFO, MainHook.TAG, "homecard HIDE section=" + kind
                             + " cls=" + v.javaClass.simpleName
@@ -715,11 +714,21 @@ object TmapHomeFav {
             // 弱引用表的 key 一律非 null（只有 setSection / hideOnce 会 put）：
             // Java 版这里那句 HIDDEN.remove(null) 是不可达的防御分支，放行效果等同 continue。
             try {
-                if (v.visibility == View.GONE) v.visibility = View.VISIBLE
+                restoreOwned(v)
             } catch (ignored: Throwable) {
             }
-            HIDDEN.remove(v)
         }
+    }
+
+    private fun hideOwned(view: View, kind: String) {
+        val original = HIDDEN[view]?.visibility ?: view.visibility
+        HIDDEN[view] = Hidden(kind, original)
+        view.visibility = View.GONE
+    }
+
+    private fun restoreOwned(view: View) {
+        val state = HIDDEN.remove(view) ?: return
+        if (view.visibility == View.GONE) view.visibility = state.visibility
     }
 
     /** 收一次可见性（认不出区块结构时的兜底）。 */
@@ -727,8 +736,7 @@ object TmapHomeFav {
         if (v == null) return
         try {
             if (v.visibility == View.GONE) return
-            v.visibility = View.GONE
-            HIDDEN.put(v, "whole")
+            hideOwned(v, "whole")
             H.log(
                 Log.INFO, MainHook.TAG, "homecard HIT why=" + why
                         + " id=" + idOf(v) + " cls=" + v.javaClass.simpleName
@@ -807,8 +815,8 @@ object TmapHomeFav {
             if (row !is View) continue
             try {
                 if (row.visibility != View.GONE) {
-                    row.visibility = View.GONE
-                    synchronized(HIDDEN) { HIDDEN.put(row, "legacy") }
+                    hideOwned(row, "legacy")
+
                 }
                 hid++
             } catch (ignored: Throwable) {
@@ -825,9 +833,8 @@ object TmapHomeFav {
 
     private fun restoreLegacy() {
         for (view in ArrayList(HIDDEN.keys)) {
-            if (HIDDEN[view] == "legacy") {
-                if (view.visibility == View.GONE) view.visibility = View.VISIBLE
-                HIDDEN.remove(view)
+            if (HIDDEN[view]?.kind == "legacy") {
+                restoreOwned(view)
             }
         }
     }
@@ -925,8 +932,8 @@ object TmapHomeFav {
         if (target == null || target === cr || target === root) return
         try {
             if (target.visibility != View.GONE) {
-                target.visibility = View.GONE
-                synchronized(HIDDEN) { HIDDEN.put(target, "legacy") }
+                hideOwned(target, "legacy")
+
                 hits[0]++
                 H.log(
                     Log.INFO, MainHook.TAG, "homefav_row HIT id=" + idOf(target)
@@ -953,8 +960,8 @@ object TmapHomeFav {
                 if (cid == null && c.visibility != View.GONE) {
                     // 无 id 的 Kuikly 渲染容器
                     try {
-                        c.visibility = View.GONE
-                        synchronized(HIDDEN) { HIDDEN.put(c, "legacy") }
+                        hideOwned(c, "legacy")
+
                         hits[0]++
                         H.log(
                             Log.INFO, MainHook.TAG, "homefav_kuikly HIT cls="

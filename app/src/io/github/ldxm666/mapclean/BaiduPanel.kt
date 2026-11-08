@@ -277,17 +277,7 @@ class BaiduPanel private constructor() {
         @JvmStatic
         fun write(key: String, value: Boolean): Boolean {
             return try {
-                val saved = BmapApp.write(key, value)
-                if (saved && (key == BmapSpec.K_TOOLS || key.startsWith(BmapSpec.K_TOOL))) {
-                    io.github.ldxm666.bmapclean.Cfg.invalidate()
-                    io.github.ldxm666.bmapclean.BaiduToolGrid.refresh()
-                }
-                if (saved && (key == BmapSpec.K_HC || key == BmapSpec.K_HC_HOME ||
-                        key == BmapSpec.K_HC_COMPANY || key == BmapSpec.K_HC_SETTING)) {
-                    io.github.ldxm666.bmapclean.Cfg.invalidate()
-                    io.github.ldxm666.bmapclean.BaiduCommute.refresh()
-                }
-                saved
+                BmapApp.write(key, value)
             } catch (ignored: Throwable) {
                 false
             }

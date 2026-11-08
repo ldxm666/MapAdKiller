@@ -71,6 +71,7 @@ object AmapNaviScale {
 
     @JvmStatic
     fun refresh() {
+        if (hosts.isEmpty() || Looper.getMainLooper() == null) return
         main.post {
             for (host in hosts.values.toList()) host.queue()
         }

@@ -636,7 +636,7 @@ class AmapNativeHome private constructor() {
         private val RELAXED_GRIDS: java.util.WeakHashMap<View, Boolean> = java.util.WeakHashMap()
 
         /** 我们为「首页工具宫格」开关亲手隐藏过的子 View（只恢复自己改过的，不碰宿主状态）。 */
-        private val GRID_HIDDEN: java.util.WeakHashMap<View, Boolean> = java.util.WeakHashMap()
+        private val GRID_HIDDEN: java.util.WeakHashMap<View, Int> = java.util.WeakHashMap()
 
         /** chips 行的文字特征：宿主原生那排「设置家 / 设置单位 / 常去地点」。 */
         private val CHIP_TEXTS = arrayOf(
@@ -682,18 +682,15 @@ class AmapNativeHome private constructor() {
         private fun applyToolGridVisibility(vg: ViewGroup?, show: Boolean) {
             if (vg == null) return
             try {
-                if (vg.visibility != View.VISIBLE) vg.visibility = View.VISIBLE
                 val kids = vg.childCount
                 for (i in 0 until kids) {
                     val child = vg.getChildAt(i) ?: continue
-                    if (isChipsRow(child)) {
-                        child.visibility = View.VISIBLE
-                        continue
-                    }
+                    if (isChipsRow(child)) continue
                     if (show) {
-                        if (GRID_HIDDEN.remove(child) != null) child.visibility = View.VISIBLE
-                    } else {
-                        GRID_HIDDEN.put(child, true)
+                        val original = GRID_HIDDEN.remove(child)
+                        if (original != null && child.visibility == View.GONE) child.visibility = original
+                    } else if (child.visibility != View.GONE) {
+                        GRID_HIDDEN.put(child, child.visibility)
                         child.visibility = View.GONE
                     }
                 }
@@ -2301,10 +2298,11 @@ class AmapNativeHome private constructor() {
         /** Entry point for the floating panel: it writes a switch, then tells the hook side. */
         @JvmStatic
         fun onConfigChanged(key: String?) {
-            if (key == null) return
-            if (Config.K_HOME_CHIPS == key || Config.K_TOOLS_VISIBLE == key ||
+            if (key == null || Config.K_HOME_CHIPS == key || Config.K_TOOLS_VISIBLE == key ||
                     Config.K_TOOLS_ALLOWLIST == key || key.startsWith(Config.K_TOOL_PREFIX)) {
-                refresh()
+                val view = built?.container?.get() ?: return
+                if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) refresh()
+                else view.post { refresh() }
             }
         }
 

@@ -1,0 +1,876 @@
+{
+  "version": "2.3.4",
+  "versionCode": 2304,
+  "date": "2026-11-08",
+  "status": "release-validation-complete",
+  "auditBase": "e9aab757a63b1868dba17b8e4707b5cdf4616781",
+  "kotlinFilesScanned": 172,
+  "productionDexRegression": {
+    "33": {
+      "exitCode": 0,
+      "groups": 60,
+      "amapCnPlayDexIdentical": true,
+      "variants": {
+        "module": {
+          "moduleSha256": "5bcae0bf9f9cb3261184c249a639a73c20c82c4b221d0fa5675797c78bfb7467",
+          "dexSha256": {
+            "classes.dex": "5acd44eb8decece477c510a95621f323426820d0da199d11fdd8600285751b4d"
+          },
+          "groups": 27,
+          "assertions": 8599,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapStateRecoveryTest",
+              "exitCode": 0,
+              "assertions": 236
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 75
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduCacheIdentityTest",
+              "exitCode": 0,
+              "assertions": 9
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 101
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduMineCardsTest",
+              "exitCode": 0,
+              "assertions": 548
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+              "exitCode": 0,
+              "assertions": 1675
+            },
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapAnnotationsTest",
+              "exitCode": 0,
+              "assertions": 109
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.SystemCardCompatTest",
+              "exitCode": 0,
+              "assertions": 48
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+              "exitCode": 0,
+              "assertions": 1126
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+              "exitCode": 0,
+              "assertions": 3079
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+              "exitCode": 0,
+              "assertions": 55
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+              "exitCode": 0,
+              "assertions": 281
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+              "exitCode": 0,
+              "assertions": 140
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+              "exitCode": 0,
+              "assertions": 18
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+              "exitCode": 0,
+              "assertions": 136
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduLabelStyleTest",
+              "exitCode": 0,
+              "assertions": 25
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduTabRoutingTest",
+              "exitCode": 0,
+              "assertions": 277
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduPanelLayoutTest",
+              "exitCode": 0,
+              "assertions": 50
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduCommuteTest",
+              "exitCode": 0,
+              "assertions": 48
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduPaymentTest",
+              "exitCode": 0,
+              "assertions": 206
+            },
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapPanelLayoutTest",
+              "exitCode": 0,
+              "assertions": 246
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.ConfigBackupTest",
+              "exitCode": 0,
+              "assertions": 18
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.HookGuardTest",
+              "exitCode": 0,
+              "assertions": 14
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.CompatibilityTest",
+              "exitCode": 0,
+              "assertions": 9
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.EmbeddedSettingsPolicyTest",
+              "exitCode": 0,
+              "assertions": 26
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.FrameworkStatusTest",
+              "exitCode": 0,
+              "assertions": 31
+            }
+          ]
+        },
+        "amap-cn": {
+          "moduleSha256": "5bce5a0b0edb89bdf835093ec23996eadf01fa23a40c106fd302f370a211f00b",
+          "dexSha256": {
+            "classes.dex": "12ed23ecfb714f9c5e0904044a5c18f25830f8b88c1abf6da8c6f4d0f605b7ea"
+          },
+          "groups": 10,
+          "assertions": 6624,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+              "exitCode": 0,
+              "assertions": 1126
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+              "exitCode": 0,
+              "assertions": 3079
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+              "exitCode": 0,
+              "assertions": 55
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+              "exitCode": 0,
+              "assertions": 281
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+              "exitCode": 0,
+              "assertions": 140
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+              "exitCode": 0,
+              "assertions": 18
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+              "exitCode": 0,
+              "assertions": 136
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+              "exitCode": 0,
+              "assertions": 1675
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 101
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            }
+          ]
+        },
+        "amap-play": {
+          "moduleSha256": "88c234530da39b09187caad1b1cb8e7a7b0d434897a4be2763032c1a2b646e4f",
+          "dexSha256": {
+            "classes.dex": "12ed23ecfb714f9c5e0904044a5c18f25830f8b88c1abf6da8c6f4d0f605b7ea"
+          },
+          "groups": 10,
+          "assertions": 6624,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+              "exitCode": 0,
+              "assertions": 1126
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+              "exitCode": 0,
+              "assertions": 3079
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+              "exitCode": 0,
+              "assertions": 55
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+              "exitCode": 0,
+              "assertions": 281
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+              "exitCode": 0,
+              "assertions": 140
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+              "exitCode": 0,
+              "assertions": 18
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+              "exitCode": 0,
+              "assertions": 136
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+              "exitCode": 0,
+              "assertions": 1675
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 101
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            }
+          ]
+        },
+        "baidu": {
+          "moduleSha256": "549da24d5cf1cbe80d764fab5650e99b77b7d3703fae885791d3804957a14917",
+          "dexSha256": {
+            "classes.dex": "5ea5d46d0790db0a8652d981d265027ea0ab8148295f23e899deb4f51d8e1c73"
+          },
+          "groups": 9,
+          "assertions": 1251,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduMineCardsTest",
+              "exitCode": 0,
+              "assertions": 548
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 75
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduCacheIdentityTest",
+              "exitCode": 0,
+              "assertions": 9
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduLabelStyleTest",
+              "exitCode": 0,
+              "assertions": 25
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduTabRoutingTest",
+              "exitCode": 0,
+              "assertions": 277
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduPanelLayoutTest",
+              "exitCode": 0,
+              "assertions": 50
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduCommuteTest",
+              "exitCode": 0,
+              "assertions": 48
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduPaymentTest",
+              "exitCode": 0,
+              "assertions": 206
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            }
+          ]
+        },
+        "tencent": {
+          "moduleSha256": "e803714ab305a1f7129a9b39f883310409eeab65516b34739c27633ea9bcbd3b",
+          "dexSha256": {
+            "classes.dex": "d83f2ce099290f46645842968d4e8e7d67f5de09c761dffa1d9cb6678dcd1fc2"
+          },
+          "groups": 4,
+          "assertions": 604,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapStateRecoveryTest",
+              "exitCode": 0,
+              "assertions": 236
+            },
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapAnnotationsTest",
+              "exitCode": 0,
+              "assertions": 109
+            },
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapPanelLayoutTest",
+              "exitCode": 0,
+              "assertions": 246
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            }
+          ]
+        }
+      }
+    },
+    "36": {
+      "exitCode": 0,
+      "groups": 60,
+      "amapCnPlayDexIdentical": true,
+      "variants": {
+        "module": {
+          "moduleSha256": "5bcae0bf9f9cb3261184c249a639a73c20c82c4b221d0fa5675797c78bfb7467",
+          "dexSha256": {
+            "classes.dex": "5acd44eb8decece477c510a95621f323426820d0da199d11fdd8600285751b4d"
+          },
+          "groups": 27,
+          "assertions": 8599,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapStateRecoveryTest",
+              "exitCode": 0,
+              "assertions": 236
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 75
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduCacheIdentityTest",
+              "exitCode": 0,
+              "assertions": 9
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 101
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduMineCardsTest",
+              "exitCode": 0,
+              "assertions": 548
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+              "exitCode": 0,
+              "assertions": 1675
+            },
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapAnnotationsTest",
+              "exitCode": 0,
+              "assertions": 109
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.SystemCardCompatTest",
+              "exitCode": 0,
+              "assertions": 48
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+              "exitCode": 0,
+              "assertions": 1126
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+              "exitCode": 0,
+              "assertions": 3079
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+              "exitCode": 0,
+              "assertions": 55
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+              "exitCode": 0,
+              "assertions": 281
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+              "exitCode": 0,
+              "assertions": 140
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+              "exitCode": 0,
+              "assertions": 18
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+              "exitCode": 0,
+              "assertions": 136
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduLabelStyleTest",
+              "exitCode": 0,
+              "assertions": 25
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduTabRoutingTest",
+              "exitCode": 0,
+              "assertions": 277
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduPanelLayoutTest",
+              "exitCode": 0,
+              "assertions": 50
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduCommuteTest",
+              "exitCode": 0,
+              "assertions": 48
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduPaymentTest",
+              "exitCode": 0,
+              "assertions": 206
+            },
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapPanelLayoutTest",
+              "exitCode": 0,
+              "assertions": 246
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.ConfigBackupTest",
+              "exitCode": 0,
+              "assertions": 18
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.HookGuardTest",
+              "exitCode": 0,
+              "assertions": 14
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.CompatibilityTest",
+              "exitCode": 0,
+              "assertions": 9
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.EmbeddedSettingsPolicyTest",
+              "exitCode": 0,
+              "assertions": 26
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.FrameworkStatusTest",
+              "exitCode": 0,
+              "assertions": 31
+            }
+          ]
+        },
+        "amap-cn": {
+          "moduleSha256": "5bce5a0b0edb89bdf835093ec23996eadf01fa23a40c106fd302f370a211f00b",
+          "dexSha256": {
+            "classes.dex": "12ed23ecfb714f9c5e0904044a5c18f25830f8b88c1abf6da8c6f4d0f605b7ea"
+          },
+          "groups": 10,
+          "assertions": 6624,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+              "exitCode": 0,
+              "assertions": 1126
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+              "exitCode": 0,
+              "assertions": 3079
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+              "exitCode": 0,
+              "assertions": 55
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+              "exitCode": 0,
+              "assertions": 281
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+              "exitCode": 0,
+              "assertions": 140
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+              "exitCode": 0,
+              "assertions": 18
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+              "exitCode": 0,
+              "assertions": 136
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+              "exitCode": 0,
+              "assertions": 1675
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 101
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            }
+          ]
+        },
+        "amap-play": {
+          "moduleSha256": "88c234530da39b09187caad1b1cb8e7a7b0d434897a4be2763032c1a2b646e4f",
+          "dexSha256": {
+            "classes.dex": "12ed23ecfb714f9c5e0904044a5c18f25830f8b88c1abf6da8c6f4d0f605b7ea"
+          },
+          "groups": 10,
+          "assertions": 6624,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+              "exitCode": 0,
+              "assertions": 1126
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+              "exitCode": 0,
+              "assertions": 3079
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+              "exitCode": 0,
+              "assertions": 55
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+              "exitCode": 0,
+              "assertions": 281
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+              "exitCode": 0,
+              "assertions": 140
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+              "exitCode": 0,
+              "assertions": 18
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+              "exitCode": 0,
+              "assertions": 136
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+              "exitCode": 0,
+              "assertions": 1675
+            },
+            {
+              "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 101
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            }
+          ]
+        },
+        "baidu": {
+          "moduleSha256": "549da24d5cf1cbe80d764fab5650e99b77b7d3703fae885791d3804957a14917",
+          "dexSha256": {
+            "classes.dex": "5ea5d46d0790db0a8652d981d265027ea0ab8148295f23e899deb4f51d8e1c73"
+          },
+          "groups": 9,
+          "assertions": 1251,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduMineCardsTest",
+              "exitCode": 0,
+              "assertions": 548
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduConfigRefreshTest",
+              "exitCode": 0,
+              "assertions": 75
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduCacheIdentityTest",
+              "exitCode": 0,
+              "assertions": 9
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduLabelStyleTest",
+              "exitCode": 0,
+              "assertions": 25
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduTabRoutingTest",
+              "exitCode": 0,
+              "assertions": 277
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduPanelLayoutTest",
+              "exitCode": 0,
+              "assertions": 50
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduCommuteTest",
+              "exitCode": 0,
+              "assertions": 48
+            },
+            {
+              "class": "io.github.ldxm666.bmapclean.BaiduPaymentTest",
+              "exitCode": 0,
+              "assertions": 206
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            }
+          ]
+        },
+        "tencent": {
+          "moduleSha256": "e803714ab305a1f7129a9b39f883310409eeab65516b34739c27633ea9bcbd3b",
+          "dexSha256": {
+            "classes.dex": "d83f2ce099290f46645842968d4e8e7d67f5de09c761dffa1d9cb6678dcd1fc2"
+          },
+          "groups": 4,
+          "assertions": 604,
+          "tests": [
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapStateRecoveryTest",
+              "exitCode": 0,
+              "assertions": 236
+            },
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapAnnotationsTest",
+              "exitCode": 0,
+              "assertions": 109
+            },
+            {
+              "class": "io.github.ldxm666.tmapclean.TmapPanelLayoutTest",
+              "exitCode": 0,
+              "assertions": 246
+            },
+            {
+              "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+              "exitCode": 0,
+              "assertions": 13
+            }
+          ]
+        }
+      }
+    }
+  },
+  "artifacts": [
+    {
+      "path": "output/MapClean-lsp-v2.3.4.apk",
+      "bytes": 5625560,
+      "sha256": "5bcae0bf9f9cb3261184c249a639a73c20c82c4b221d0fa5675797c78bfb7467"
+    },
+    {
+      "path": "output/fix-234-cn/Amap-2.3.4-nonroot-embedded.apk",
+      "bytes": 333205265,
+      "sha256": "1f27e274d1285aa1207c946c145657717b90257813b8f351e1e4ed7fcba3a90d"
+    },
+    {
+      "path": "output/fix-234-play/Amap-Play-2.3.4-nonroot-embedded/base.apk",
+      "bytes": 267966449,
+      "sha256": "4b831b4ff97d7257c9fed169b2fd9d35c12a1286db17a09c1ea8dbb6dd6ee557"
+    },
+    {
+      "path": "output/fix-234-play/Amap-Play-2.3.4-nonroot-embedded/split_config.arm64_v8a.apk",
+      "bytes": 83398690,
+      "sha256": "fcdf3710419ffe6556c77a4bab79a23b47950d33686113686da9b402bc4233ea"
+    },
+    {
+      "path": "output/fix-234-play/Amap-Play-2.3.4-nonroot-embedded/split_config.xxxhdpi.apk",
+      "bytes": 656643,
+      "sha256": "23373420a379e7768574f2d13d2ae71ec33e679717870e8e08d5bebbff4f65a4"
+    },
+    {
+      "path": "output/fix-234-play/Amap-Play-2.3.4-nonroot-embedded/split_config.zh.apk",
+      "bytes": 1077529,
+      "sha256": "9000964710101f778ddc5542cfa6bc759435f21d9e032902b38e38af8f76a1dc"
+    },
+    {
+      "path": "output/fix-234-baidu/Baidu-2.3.4-nonroot-embedded.apk",
+      "bytes": 231080803,
+      "sha256": "68a031a18e1bd116bf515753753cf6f3c0ba3eaaf8940b2e43f96879785cd709"
+    },
+    {
+      "path": "output/fix-234-tmap/Tencent-2.3.4-nonroot-embedded.apk",
+      "bytes": 180604845,
+      "sha256": "4ae09b9c9a339324f2bb8b9b896f230e1134a1d50065d4481ebe45c16ec56051"
+    }
+  ],
+  "builds": {
+    "module": {
+      "exitCode": 0,
+      "verificationPassed": true
+    },
+    "amap-cn": {
+      "exitCode": 0,
+      "verificationPassed": true
+    },
+    "amap-play": {
+      "exitCode": 0,
+      "verificationPassed": true
+    },
+    "baidu": {
+      "exitCode": 0,
+      "verificationPassed": true
+    },
+    "tencent": {
+      "exitCode": 0,
+      "verificationPassed": true
+    }
+  },
+  "artifactCodeChecks": {
+    "module": {
+      "moduleSha256": "5bcae0bf9f9cb3261184c249a639a73c20c82c4b221d0fa5675797c78bfb7467",
+      "dexSha256": "5acd44eb8decece477c510a95621f323426820d0da199d11fdd8600285751b4d",
+      "nativeCacheHelperPresent": true,
+      "classValueAbsent": true,
+      "legacyMineFiltersAbsent": true
+    },
+    "cn": {
+      "moduleSha256": "5bce5a0b0edb89bdf835093ec23996eadf01fa23a40c106fd302f370a211f00b",
+      "dexSha256": "12ed23ecfb714f9c5e0904044a5c18f25830f8b88c1abf6da8c6f4d0f605b7ea",
+      "nativeCacheHelperPresent": true,
+      "classValueAbsent": true,
+      "legacyMineFiltersAbsent": true
+    },
+    "play": {
+      "moduleSha256": "88c234530da39b09187caad1b1cb8e7a7b0d434897a4be2763032c1a2b646e4f",
+      "dexSha256": "12ed23ecfb714f9c5e0904044a5c18f25830f8b88c1abf6da8c6f4d0f605b7ea",
+      "nativeCacheHelperPresent": true,
+      "classValueAbsent": true,
+      "legacyMineFiltersAbsent": true
+    },
+    "baidu": {
+      "moduleSha256": "549da24d5cf1cbe80d764fab5650e99b77b7d3703fae885791d3804957a14917",
+      "dexSha256": "5ea5d46d0790db0a8652d981d265027ea0ab8148295f23e899deb4f51d8e1c73",
+      "nativeCacheHelperPresent": true,
+      "classValueAbsent": true,
+      "legacyMineFiltersAbsent": true
+    },
+    "tmap": {
+      "moduleSha256": "e803714ab305a1f7129a9b39f883310409eeab65516b34739c27633ea9bcbd3b",
+      "dexSha256": "d83f2ce099290f46645842968d4e8e7d67f5de09c761dffa1d9cb6678dcd1fc2",
+      "nativeCacheHelperPresent": true,
+      "classValueAbsent": true,
+      "legacyMineFiltersAbsent": true
+    }
+  },
+  "anchorChecks": {
+    "exitCode": 0,
+    "classesOrGroups": 18,
+    "requestedMethods": 62
+  },
+  "anchorToolUnitTests": {
+    "exitCode": 0,
+    "cases": 3
+  },
+  "baiduRealBundleChecks": {
+    "exitCode": 0,
+    "templates": [
+      "userCore-1.0.94.1",
+      "userCenter-1.1.61.1"
+    ],
+    "productionAdapters": [
+      "module",
+      "baidu"
+    ],
+    "kotlinAdaptationRuns": 4,
+    "kotlinAssertionsPerRun": 549,
+    "jsAssertions": 9293,
+    "combinationsPerTemplate": 256
+  },
+  "physicalChecks": {
+    "androidApi": 36,
+    "installedExactArtifacts": [
+      "module",
+      "amap-cn",
+      "baidu",
+      "tencent"
+    ],
+    "mapStartupPassed": [
+      "amap-cn",
+      "baidu",
+      "tencent"
+    ],
+    "baiduHomeMineRoundTrips": 2,
+    "baiduOnlyGridVisible": true,
+    "mapLocalPreferencesPreserved": true,
+    "frameworkOriginalScopeRestored": true,
+    "temporaryProbeUninstalled": true,
+    "latestPlayHostUiRetested": false
+  },
+  "limits": [
+    "Production DEX checks do not establish official-host external LSPosed injection acceptance.",
+    "Latest Play APK was not reinstalled for full UI acceptance.",
+    "POCO F3 Android 13 ARM installation feedback is pending.",
+    "HyperOS/ColorOS system-island behavior and real Baidu ride-payment handoff require additional device/order acceptance.",
+    "Tencent per-tab changes require host reopen."
+  ]
+}

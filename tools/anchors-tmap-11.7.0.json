@@ -48,6 +48,8 @@
                  "getToolBar", "getSceneSwitch", "getCompass", "getZoomView", "getLocateBtn",
                  "getScreenshotView", "getShare", "getShareView", "getDayNightView",
                  "getCopyrightView", "getScale", "getScaleView"]},
+    {"label": "首页快捷入口行几何", "class": "com.tencent.map.api.view.MapBaseView",
+     "methods": ["setSeekChipRowHeight", "getSeekChipRowHeight", "getSeekParentView"]},
     {"label": "地图图标(工具栏)", "class": "com.tencent.map.api.view.ToolBar",
      "methods": ["setVisible"]},
     {"label": "JCE 输入流", "class": "com.qq.taf.jce.JceInputStream", "methods": []}

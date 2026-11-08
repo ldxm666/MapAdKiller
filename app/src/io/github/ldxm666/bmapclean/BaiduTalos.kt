@@ -5,6 +5,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.lang.reflect.Method
+import java.security.MessageDigest
 
 import io.github.libxposed.api.XposedInterface
 
@@ -20,7 +21,12 @@ class BaiduTalos private constructor() {
             BaiduHooks.hook(H.cls(cl, "com.baidu.talos.core.runtime.TalosBaseRuntime"), "getModulePath",
                     XposedInterface.Hooker { chain ->
                         val path = chain.proceed() as String?
-                        adapt(chain.getArg(0) as String?, path)
+                        val module = chain.getArg(0) as String?
+                        if (module == "userCore" || module == "userCenter") {
+                            val runtime = chain.getThisObject()
+                            if (runtime != null) BaiduMineCards.track(runtime)
+                        }
+                        adapt(module, path)
                     }, String::class.java)
             val pm = H.cls(cl, "com.baidu.talos.core.data.ParamMap")
             val callback = H.cls(cl, "com.baidu.talos.core.bridge.a")
@@ -98,20 +104,30 @@ class BaiduTalos private constructor() {
                 if (!canonical.startsWith("/data/user/0/com.baidu.BaiduMap/files/talos/dpmbundles/")
                         && !canonical.startsWith("/data/data/com.baidu.BaiduMap/files/talos/dpmbundles/")) return path
                 if (!source.isFile || source.length() > 4 * 1024 * 1024) return path
-                val key = module + ":" + canonical + ":" + source.lastModified() + ":" + BaiduPageScripts.signature()
-                val cached = paths[key]
-                if (cached != null) return cached
                 val original = read(source)
+                val key = sourceKey(module, canonical, original)
+                val cached = paths[key]
+                if (cached != null && File(cached).isFile) return cached
                 val result = BaiduPageScripts.adapt(module, original)
                 if (result == original) {
                     paths[key] = canonical
                     return canonical
                 }
-                val out = File(source.parentFile, "index.android.mapclean-210.bundle")
+                // V8 caches by path. Include both source and configuration in the content hash.
+                val digest = MessageDigest.getInstance("SHA-256").digest(result.toByteArray(charset("UTF-8")))
+                val hash = digest.take(12).joinToString("") { "%02x".format(it.toInt() and 255) }
+                val out = File(source.parentFile, "index.android.mapclean-234.$hash.bundle")
                 val current = if (out.isFile) read(out) else null
                 if (result != current) {
-                    FileOutputStream(out).use { f -> f.write(result.toByteArray(charset("UTF-8"))) }
+                    val temp = File.createTempFile(".mapclean-234-", ".tmp", source.parentFile)
+                    try {
+                        FileOutputStream(temp).use { f -> f.write(result.toByteArray(charset("UTF-8"))) }
+                        if (!temp.renameTo(out)) throw java.io.IOException("bundle rename failed")
+                    } finally {
+                        if (temp.exists()) temp.delete()
+                    }
                 }
+                if (paths.size >= 32) paths.clear()
                 paths[key] = out.absolutePath
                 H.log("talos adapted module=" + module + " bytes=" + result.toByteArray(charset("UTF-8")).size)
                 return out.absolutePath
@@ -119,6 +135,13 @@ class BaiduTalos private constructor() {
                 H.log("talos adapter skipped " + module + ": " + t.javaClass.simpleName)
                 return path
             }
+        }
+
+        /** Bundle updaters may preserve ZIP timestamps and byte lengths. */
+        private fun sourceKey(module: String, canonical: String, original: String): String {
+            val hash = MessageDigest.getInstance("SHA-256").digest(original.toByteArray(charset("UTF-8")))
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
+            return module + ":" + canonical + ":" + hash + ":" + BaiduPageScripts.signature()
         }
 
         private fun read(file: File): String {

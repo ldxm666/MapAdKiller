@@ -387,7 +387,7 @@ class Spec private constructor() {
             if (cached != null) return cached
 
             val bar = ArrayList<Row>(1 + TABS.size)
-            bar.add(Row(K_BAR, "显示底部入口栏", "勾选表示显示；隐藏后剩余入口自动均分。", true))
+            bar.add(Row(K_BAR, "显示底部入口栏", "总开关即时生效；逐项更改后重新打开腾讯地图，剩余入口自动均分。", true))
             for (i in TABS.indices) {
                 bar.add(
                     Row(

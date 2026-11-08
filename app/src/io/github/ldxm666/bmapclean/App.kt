@@ -69,8 +69,9 @@ class App : Application(), XposedServiceHelper.OnServiceListener {
                 try {
                     val editor = s.getRemotePreferences(Cfg.GROUP).edit().putBoolean(key, value)
                     if (value && Spec.isCommuteChild(key)) editor.putBoolean(Spec.K_HC, true)
+                    if (value && Spec.isMineChild(key)) editor.putBoolean(Spec.K_MINE_APPLY, true)
                     if (editor.commit()) {
-                        Cfg.invalidate()
+                        Cfg.invalidate(key)
                         return true
                     }
                 } catch (ignored: Throwable) { }

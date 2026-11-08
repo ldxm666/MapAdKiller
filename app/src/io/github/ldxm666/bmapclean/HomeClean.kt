@@ -548,8 +548,8 @@ class HomeClean private constructor() {
             // ── v0.4.0：视图层方案**整体停用**（保留代码仅作历史记录，不再执行）──────────────
             // 该页由 Talos/Yoga 自绘：GONE 不塌陷、removeView 不重排、手工 translationY 重排会
             // 把整页推乱 —— 三次回归（v0.1.7 白屏 / v0.1.8 误伤宫格 / v0.3.0 整页清空）已定型。
-            // 现改在**数据层**拦 JSON：{@link MineData} 摘掉 serverData 里对应字段，
-            // 卡片的 s-if 恒假 → 组件根本不创建 → 布局由引擎从零算（无留白、无误伤）。
+            // 现由 BaiduMineCards 过滤页面专属渲染副本；原始卡片列表和 serverData 保持不变。
+            // 原生引擎负责重排，并支持配置事件恢复卡片。
             if (true) return 0
             if (!Spec.mineEnabled()) return 0      // 总闸（可在设置页关闭）
             val uc: View? = Anchors.find(decor, Anchors.ID_USER_CENTER, Anchors.NUM_USER_CENTER)

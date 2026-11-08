@@ -136,8 +136,11 @@ object TmapTabBar {
         H.hookSig(tfi, "setTabPages", TAG_ID + "_source", object : XposedInterface.Hooker {
             override fun intercept(chain: XposedInterface.Chain): Any? {
                 val arg = chain.getArg(0)
-                if (arg is List<*>) filterTabPageInfos(arg)
-                return chain.proceed()
+                if (arg !is List<*>) return chain.proceed()
+                val selected = selectedPages(arg)
+                val args = chain.getArgs().toTypedArray()
+                args[0] = selected
+                return chain.proceed(args)
             }
         }, java.util.List::class.java)
     }
@@ -153,8 +156,12 @@ object TmapTabBar {
                 object : XposedInterface.Hooker {
                     override fun intercept(chain: XposedInterface.Chain): Any? {
                         val arg = chain.getArg(0)
-                        if (arg is List<*>) filterTabViews(arg)
-                        val result = chain.proceed()
+                        val selected = if (arg is List<*>) selectedViews(arg) else null
+                        val result = if (selected == null) chain.proceed() else {
+                            val args = chain.getArgs().toTypedArray()
+                            args[0] = selected
+                            chain.proceed(args)
+                        }
                         // 整栏总开关：装配完再压一次可见性，保证"关掉即消失"。
                         applyBarVisibility(chain.getThisObject())
                         if (arg is List<*>) for (item in arg) {
@@ -222,9 +229,17 @@ object TmapTabBar {
     /** 真正改可见性；失效安全：配置读不到时保持显示。 */
     private fun setBarVisibility(view: View) {
         val show = Cfg.visible(Spec.K_BAR, true)
-        val want = if (show) View.VISIBLE else View.GONE
         try {
-            if (view.visibility == want) return   // onResume 每次都走，别刷日志
+            val want: Int
+            if (!show) {
+                if (view.visibility == View.GONE) return
+                BAR_VISIBILITY[view] = view.visibility
+                want = View.GONE
+            } else {
+                val original = BAR_VISIBILITY.remove(view) ?: return
+                if (view.visibility != View.GONE) return
+                want = original
+            }
             view.visibility = want
             H.log(
                 Log.INFO, MainHook.TAG, "tmap_tab: " + view.javaClass.simpleName
@@ -233,6 +248,20 @@ object TmapTabBar {
         } catch (t: Throwable) {
             H.log(Log.WARN, MainHook.TAG, "tmap_tab: visibility failed " + t)
         }
+    }
+
+    private val BAR_VISIBILITY = java.util.WeakHashMap<View, Int>()
+
+    private fun selectedPages(infos: List<*>): List<*> {
+        val selected = ArrayList(infos)
+        filterTabPageInfos(selected)
+        return selected
+    }
+
+    private fun selectedViews(views: List<*>): List<*> {
+        val selected = ArrayList(views)
+        filterTabViews(selected)
+        return selected
     }
 
     /** 面板改开关 / 页面 onResume 后立刻生效（{@code MainHook.REFRESH} 已经在主线程上）。 */
@@ -261,7 +290,7 @@ object TmapTabBar {
         }
     }
 
-    /** 从 {@code TabPageInfo} 列表里摘掉要隐藏的页（就地改，应用接着用同一个 List）。 */
+    /** 从私有副本摘掉要隐藏的页，宿主缓存的完整列表保持不变。 */
     @Suppress("UNCHECKED_CAST")
     private fun filterTabPageInfos(infos: List<*>) {
         // ⚠ 整栏总开关**不**在这里做减法。把页列表清空 = 首页一个入口都不剩，

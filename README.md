@@ -4,7 +4,7 @@
 
 **高德、百度、腾讯地图的广告精简与界面定制。**
 
-[![Version](https://img.shields.io/badge/version-2.3.3-2ea44f?style=flat-square)](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.3)
+[![Version](https://img.shields.io/badge/version-2.3.4-2ea44f?style=flat-square)](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.4)
 [![libxposed](https://img.shields.io/badge/libxposed-API%20102-0969da?style=flat-square)](https://github.com/libxposed/api)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square)](LICENSE)
 [![Telegram 交流群](https://img.shields.io/badge/Telegram-交流群-26A5E4?style=flat-square)](https://t.me/MapAdkiller)
@@ -14,7 +14,7 @@
 
 ## 当前版本
 
-**2.3.3 · versionCode 2303 · 2026-11-08**。支持免 root 内置版和现代 Xposed 模块版，各地图单独配置，可备份与恢复。
+**2.3.4 · versionCode 2304 · 2026-11-08**。支持免 root 内置版和现代 Xposed 模块版，各地图单独配置，可备份与恢复。
 
 | 地图 | 包名 | 本轮适配基线 |
 | --- | --- | --- |
@@ -25,30 +25,30 @@
 
 其它地图版本不保证锚点一致。模块最低 Android 8.0，并需要支持 API 102 的框架；内置版使用 LSPatch，需要 Android 9.0 或更高版本，且不能低于宿主自身要求。
 
-## 2.3.3 更新重点
+## 2.3.4 更新重点
 
-- **应用主源码全面 Kotlin 化**：`app/src` 为 172 个 Kotlin、0 个 Java；测试和编译桩仍有 Java。
-- **重构设置 UI**：参考 Miuix / HyperOS 规范，统一配色、字重、间距、圆角，重做胶囊导航、分类标签、弹窗和交互动画；仍是原生 Android View 实现。
-- **高德横屏导航信息栏 100%–200% 自定义缩放**，每档 10%，兼容路口放大图切换；修正巡航计时、重复定位与原生状态识别。
-- **移除打车面板拉到中间才出现的顶部活动横幅**，修正打车推广字段和覆盖升级白屏问题。
-- **百度工具宫格、回家/公司、面板高度修正**，支付页面避让模块浮层。
-- **腾讯主页基础标注开关可隐藏、恢复、冷启动保持**，处理引擎延迟就绪和页面返回；标注位包含 POI、路名与地名，非逐类 POI 过滤。
-- **撤除系统卡片/通知服务的误拦截**。HyperOS 灵动岛仍未显示，ColorOS 未实机验收；百度真实支付跳转也未复现验收。
+- **高德国内/Play 底栏开关修复**：保留原生完整标签模型、控制器及路由，隐藏当前入口后安全返回首页，补齐恢复与冷启动路径。
+- **百度我的页开关独立生效**：页面私有渲染列表替代共享数据与全局数组过滤，顶部图标宫格可单独开启，卡片可动态恢复。
+- **配置刷新补齐**：百度我的页/通勤/工具宫格、高德首页统一处理本地写入、模块外部配置回调和批量恢复。
+- **原生状态完整恢复**：保留百度底栏触摸监听，恢复腾讯首页入口行高，按原始可见性恢复高德、腾讯相关组件。
+- **Android 13 兼容修复**：替换腾讯反射路径中不支持的 `ClassValue`；JS、地图样式与 native 库缓存改用内容摘要。
+- **高德内置包安装兼容调整**：采用标准 ZIP 布局，包体有所增加；POCO F3 / MIUI 14 / Android 13 尚待实机安装反馈。
+- 模块与四类内置包同步构建；完整模块 27 组 / 8599 项检查通过，Android 13/16 共 120 组生产 DEX 回归通过。
 
-详细对比、验证范围与已知限制见 [2.3.3 发布说明](docs/RELEASE-2.3.3.md)、[验证说明](docs/VALIDATION-2.3.3.md) 和 [完整更新日志](CHANGELOG.md)。3D 建筑隐藏、60/90/120 帧率及首次 Play 适配是 2.3.2 系列已有功能。
+详细变更、证据和已知限制见 [2.3.4 发布说明](docs/RELEASE-2.3.4.md)、[验证说明](docs/VALIDATION-2.3.4.md)、[回归台账](docs/REGRESSION.md) 和 [完整更新日志](CHANGELOG.md)。Kotlin 主源码迁移、设置 UI 重构和横屏导航栏缩放由 2.3.3 引入，本次延续；3D 建筑隐藏、60/90/120 帧率及首次 Play 适配由 2.3.2 系列提供。
 
 ## 下载
 
-统一从 [v2.3.3 Release](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.3) 下载。模块仓库另提供 [模块版 2303-2.3.3](https://github.com/Xposed-Modules-Repo/io.github.ldxm666.mapadkiller/releases/tag/2303-2.3.3)。
+统一从 [v2.3.4 Release](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.4) 下载。模块仓库另提供 [模块版 2304-2.3.4](https://github.com/Xposed-Modules-Repo/io.github.ldxm666.mapadkiller/releases/tag/2304-2.3.4)。
 
 | 文件 | 安装方式 |
 | --- | --- |
-| `MapClean-lsp-v2.3.3.apk` | 模块版：配合 LSPosed / 支持现代 API 102 的框架，三家地图共用 |
-| `Amap-2.3.3-nonroot-embedded.apk` | 免 root：高德国内版单 APK |
-| `Baidu-2.3.3-nonroot-embedded.apk` | 免 root：百度单 APK |
-| `Tencent-2.3.3-nonroot-embedded.apk` | 免 root：腾讯单 APK |
-| `Amap-Play-2.3.3-nonroot-embedded.zip` | 免 root：高德 Play 拆分包，四个 APK 一起装 |
-| `MapAdKiller-2.3.3-source.zip` | 源码及编译依赖，不含签名私钥和地图原始 APK |
+| `MapClean-lsp-v2.3.4.apk` | 模块版：配合 LSPosed / 支持现代 API 102 的框架，三家地图共用 |
+| `Amap-2.3.4-nonroot-embedded.apk` | 免 root：高德国内版单 APK |
+| `Baidu-2.3.4-nonroot-embedded.apk` | 免 root：百度单 APK |
+| `Tencent-2.3.4-nonroot-embedded.apk` | 免 root：腾讯单 APK |
+| `Amap-Play-2.3.4-nonroot-embedded.zip` | 免 root：高德 Play 拆分包，四个 APK 一起装 |
+| `MapAdKiller-2.3.4-source.zip` | 源码及编译依赖，不含签名私钥和地图原始 APK |
 | `SHA256SUMS.txt` | 下载文件 SHA-256 校验值 |
 
 **模块版与内置版选择一种。** 模块 APK 约 5.4 MiB；内置版包含完整宿主，体积明显更大。模块依赖框架注入，不重新签名官方地图；内置版是重新签名的地图安装包，不需要框架。不要对内置地图重复启用外部模块。
@@ -57,7 +57,7 @@
 
 ### 模块版
 
-1. 安装 `MapClean-lsp-v2.3.3.apk`。
+1. 安装 `MapClean-lsp-v2.3.4.apk`。
 2. 在框架中启用模块，勾选需要处理的地图作用域。
 3. 强制停止并重新打开对应地图。可以打开模块 App 配置，也可以从地图里的悬浮球进入面板。
 
@@ -104,13 +104,15 @@ adb install-multiple -r base.apk split_config.arm64_v8a.apk split_config.xxxhdpi
 - **腾讯标注**：基础图层同时包含 POI、路名、地名，只在主页控制；不支持任意分类筛选，也不保证所有原生标签都来自这个图层。
 - **导航/巡航**：横屏模拟导航与定位回放已验证；未完成真实道路和所有车机的驾驶验证。请在安全停车状态调整设置。
 - **高德语音搜索**：兼容选项的首轮展开已验证，重复唤起与完整识别仍待验证。
+- **POCO F3 安装**：标准 ZIP 布局已完成解析和结构检查，但尚无该 ARM 机型安装验收结果。
+- **腾讯底栏**：逐项入口设置需重新打开地图，让宿主重新绑定。
 - **Play 版**：独立构建、四包签名/结构及功能 DEX 对照通过；本轮未重新安装 Play 整包逐项实机测试。
 - 百度部分详情页推荐/FAQ/团购横幅仍有未覆盖路径；高德开屏 logo 图层问题未解决。首页原生工具宫格最多两行，更多入口请使用“更多工具”。
 
 ## 构建、反馈与交流
 
 - 构建依赖与命令：[BUILD.md](BUILD.md)。主源码使用 Kotlin 1.9.23，保留必要 Java 编译桩和测试。
-- 历史变更：[CHANGELOG.md](CHANGELOG.md)；本次验证：[VALIDATION-2.3.3.md](docs/VALIDATION-2.3.3.md)。
+- 历史变更：[CHANGELOG.md](CHANGELOG.md)；本次验证：[VALIDATION-2.3.4.md](docs/VALIDATION-2.3.4.md)。
 - [GitHub Issues](https://github.com/ldxm666/MapAdKiller/issues)：附地图版本、系统版本、模块/内置方式、开关状态与复现步骤；日志先去除账号、位置、订单与支付信息。
 - [Telegram 通知频道](https://t.me/MapAdkillerr) · [Telegram 交流群](https://t.me/MapAdkiller)。
 

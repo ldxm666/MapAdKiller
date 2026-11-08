@@ -38,21 +38,8 @@ object AmapProtocolHooks {
         installResponses(cl)
         installIntentProbe(cl)
         installNavUriFix(cl)
-        H.hookSig(H.cls(cl, "com.autonavi.inter.impl.HomeTabInitConfigFactory"), "obtainTabList", "amap_tabs", object : XposedInterface.Hooker {
-            override fun intercept(chain: XposedInterface.Chain): Any? {
-                val original = chain.proceed()
-                if (original !is List<*>) return original
-                val source = original
-                val out = ArrayList<Any?>()
-                for (tab in source) {
-                    val id = tab.toString()
-                    val label = if ("Nearby" == id) "探索" else if ("Message" == id) "长按说话"
-                    else if ("Taxi" == id) "打车" else if ("Mine" == id) "我的" else null
-                    if (label == null || Config.tabVisible(label)) out.add(tab)
-                }
-                return if (out.size == source.size) original else out
-            }
-        }, Context::class.java)
+        // Do not filter the upstream home-tab definitions: LiteTabBar must retain
+        // all native pages/controllers so its switches can also restore tabs live.
     }
 
     private fun installStream(cl: ClassLoader) {

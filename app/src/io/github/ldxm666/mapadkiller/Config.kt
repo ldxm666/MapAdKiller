@@ -313,6 +313,8 @@ object Config {
                     expiresAt = 0
                     refreshFlags()
                     if (key == K_NAVI_INFO_PERCENT || key == null) AmapNaviScale.refresh()
+                    AmapTabLayout.refresh(key)
+                    AmapNativeHome.onConfigChanged(key)
                 }
             }
 
@@ -432,10 +434,14 @@ object Config {
      * the UI would keep showing the previous value for up to two seconds.
      */
     @JvmStatic
-    fun invalidate() {
+    @JvmOverloads
+    fun invalidate(key: String? = null) {
         expiresAt = 0
         // 写入后立刻刷新热键 Flag，避免"改了开关但拦截器还读旧值"。
         refreshFlags()
+        AmapTabLayout.refresh(key)
+        if (key == null || key == K_NAVI_INFO_PERCENT) AmapNaviScale.refresh()
+        AmapNativeHome.onConfigChanged(key)
     }
     private fun toolLabels(): Array<String> {
         val out = arrayOfNulls<String>(AmapData.TOOLS.size)
@@ -816,13 +822,13 @@ object Config {
         // 内置版：local 为准 + remote 镜像 + write→read 自校验（见 CfgStore 类注释）
         if (CfgStore.embedded()) {
             val ok = CfgStore.write(key, value)
-            if (ok) invalidate()
+            if (ok) invalidate(key)
             return ok
         }
         val e = edit() ?: return false
         var ok: Boolean
         try { ok = e.putBoolean(key, value).commit() } catch (t: Throwable) { ok = false }
-        if (ok) invalidate()
+        if (ok) invalidate(key)
         return ok
     }
 
@@ -832,7 +838,7 @@ object Config {
         val e = edit() ?: return false
         var ok: Boolean
         try { ok = e.putString(key, value).commit() } catch (t: Throwable) { ok = false }
-        if (ok) invalidate()
+        if (ok) invalidate(key)
         return ok
     }
 
@@ -857,13 +863,13 @@ object Config {
         // 用户看到的就是「调好的触发值关掉悬浮窗又变回去」。
         if (CfgStore.embedded()) {
             val ok = CfgStore.writeInt(key, value)
-            if (ok) invalidate()
+            if (ok) invalidate(key)
             return ok
         }
         val e = edit() ?: return false
         var ok: Boolean
         try { ok = e.putInt(key, value).commit() } catch (t: Throwable) { ok = false }
-        if (ok) invalidate()
+        if (ok) invalidate(key)
         return ok
     }
     private fun currentValues(): Map<String, *> {

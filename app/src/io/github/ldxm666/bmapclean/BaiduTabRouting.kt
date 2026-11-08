@@ -15,6 +15,7 @@ class BaiduTabRouting private constructor() {
         private val PROXIES: Array<String> = arrayOf("aihome_route_proxy", "aihome_nearby_proxy", "aihome_third_proxy", "aihome_fourth_proxy", "aihome_user_proxy")
 
         private var logged = false
+        private val hidden = java.util.WeakHashMap<View, Pair<Int, Boolean>>()
 
         @Throws(Exception::class)
         @JvmStatic
@@ -42,13 +43,14 @@ class BaiduTabRouting private constructor() {
                 if (i != 2 && listener is View.OnClickListener) listeners[i] = listener
                 if (cell != null) {
                     if (show[i]) {
-                        cell.isEnabled = true
+                        restore(cell)
                         val l = listeners[i]
                         if (l != null) cell.setOnClickListener(l)
                     } else disable(cell)
                 }
             }
-            if (!show[2]) disable(BaiduHooks.field(binding, "newHomeAiTouchView") as View?)
+            val voiceTouch = BaiduHooks.field(binding, "newHomeAiTouchView") as View?
+            if (!show[2]) disable(voiceTouch) else restore(voiceTouch)
             val homeBinding = BaiduHooks.field(component, "binding")
             if (homeBinding == null) return
             val rowView = BaiduHooks.field(homeBinding, "preventEvent") as View?
@@ -62,7 +64,7 @@ class BaiduTabRouting private constructor() {
             // This verified XML row is alpha=0 and fills the drawer's hit area.
             // Its padding, height, alpha and SDK visibility state stay intact.
             applyProxyRow(row, proxies as Array<View>, show, listeners as Array<View.OnClickListener>)
-            if (!master) row.visibility = View.GONE
+            if (!master) disable(row) else restore(row)
             if (!logged) {
                 logged = true
                 H.log("tab_routing native_proxy_slots=synchronized identity=listener")
@@ -79,6 +81,7 @@ class BaiduTabRouting private constructor() {
                     disable(proxy)
                     continue
                 }
+                restore(proxy)
                 proxy.visibility = View.VISIBLE
                 proxy.isEnabled = true
                 val listener: View.OnClickListener? = listeners[i]
@@ -98,13 +101,20 @@ class BaiduTabRouting private constructor() {
 
         @JvmStatic
         private fun disable(view: View?) {
-            if (view == null) return
-            view.setOnTouchListener(null)
-            view.setOnClickListener(null)
-            view.setTouchDelegate(null)
-            view.isClickable = false
+            if (view == null || view.visibility == View.GONE) return
+            if (!hidden.containsKey(view)) hidden[view] = Pair(view.visibility, view.isEnabled)
+            // GONE + disabled removes the hit target while retaining the SDK's handlers.
+            // In particular, the voice slot has only a TouchListener and cannot be rebuilt
+            // from the presenter's click-listener fields when it is enabled again.
             view.isEnabled = false
             view.visibility = View.GONE
+        }
+
+        private fun restore(view: View?) {
+            if (view == null) return
+            val state = hidden.remove(view) ?: return
+            if (view.visibility == View.GONE) view.visibility = state.first
+            view.isEnabled = state.second
         }
     }
 }

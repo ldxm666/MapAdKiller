@@ -32,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_DEXQ = HERE / "dex_query.py"
 
 # "  public   setTabViews(Ljava/util/List;)V"  ->  setTabViews
-METHOD_RE = re.compile(r"^\s+(?:public|package|static|private|protected)\s+.*?([\w$]+)\(", re.M)
+METHOD_RE = re.compile(r"^\s+(?:public|package|static|private|protected)\s+.*?([\w$<>]+)\(", re.M)
 
 
 def check(dexq: Path, apk: Path, anchors: list) -> dict:
@@ -46,6 +46,10 @@ def check(dexq: Path, apk: Path, anchors: list) -> dict:
             [sys.executable, str(dexq), "--Apk", str(apk), "--Class", desc, "--Methods"],
             capture_output=True, text=True, timeout=600)
         out = proc.stdout
+        if proc.returncode:
+            results.append({"label": label, "class": cls, "ok": False,
+                            "missing": methods, "reason": f"DEX query failed: exit {proc.returncode}"})
+            continue
         if "NOT FOUND" in out:
             results.append({"label": label, "class": cls, "ok": False,
                             "missing": methods, "reason": "class not found"})
@@ -56,7 +60,7 @@ def check(dexq: Path, apk: Path, anchors: list) -> dict:
                         "missing": missing, "declared": len(declared)})
     return {"anchors": results,
             "ok": all(r["ok"] for r in results),
-            "checked": sum(len(r.get("missing", [])) + (0 if r["ok"] else 0) for r in results)}
+            "checked": sum(len(entry.get("methods") or []) for entry in anchors)}
 
 
 def main() -> int:

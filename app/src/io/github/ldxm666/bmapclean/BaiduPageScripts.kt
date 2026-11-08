@@ -1,10 +1,5 @@
 package io.github.ldxm666.bmapclean
 
-import java.util.regex.Matcher
-import java.util.regex.Pattern
-
-import org.json.JSONArray
-
 /** Page-specific cardList assignments, never Array.prototype or generic JSON mutation. */
 class BaiduPageScripts private constructor() {
 
@@ -27,17 +22,10 @@ class BaiduPageScripts private constructor() {
                     Spec.effectiveVisible(Spec.K_FEED_CHIPS, Spec.HOOK_READ),
                     Spec.effectiveVisible(Spec.K_FEED_QUALITY, Spec.HOOK_READ),
                     Spec.effectiveVisible(Spec.K_WX_CARD, Spec.HOOK_READ), Cfg.visible(Spec.K_HC))
-            if (("userCore" == module || "userCenter" == module) && Spec.mineEnabled()) {
-                val hidden = ArrayList<String>()
-                add(hidden, Spec.K_MINE_GRID, "common")
-                add(hidden, Spec.K_MINE_CAR, "car")
-                add(hidden, Spec.K_MINE_VOICE, "voice", "oldVoice")
-                add(hidden, Spec.K_MINE_CARNAV, "carLogo")
-                add(hidden, Spec.K_MINE_SPORT, "sport")
-                add(hidden, Spec.K_MINE_BUILD, "contribution", "ugc")
-                add(hidden, Spec.K_MINE_OPS, "goldCoin", "dxmFinance", "userOperation", "shop")
-                add(hidden, Spec.K_MINE_AD, "gold", "banner")
-                return filterMine(source, hidden)
+            if ("userCore" == module || "userCenter" == module) {
+                // Install the reversible binding even when all cards/the master are on/off.
+                // A cached Talos runtime can then receive later preference changes.
+                return filterMine(source, BaiduMineCards.hidden())
             }
             return source
         }
@@ -64,31 +52,8 @@ class BaiduPageScripts private constructor() {
         }
 
         @JvmStatic
-        private fun add(out: MutableList<String>, key: String, vararg names: String) {
-            if (!Cfg.visible(key, Spec.defaultVisible(key))) java.util.Collections.addAll(out, *names)
-        }
-
-        @JvmStatic
         fun filterMine(source: String, hidden: List<String>): String {
-            if (hidden.isEmpty()) return source
-            // The checked function names and bounded assignments are present in 1.0.92.1 and 1.1.61.1.
-            if (!source.contains("processCardList:function(") || !source.contains("processServerData:function(")) return source
-            val p = Pattern.compile("(\\b(?:this|[a-zA-Z_\$][\\w\$]*)\\.data\\.set\\(\"cardList\",)(\\[\\]\\.concat\\([a-zA-Z_\$][\\w\$]*\\)|[a-zA-Z_\$][\\w\$]*)(\\))")
-            var m = p.matcher(source)
-            var out = StringBuffer()
-            val list = JSONArray(hidden).toString()
-            while (m.find()) m.appendReplacement(out, Matcher.quoteReplacement(m.group(1) + m.group(2) +
-                    ".filter(function(v){return " + list + ".indexOf(v)<0;})" + m.group(3)))
-            m.appendTail(out)
-            val result = out.toString()
-            // The initial list also renders before the server response (and when the request fails).
-            val initial = Pattern.compile("(cardList:)(\\[\\]\\.concat\\([a-zA-Z_\$][\\w\$]*\\))")
-            m = initial.matcher(result)
-            out = StringBuffer()
-            while (m.find()) m.appendReplacement(out, Matcher.quoteReplacement(m.group(1) + m.group(2) +
-                    ".filter(function(v){return " + list + ".indexOf(v)<0;})"))
-            m.appendTail(out)
-            return out.toString()
+            return BaiduMineCards.script(source, hidden)
         }
     }
 }

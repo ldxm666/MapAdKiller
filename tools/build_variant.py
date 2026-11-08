@@ -915,6 +915,9 @@ def main() -> int:
     ap.add_argument("--CacheDirectory", type=Path)
     ap.add_argument("--SignatureBypass", type=int, choices=[0, 1, 2, 3], default=2)
     ap.add_argument("--KeepWork", action="store_true")
+    ap.add_argument("--CompatibilityKeystore", type=Path,
+                    help="optional same-certificate keystore for standard-ZIP/v1+v2+v3 base APK packaging")
+    ap.add_argument("--CompatibilityPasswordEnv", default="MAPCLEAN_HOST_KEYSTORE_PASSWORD")
     args = ap.parse_args()
 
     global JAVA_JAVAC, JAVA_JAR
@@ -992,7 +995,8 @@ def main() -> int:
                                        f"https://raw.githubusercontent.com/JingMatrix/LSPatch/{SOURCE_COMMIT}/LICENSE")
         patch_dir = work / "patched"
         patch_dir.mkdir()
-        # The patched APK is published exactly as LSPatch signs it.
+        # By default retain LSPatch's compact layout; optional compatibility
+        # packaging below expands its overlapping ranges using the same signer.
         #
         # It is tempting to append the label library to the host's lib/<abi>/ afterwards, but
         # that cannot be done without rebuilding the archive, and this archive cannot be
@@ -1008,6 +1012,17 @@ def main() -> int:
         if len(produced) != len(original_list):
             raise ValueError(f"LSPatch produced {len(produced)} APKs, "
                              f"expected {len(original_list)} (one per input)")
+
+        compatibility = None
+        if args.CompatibilityKeystore:
+            from repack_install_compat import repack
+            patched_base = match_produced(produced, original)
+            compatible = work / "compatible-base.apk"
+            compatibility = repack(patched_base, compatible, java=args.Java,
+                                   apksigner=build_tools / "lib" / "apksigner.jar",
+                                   keystore=args.CompatibilityKeystore,
+                                   password_env=args.CompatibilityPasswordEnv)
+            shutil.copy2(compatible, patched_base)
 
         print("\n== 4/4 verify + publish ==")
         artifact = args.ArtifactName or target["artifact"].format(version=version_name)
@@ -1043,6 +1058,8 @@ def main() -> int:
             record = verify(final, original, slim_apk, args.SignatureBypass,
                             build_tools, args.Java, target)
         record["module"] = info
+        if compatibility is not None:
+            record["installationCompatibility"] = compatibility
         record["slimPlan"] = plan
         record["hostWhitelist"] = whitelist
         record["lspatch"] = {"release": RELEASE_URL, "cliSha256": CLI_SHA256,

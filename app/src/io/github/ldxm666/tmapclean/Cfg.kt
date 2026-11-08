@@ -423,6 +423,9 @@ class Cfg private constructor() {
          */
         @JvmStatic
         fun tabVisible(pageName: String): Boolean {
+            // A new host page has no supported switch yet. Preserve it rather than
+            // applying the default-OFF policy intended for our known optional tabs.
+            if (Spec.TABS.none { it[0] == pageName }) return true
             return visible(Spec.K_TAB + pageName)
         }
 
