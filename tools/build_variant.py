@@ -136,6 +136,7 @@ FLOATING_REQUIRED = (
     b"Lio/github/ldxm666/mapclean/FloatingBall;",
     b"Lio/github/ldxm666/mapclean/FloatingHooks;",
     b"Lio/github/ldxm666/mapclean/FloatingPanel;",
+    b"Lio/github/ldxm666/mapclean/PaymentUiPolicy;",
 )
 
 # ---- the vendor allow-list, checked in the compiled DEX ---------------------
@@ -219,7 +220,14 @@ TARGETS = {
         ),
         "required": FLOATING_REQUIRED + (
             b"Lio/github/ldxm666/mapadkiller/AmapHooks;",
+            b"Lio/github/ldxm666/mapadkiller/AmapSubprocess;",
             b"Lio/github/ldxm666/mapadkiller/AmapNativeHome;",
+            # Keep the same navigation, cruise and taxi implementations in CN/Play builds.
+            # Fail packaging if a later slimming change removes one behind a visible setting.
+            b"Lio/github/ldxm666/mapadkiller/AmapNaviScale;",
+            b"Lio/github/ldxm666/mapadkiller/AmapCruise;",
+            b"Lio/github/ldxm666/mapadkiller/AmapCruiseOfficial;",
+            b"Lio/github/ldxm666/mapadkiller/AmapTaxiData;",
             # HostInfo 在 amap 变体里是**真件**（mapadkiller 包整个保留），它是内置/模块模式的
             # 唯一判据，也是 FloatingHooks / FloatingController / AmapMineEntry 的总闸。
             # 一旦有人把它又挪回 SHARED_STUBS，这条 required 会在构建期炸掉而不是等到真机排障。
@@ -268,6 +276,8 @@ TARGETS = {
         "required": FLOATING_REQUIRED + (
             b"Lio/github/ldxm666/tmapclean/MainHook;",
             b"Lio/github/ldxm666/tmapclean/TmapMapIcons;",
+            b"Lio/github/ldxm666/tmapclean/TmapPoi;",
+            b"Lio/github/ldxm666/tmapclean/TmapAnnotations;",
             b"Lio/github/ldxm666/mapclean/TmapPanel;",
             b"Lio/github/ldxm666/mapadkiller/MainHook;",
         ),
@@ -329,7 +339,9 @@ TARGETS = {
         ),
         "required": FLOATING_REQUIRED + (
             b"Lio/github/ldxm666/bmapclean/BaiduHooks;",
+            b"Lio/github/ldxm666/bmapclean/BaiduPower;",
             b"Lio/github/ldxm666/bmapclean/BaiduPoiLayer;",
+            b"Lio/github/ldxm666/bmapclean/BaiduPayment;",
             # 百度侧唯一的配置后端。它没了 ⇒ 面板每个开关都只能退回远端通道 ⇒
             # 服务没绑上就是"只读"，这正是 2.2.8 用户报的那一条。
             b"Lio/github/ldxm666/bmapclean/Cfg;",
@@ -496,7 +508,11 @@ def copy_slim_sources(dest: Path, target: dict) -> dict:
 
     # 4) a stub that is meant to forward must actually forward
     for rel, needle in target.get("invariants", ()):
-        body = (src / rel).read_text(encoding="utf-8")
+        reference = src / rel
+        actual = find_source(reference.parent, reference.name)
+        if actual is None:
+            raise ValueError(f"Missing forwarding source: {rel}")
+        body = actual.read_text(encoding="utf-8")
         if needle not in body:
             raise ValueError(
                 f"{rel} must contain {needle!r}: a silent no-op here would drop the forwarding "

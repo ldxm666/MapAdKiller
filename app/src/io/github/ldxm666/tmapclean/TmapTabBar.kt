@@ -157,6 +157,11 @@ object TmapTabBar {
                         val result = chain.proceed()
                         // 整栏总开关：装配完再压一次可见性，保证"关掉即消失"。
                         applyBarVisibility(chain.getThisObject())
+                        if (arg is List<*>) for (item in arg) {
+                            val view = item as? View ?: continue
+                            val page = pageOfView(view)
+                            if (page == "homePage" || page == "mePage") TmapEntry.bind(view)
+                        }
                         return result
                     }
                 }, java.util.List::class.java)

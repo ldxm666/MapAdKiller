@@ -30,20 +30,20 @@ class UiKit private constructor() {
 
         /** Fast-out, slow-in -- enter transitions and dialogs popping in. */
         @JvmField
-        val DECELERATE: TimeInterpolator = interpolator(0.05f, 0.7f, 0.1f, 1f)
+        val DECELERATE: TimeInterpolator = HyperMotion.DECELERATE
         /** Slow-out, fast-in -- exit transitions. */
         @JvmField
-        val ACCELERATE: TimeInterpolator = interpolator(0.3f, 0f, 0.8f, 0.15f)
+        val ACCELERATE: TimeInterpolator = HyperMotion.ACCELERATE
         /** Neutral easing for size and position changes. */
         @JvmField
-        val STANDARD: TimeInterpolator = interpolator(0.2f, 0f, 0f, 1f)
+        val STANDARD: TimeInterpolator = HyperMotion.STANDARD
         /** Slight overshoot -- toggles, chips, page settle, press release. */
         @JvmField
-        val SPRING: TimeInterpolator = interpolator(0.34f, 1.56f, 0.64f, 1f)
+        val SPRING: TimeInterpolator = HyperMotion.SOFT
 
-        const val DUR_QUICK = 140L
-        const val DUR_BASE = 240L
-        const val DUR_SLOW = 380L
+        const val DUR_QUICK = HyperMotion.DUR_TINT
+        const val DUR_BASE = HyperMotion.DUR_MOVE
+        const val DUR_SLOW = HyperMotion.DUR_PAGE
 
         /** dp -> px. The floating layer positions itself in raw pixels, never in dp. */
         @JvmStatic
@@ -164,70 +164,38 @@ class UiKit private constructor() {
          */
         @JvmStatic
         fun pressable(v: View, scale: Float) {
+            val slop = android.view.ViewConfiguration.get(v.context).scaledTouchSlop
             v.setOnTouchListener(object : View.OnTouchListener {
                 private var down = false
-                private var anim: ValueAnimator? = null
-
-                /**
-                 * Drives scaleX/scaleY from our own ValueAnimator rather than
-                 * {@code view.animate()}. Sharing the ViewPropertyAnimator meant that any
-                 * later {@code animate().cancel()} on the same view -- e.g. the pager tabs
-                 * re-tinting themselves in selectTab() -- killed the release animation
-                 * mid-flight and left the chip permanently squashed to 0.95.
-                 */
-                private fun animateScaleTo(target: Float) {
-                    anim?.cancel()
-                    val from = v.scaleX
-                    if (from == target) return
-                    val a = ValueAnimator.ofFloat(from, target)
-                    a.duration = if (target < from) DUR_QUICK else DUR_BASE
-                    // 松手那一下用 **CycleInterpolator** 而不是普通的弹簧曲线。
-                    //
-                    // 手法抄自 android_ui_motion_suite/ElasticViews（skydoves，MIT）：
-                    // 它把「按下 → 缩」和「松手 → 弹回」拆成两段，回程用一条会越过终点的
-                    // 振荡曲线，于是字面上"弹"一下 —— 而不是单调地滑回原尺寸。
-                    //
-                    // 1.4 个周期：越过 1.0 一次再回来，多了会显得廉价、少了感觉不到。
-                    // 振幅随缩放比例走：压得越深，回弹越大，手感才一致。
-                    a.interpolator = if (target < from) DECELERATE
-                    else android.view.animation.CycleInterpolator(1.4f)
-                    a.addUpdateListener(object : ValueAnimator.AnimatorUpdateListener {
-                        override fun onAnimationUpdate(animator: ValueAnimator) {
-                            val s = animator.animatedValue as Float
-                            v.scaleX = s
-                            v.scaleY = s
-                        }
-                    })
-                    a.start()
-                    anim = a
-                }
+                private var startX = 0f
+                private var startY = 0f
 
                 override fun onTouch(view: View, e: android.view.MotionEvent): Boolean {
                     when (e.actionMasked) {
                         android.view.MotionEvent.ACTION_DOWN -> {
+                            if (!view.isEnabled) return false
+                            startX = e.x
+                            startY = e.y
                             down = true
-                            animateScaleTo(scale)
-                            // 触感反馈：让"按到了"这件事越过视觉、直接到手上。
-                            // KEYBOARD_TAP 比 LONG_PRESS 轻，适合行/卡片这种高频轻点；
-                            // 用 performHapticFeedback 而不是 Vibrator —— 尊重系统
-                            // 「触摸振动」开关，用户关了就不震。
-                            try {
-                                v.performHapticFeedback(
-                                    android.view.HapticFeedbackConstants.KEYBOARD_TAP)
-                            } catch (ignored: Throwable) {
+                            HyperMotion.press(view, true, scale)
+                        }
+                        android.view.MotionEvent.ACTION_MOVE -> {
+                            if (down && (kotlin.math.abs(e.x - startX) > slop ||
+                                    kotlin.math.abs(e.y - startY) > slop ||
+                                    e.x < 0 || e.y < 0 || e.x > view.width || e.y > view.height)) {
+                                down = false
+                                HyperMotion.press(view, false, scale)
                             }
                         }
                         android.view.MotionEvent.ACTION_UP,
                         android.view.MotionEvent.ACTION_CANCEL -> {
-                            if (down) {
-                                down = false
-                                animateScaleTo(1f)
-                            }
-                        }
-                        else -> {
+                            val click = down && e.actionMasked == android.view.MotionEvent.ACTION_UP
+                            down = false
+                            HyperMotion.press(view, false, scale)
+                            if (click) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                         }
                     }
-                    return false   // never consume: clicks and ripples still work
+                    return false
                 }
             })
         }
@@ -244,6 +212,7 @@ class UiKit private constructor() {
         @JvmStatic
         fun enter(v: View, fromY: Float, delay: Long) {
             v.animate().cancel()
+            if (!HyperMotion.enabled(v)) { v.alpha = 1f; v.translationY = 0f; return }
             v.alpha = 0f
             v.translationY = fromY
             v.animate().alpha(1f).translationY(0f)
@@ -272,12 +241,65 @@ class UiKit private constructor() {
          */
         @JvmStatic
         fun enterStaggered(parent: ViewGroup, fromY: Float, step: Long, startDelay: Long) {
+            val visible = android.graphics.Rect()
+            var order = 0
             for (i in 0 until parent.childCount) {
                 val child = parent.getChildAt(i)
-                var d = startDelay + i * step
-                if (d > 900L) d = 900L             // never make the tail feel slow
-                enter(child, fromY, d)
+                if (child.visibility != View.VISIBLE) continue
+                if (order >= 6 || !child.getGlobalVisibleRect(visible)) {
+                    reveal(child)
+                    continue
+                }
+                enter(child, fromY, (startDelay + order * step).coerceAtMost(HyperMotion.STAGGER_MAX))
+                order++
             }
+        }
+
+        /** Short shared-axis entrance, used for a category or search-result change. */
+        @JvmStatic
+        fun contentIn(view: View, direction: Int = 0) {
+            view.animate().cancel()
+            if (!HyperMotion.enabled(view)) {
+                view.alpha = 1f
+                view.translationX = 0f
+                view.translationY = 0f
+                return
+            }
+            view.alpha = 0f
+            view.translationY = 0f
+            view.translationX = dpf(view.context, HyperMotion.DISTANCE_PAGE) * direction
+            view.animate().alpha(1f).translationX(0f).setStartDelay(0L)
+                .setDuration(HyperMotion.DUR_MOVE).setInterpolator(HyperMotion.DECELERATE)
+                .withEndAction { view.alpha = 1f; view.translationX = 0f }.start()
+        }
+
+        /**
+         * Layout is committed once; Android animates clipping/bounds and sibling movement.
+         * Avoid a height animator that remeasures hundreds of switch rows every frame.
+         */
+        @JvmStatic
+        fun setExpanded(sceneRoot: ViewGroup, content: View, expanded: Boolean, animate: Boolean) {
+            android.transition.TransitionManager.endTransitions(sceneRoot)
+            content.animate().cancel()
+            content.alpha = 1f
+            content.translationY = 0f
+            content.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            if (animate && HyperMotion.enabled(sceneRoot)) {
+                val bounds = android.transition.ChangeBounds()
+                bounds.setResizeClip(true)
+                bounds.duration = HyperMotion.DUR_MOVE
+                bounds.interpolator = HyperMotion.STANDARD
+                for (i in 0 until sceneRoot.childCount) bounds.addTarget(sceneRoot.getChildAt(i))
+                bounds.addTarget(content)
+                val fade = android.transition.Fade()
+                fade.addTarget(content)
+                fade.duration = HyperMotion.DUR_TINT
+                val transition = android.transition.TransitionSet()
+                transition.ordering = android.transition.TransitionSet.ORDERING_TOGETHER
+                transition.addTransition(bounds).addTransition(fade)
+                android.transition.TransitionManager.beginDelayedTransition(sceneRoot, transition)
+            }
+            content.visibility = if (expanded) View.VISIBLE else View.GONE
         }
 
         /** Animate an integer property with a named interpolator. */
@@ -287,7 +309,7 @@ class UiKit private constructor() {
             cb: ValueAnimator.AnimatorUpdateListener
         ) {
             val a = ValueAnimator.ofInt(from, to)
-            a.duration = duration
+            a.duration = if (HyperMotion.enabled()) duration else 0L
             a.interpolator = ip
             a.addUpdateListener(cb)
             a.start()
@@ -300,7 +322,7 @@ class UiKit private constructor() {
             cb: ValueAnimator.AnimatorUpdateListener
         ) {
             val a = ValueAnimator.ofFloat(from, to)
-            a.duration = duration
+            a.duration = if (HyperMotion.enabled()) duration else 0L
             a.interpolator = ip
             a.addUpdateListener(cb)
             a.start()

@@ -2,347 +2,292 @@ package io.github.ldxm666.mapclean
 
 import android.animation.TimeInterpolator
 import android.animation.ValueAnimator
+import android.content.Context
+import android.provider.Settings
+import android.view.Choreographer
+import android.view.View
 import android.view.animation.PathInterpolator
+import java.lang.ref.WeakReference
+import java.util.WeakHashMap
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
- * HyperOS 动效系统 —— 物理弹簧 + 补间。
+ * Shared motion contract for the settings app and embedded sheet.
  *
- * <p>参数取自 Miuix 0.9.4 的 {@code folmeSpring(damping, response)}（小米 Folme 的
- * 物理动效参数化），其刚度定义为 {@code stiffness = (2π / response)²}。这里用同样的公式
- * 手写积分器，不依赖 {@code androidx.dynamicanimation} —— 本模块只用 {@code android.jar}
- * 编译。
- *
- * <p><b>为什么不用 ValueAnimator 的插值器</b>：cubic-bezier 无法表达"松手时带着速度继续走"，
- * 而滚动惯性、拖动回弹、连续点击打断都需要这个。弹簧积分器天然支持把当前速度作为初值，
- * 所以连续打断不会跳变。
- *
- * <p>约定：
- * <ul>
- *   <li>位置 / 尺寸变化 → 弹簧（有回弹）</li>
- *   <li>颜色 / 透明度 → 补间 150 ms</li>
- *   <li>页面切换 → 300 ms</li>
- * </ul>
- * 不要所有东西都用同一个时长，那是廉价感的主要来源。
+ * Durations are milliseconds; spring response is seconds. Spring parameters follow
+ * miuix 0.9.4's folmeSpring / Switch. No AndroidX dependency is added to host processes.
+ * See docs/ui-motion-contract.md for sources, coverage and verification.
  */
 class HyperMotion private constructor() {
-
     companion object {
-
-        /* -------------------------------------------------------------- 弹簧预设 */
-
-        /** 阻尼比。1.0 = 临界阻尼（无过冲），&lt;1.0 = 有回弹，&gt;1.0 = 过阻尼。 */
         const val D_STANDARD = 0.9f
         const val D_SOFT = 0.85f
-        const val D_NONE = 1.0f
+        const val D_NONE = 1f
         const val D_SLIGHT = 0.95f
         const val D_TIGHT = 0.96f
 
-        /** miuix 开关的三组刚度（Compose spring 的第二参数）。 */
-        const val K_SWITCH_MOVE = 987f    // 滑块位移 spring(0.7, 987)
-        const val K_SWITCH_SCALE = 987f   // 滑块缩放 spring(0.6, 987)
-        const val K_TRACK_COLOR = 438.6f  // 轨道换色 spring(0.99, 438.6)
+        const val K_SWITCH_MOVE = 987f
+        const val K_SWITCH_SCALE = 987f
+        const val K_TRACK_COLOR = 438.6f
         const val D_SWITCH_MOVE = 0.7f
         const val D_SWITCH_SCALE = 0.6f
         const val D_TRACK_COLOR = 0.99f
 
-        /** 响应时间，秒。越小越快。 */
-        const val R_PAGE = 0.38f   // 页面 / 列表过渡（最常用）
-        const val R_SOFT = 0.40f   // 柔和弹出
-        const val R_POSITION = 0.35f // 无过冲的位置变化
-        const val R_QUICK = 0.30f  // 快速回弹（开关）
-        const val R_INSTANT = 0.20f // 即时跟随（拖动松手）
-        const val R_SLOW = 0.60f   // 缓慢落位
+        const val R_PAGE = 0.38f
+        const val R_SOFT = 0.40f
+        const val R_POSITION = 0.35f
+        const val R_QUICK = 0.30f
+        const val R_INSTANT = 0.20f
+        const val R_SLOW = 0.60f
 
-        /* -------------------------------------------------------------- 补间时长 */
+        // One duration ladder. Components reference roles, never arbitrary timings.
+        const val DUR_PRESS = 80L
+        const val DUR_TINT = 160L
+        const val DUR_MOVE = 240L
+        const val DUR_PAGE = 320L
+        const val DUR_EXIT = 160L
+        const val STAGGER = 32L
+        const val STAGGER_MAX = 128L
+        const val DISTANCE_SMALL = 8f
+        const val DISTANCE_PAGE = 24f
 
-        /** 颜色、透明度、涟漪。 */
-        const val DUR_TINT = 150L
-        /** 位置、尺寸（弹簧退化时用）。 */
-        const val DUR_MOVE = 200L
-        /** 大位移、页面切换。 */
-        const val DUR_PAGE = 300L
-        /** 按压反馈的起点。 */
-        const val DUR_PRESS = 90L
+        @JvmField val DECELERATE: TimeInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+        @JvmField val ACCELERATE: TimeInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
+        @JvmField val STANDARD: TimeInterpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+        @JvmField val SOFT: TimeInterpolator = PathInterpolator(0.22f, 0.9f, 0.3f, 1f)
 
-        /* -------------------------------------------------------------- 缓动 */
+        @JvmStatic
+        fun enabled(): Boolean = try { ValueAnimator.areAnimatorsEnabled() } catch (_: Throwable) { true }
 
-        /** 进入：快出慢入。等价 miuix 的 DecelerateEasing。 */
-        @JvmField
-        val DECELERATE: TimeInterpolator = curve(0.05f, 0.7f, 0.1f, 1f)
-        /** 退出：慢出快入。等价 miuix 的 AccelerateEasing。 */
-        @JvmField
-        val ACCELERATE: TimeInterpolator = curve(0.3f, 0f, 0.8f, 0.15f)
-        /** 中性：尺寸与位置。 */
-        @JvmField
-        val STANDARD: TimeInterpolator = curve(0.2f, 0f, 0f, 1f)
+        @JvmStatic
+        fun enabled(view: View): Boolean = enabled() && view.isAttachedToWindow
 
-        private fun curve(a: Float, b: Float, c: Float, d: Float): TimeInterpolator {
-            try {
-                return PathInterpolator(a, b, c, d)
-            } catch (ignored: Throwable) {
-                return object : TimeInterpolator {
-                    override fun getInterpolation(t: Float): Float {
-                        return if (t < 0.5f) 2f * t * t else 1f - 2f * (1f - t) * (1f - t)
-                    }
-                }
-            }
+        @JvmStatic
+        fun durationScale(context: Context?): Float {
+            if (!enabled()) return 0f
+            if (context == null) return 1f
+            return try {
+                Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+                    .coerceAtLeast(0f)
+            } catch (_: Throwable) { 1f }
         }
 
-        /* -------------------------------------------------------------- 便捷入口 */
-
-        /**
-         * 弹簧驱动一个 float 属性。{@code setter} 每帧收到新值。
-         *
-         * <p>返回 Driver，调用方可以持有它以便后续 [Driver.to] 打断。
-         */
         @JvmStatic
-        fun drive(damping: Float, response: Float, initial: Float, setter: Driver.Sink): Driver {
-            return Driver(damping, response, initial, setter)
-        }
+        fun drive(damping: Float, response: Float, initial: Float, setter: Driver.Sink): Driver =
+            Driver(damping, response, initial, setter)
 
-        /** 开关滑块横向移动：弹簧 (0.9, 0.3)。 */
         @JvmStatic
-        fun driveToggle(initial: Float, setter: Driver.Sink): Driver {
-            return Driver(D_STANDARD, R_QUICK, initial, setter)
-        }
+        fun driveToggle(initial: Float, setter: Driver.Sink): Driver =
+            Driver(Spring.ofStiffness(D_SWITCH_MOVE, K_SWITCH_MOVE, initial), setter)
 
-        /** 拖动松手回位：弹簧 (1.0, 0.2)，无过冲且极快。 */
         @JvmStatic
-        fun driveRelease(initial: Float, setter: Driver.Sink): Driver {
-            return Driver(D_NONE, R_INSTANT, initial, setter)
-        }
+        fun driveRelease(initial: Float, setter: Driver.Sink): Driver =
+            Driver(D_NONE, R_INSTANT, initial, setter)
 
-        /** 页面 / 指示器过渡：弹簧 (0.9, 0.38)。 */
         @JvmStatic
-        fun drivePage(initial: Float, setter: Driver.Sink): Driver {
-            return Driver(D_STANDARD, R_PAGE, initial, setter)
-        }
+        fun drivePage(initial: Float, setter: Driver.Sink): Driver =
+            Driver(Spring.at(D_STANDARD, R_PAGE, initial, 0.25f), setter)
 
-        /**
-         * 纯补间（颜色 / 透明度）。不走弹簧 —— 颜色的过冲看起来像闪烁。
-         *
-         * @return 已启动的 ValueAnimator，调用方可 cancel。
-         */
         @JvmStatic
-        fun tint(
-            from: Float, to: Float, durationMs: Long,
-            easing: TimeInterpolator?, setter: Driver.Sink
-        ): ValueAnimator {
+        fun tint(from: Float, to: Float, durationMs: Long, easing: TimeInterpolator?, setter: Driver.Sink): ValueAnimator {
             val a = ValueAnimator.ofFloat(from, to)
-            a.duration = durationMs
-            if (easing != null) a.interpolator = easing
-            a.addUpdateListener(object : ValueAnimator.AnimatorUpdateListener {
-                override fun onAnimationUpdate(anim: ValueAnimator) {
-                    setter.onValue(anim.animatedValue as Float)
-                }
-            })
+            a.duration = if (enabled()) durationMs else 0L
+            a.interpolator = easing ?: DECELERATE
+            a.addUpdateListener { setter.onValue(it.animatedValue as Float) }
             a.start()
             return a
         }
 
-        /** 颜色补间，默认 150 ms + DECELERATE。 */
         @JvmStatic
-        fun tint(from: Float, to: Float, setter: Driver.Sink): ValueAnimator {
-            return tint(from, to, DUR_TINT, DECELERATE, setter)
+        fun tint(from: Float, to: Float, setter: Driver.Sink): ValueAnimator =
+            tint(from, to, DUR_TINT, DECELERATE, setter)
+
+        private val presses = WeakHashMap<View, Press>()
+
+        /** Independent scale channel: an entrance/exit animator cannot cancel release. */
+        @JvmStatic
+        fun press(view: View?, down: Boolean, pressedScale: Float) {
+            if (view == null) return
+            var state = presses[view]
+            if (state == null) {
+                state = Press(view)
+                presses[view] = state
+            }
+            if (!state.driver.isRunning()) state.driver.snapTo(view.scaleX)
+            state.driver.to(if (down) pressedScale else 1f)
         }
 
-        /**
-         * 按压缩放。进 90 ms 线性压下，出用弹簧 —— 这是"手感"最容易被感知的一处。
-         *
-         * <p>不要用 {@code View.animate().scaleX()} 做回弹：那是补间，松手快时看不出回弹，
-         * 松手慢时又拖沓。弹簧的初速度来自当前值，所以两种节奏都对。
-         */
-        @JvmStatic
-        fun press(v: android.view.View?, down: Boolean, pressedScale: Float) {
-            if (v == null) return
-            val to = if (down) pressedScale else 1f
-            if (down) {
-                v.animate().scaleX(to).scaleY(to)
-                    .setDuration(DUR_PRESS)
-                    .setInterpolator(STANDARD)
-                    .start()
-            } else {
-                v.animate().scaleX(to).scaleY(to)
-                    .setDuration(DUR_MOVE)
-                    .setInterpolator(curve(0.34f, 1.28f, 0.64f, 1f))
-                    .start()
-            }
+        private class Press(view: View) {
+            private val ref = WeakReference(view)
+            val driver = Driver(Spring.at(D_SOFT, R_INSTANT, view.scaleX, 0.0005f), Driver.Sink { scale ->
+                ref.get()?.let { it.scaleX = scale; it.scaleY = scale }
+            }).bindTo(view)
         }
     }
 
-    /* ------------------------------------------------------------------ 弹簧积分器 */
-
     /**
-     * 一维弹簧。用法：构造 → [to] → 每帧 [advance] 直到返回 false。
-     *
-     * <p>半隐式欧拉积分（先更新速度再更新位置），在 60/90/120 Hz 下都稳定。
-     * 步长被钳在 32 ms 以内 —— 掉帧时不会因为 dt 过大而发散。
+     * Exact damped oscillator solution. The same spring behaves consistently at
+     * 60/90/120 Hz and after irregular frames. minimumVisibleChange is in the
+     * caller's units: 0..1 progress is not a pixel position.
      */
-    class Spring {
+    class Spring private constructor(
+        private val damping: Double,
+        private val stiffness: Double,
+        initial: Float,
+        private val minimumVisibleChange: Float
+    ) {
+        private var x = initial.toDouble()
+        private var v = 0.0
+        private var target = initial.toDouble()
 
-        private val k: Float   // 刚度
-        private val c: Float   // 阻尼系数
-        private var x: Float = 0f         // 当前位置
-        private var v: Float = 0f         // 当前速度
-        private var target: Float = 0f
+        constructor(damping: Float, response: Float) : this(
+            damping.coerceAtLeast(0.01f).toDouble(),
+            Math.pow(2.0 * Math.PI / response.coerceAtLeast(0.02f), 2.0), 0f, 0.001f
+        )
 
-        constructor(damping: Float, response: Float) {
-            val stiffness = Math.pow(
-                2.0 * Math.PI / Math.max(0.02f, response).toDouble(), 2.0
-            ).toFloat()
-            k = Math.max(1f, stiffness)
-            c = 2f * Math.max(0.01f, damping) * Math.sqrt(k.toDouble()).toFloat()
-        }
+        fun value(): Float = x.toFloat()
+        fun velocity(): Float = v.toFloat()
+        fun to(next: Float) { target = next.toDouble() }
+        fun to(next: Float, velocityPxPerSec: Float) { target = next.toDouble(); v = velocityPxPerSec.toDouble() }
+        fun snapTo(next: Float) { target = next.toDouble(); settle() }
+        fun settle() { x = target; v = 0.0 }
 
-        private constructor(damping: Float, stiffness: Float, rawStiffness: Boolean) {
-            k = Math.max(1f, stiffness)
-            c = 2f * Math.max(0.01f, damping) * Math.sqrt(k.toDouble()).toFloat()
-        }
-
-        fun value(): Float = x
-
-        /** 把当前速度保留下来再改目标 —— 连续打断不跳变，这是弹簧相对补间的核心优势。 */
-        fun to(next: Float) {
-            target = next
-        }
-
-        /** 带着外部速度改目标（例如手指抬起时的滑动速度，px/s）。 */
-        fun to(next: Float, velocityPxPerSec: Float) {
-            target = next
-            v = velocityPxPerSec
-        }
-
-        /** @return true 表示还在动，需要继续下一帧。 */
+        /** Returns false only once both position and velocity are imperceptible. */
         fun advance(dtSec: Float): Boolean {
-            if (dtSec <= 0f) return true
-            val dt = Math.min(dtSec, 0.032f)
-            val a = -k * (x - target) - c * v
-            v += a * dt
-            x += v * dt
-            // 收敛判据：位置与速度都足够小。0.5 px / 5 px·s⁻¹ 在 3x 屏上不可见。
-            return Math.abs(x - target) > 0.5f || Math.abs(v) > 5f
-        }
-
-        fun settle() {
-            x = target
-            v = 0f
+            if (!dtSec.isFinite() || dtSec <= 0f) return true
+            val dt = dtSec.coerceAtMost(0.5f).toDouble()
+            val omega = sqrt(stiffness)
+            val decay = damping * omega
+            val y = x - target
+            val nextY: Double
+            val nextV: Double
+            if (abs(damping - 1.0) < 0.001) {
+                val b = v + omega * y
+                val e = exp(-omega * dt)
+                nextY = e * (y + b * dt)
+                nextV = e * (v - omega * b * dt)
+            } else if (damping < 1.0) {
+                val wd = omega * sqrt(1.0 - damping * damping)
+                val b = (v + decay * y) / wd
+                val e = exp(-decay * dt)
+                val co = cos(wd * dt)
+                val si = sin(wd * dt)
+                nextY = e * (y * co + b * si)
+                nextV = e * ((b * wd - decay * y) * co - (y * wd + decay * b) * si)
+            } else {
+                val root = omega * sqrt(damping * damping - 1.0)
+                val r1 = -decay + root
+                val r2 = -decay - root
+                val a = (v - r2 * y) / (r1 - r2)
+                val b = y - a
+                val e1 = exp(r1 * dt)
+                val e2 = exp(r2 * dt)
+                nextY = a * e1 + b * e2
+                nextV = a * r1 * e1 + b * r2 * e2
+            }
+            x = target + nextY
+            v = nextV
+            if (abs(nextY) <= minimumVisibleChange && abs(v) <= minimumVisibleChange * omega) {
+                settle()
+                return false
+            }
+            return true
         }
 
         companion object {
-            /**
-             * 直接给刚度。miuix 的 Compose {@code spring(dampingRatio, stiffness)} 用这种写法，
-             * 例如开关位移 {@code spring(0.7, 987)}、轨道换色 {@code spring(0.99, 438.6)}。
-             * 和 [Spring] 是同一个物理模型，只是参数化方式不同。
-             */
-            @JvmStatic
-            fun ofStiffness(damping: Float, stiffness: Float, initial: Float): Spring {
-                val s = Spring(damping, stiffness, true)
-                s.x = initial
-                s.target = initial
-                return s
-            }
+            @JvmStatic @JvmOverloads
+            fun ofStiffness(damping: Float, stiffness: Float, initial: Float, minimumVisibleChange: Float = 0.001f): Spring =
+                Spring(damping.coerceAtLeast(0.01f).toDouble(), stiffness.coerceAtLeast(1f).toDouble(),
+                    initial, minimumVisibleChange.coerceAtLeast(0.00001f))
 
-            /** 从静止开始。 */
-            @JvmStatic
-            fun at(damping: Float, response: Float, initial: Float): Spring {
-                val s = Spring(damping, response)
-                s.x = initial
-                s.target = initial
-                return s
-            }
+            @JvmStatic @JvmOverloads
+            fun at(damping: Float, response: Float, initial: Float, minimumVisibleChange: Float = 0.001f): Spring =
+                Spring(damping.coerceAtLeast(0.01f).toDouble(),
+                    Math.pow(2.0 * Math.PI / response.coerceAtLeast(0.02f), 2.0),
+                    initial, minimumVisibleChange.coerceAtLeast(0.00001f))
         }
     }
 
-    /**
-     * 把弹簧绑到任意 float 属性上，用 ValueAnimator 当帧时钟（它比自建 Choreographer
-     * 更省事，且能自动在 View detach 时取消）。
-     *
-     * <p>返回的对象可以立刻再调 [to] 打断 —— 当前速度会带过去。
-     */
-    class Driver {
+    /** Retargetable, velocity-preserving frame driver. No repeating ValueAnimator. */
+    class Driver(private val spring: Spring, private val sink: Sink) : Choreographer.FrameCallback {
+        fun interface Sink { fun onValue(value: Float) }
 
-        fun interface Sink {
-            fun onValue(value: Float)
+        constructor(damping: Float, response: Float, initial: Float, sink: Sink) :
+            this(Spring.at(damping, response, initial), sink)
+
+        private var owner: WeakReference<View>? = null
+        private var choreographer: Choreographer? = null
+        private var lastNs = 0L
+        private var running = false
+        private var scale = 1f
+        private val attachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = Unit
+            override fun onViewDetachedFromWindow(v: View) {
+                cancel()
+                spring.settle()
+                sink.onValue(spring.value())
+            }
         }
 
-        private val spring: Spring
-        private val sink: Sink
-        private var clock: ValueAnimator? = null
-        private var lastNs: Long = 0L
-
-        constructor(damping: Float, response: Float, initial: Float, sink: Sink) {
-            this.spring = Spring.at(damping, response, initial)
-            this.sink = sink
-        }
-
-        constructor(spring: Spring, sink: Sink) {
-            this.spring = spring
-            this.sink = sink
+        fun bindTo(view: View): Driver {
+            owner?.get()?.removeOnAttachStateChangeListener(attachListener)
+            owner = WeakReference(view)
+            view.addOnAttachStateChangeListener(attachListener)
+            return this
         }
 
         fun value(): Float = spring.value()
-
-        fun to(target: Float) {
-            spring.to(target)
-            start()
-        }
-
-        fun to(target: Float, velocityPxPerSec: Float) {
-            spring.to(target, velocityPxPerSec)
-            start()
-        }
+        fun isRunning(): Boolean = running
+        fun to(target: Float) { spring.to(target); start() }
+        fun to(target: Float, velocityPxPerSec: Float) { spring.to(target, velocityPxPerSec); start() }
+        fun snapTo(target: Float) { cancel(); spring.snapTo(target); sink.onValue(target) }
 
         private fun start() {
-            val existing = clock
-            if (existing != null && existing.isRunning) return
-
-            // ★ 不要复用已经 cancel 过的 ValueAnimator。
-            //
-            // 这个 animator 会在自己的 update listener 里 `a.cancel()`（弹簧停下时）。
-            // 从 listener 内部 cancel 之后，它的内部状态停在 STOPPED，之后再 `start()`
-            // 有概率**直接返回、不重新排帧** —— 不同 ROM 表现还不一致。
-            //
-            // 症状就是「第一次能动，之后就死了」：
-            //   · 底栏指示器永远停在第一格（已实测）；
-            //   · 开关拨一次之后滑块不再移动，只剩颜色跳变（用户报的就是这个）。
-            //
-            // 每次新建一个。ValueAnimator 很轻，1ms 无限重复只是为了拿每一帧的回调，
-            // 真正的生命周期由 [spring] 的 advance() 决定，与 animator 无关。
-            if (existing != null) {
-                try {
-                    existing.cancel()
-                } catch (ignored: Throwable) {
-                }
+            val view = owner?.get()
+            scale = durationScale(view?.context)
+            if (scale == 0f || (owner != null && (view == null || !view.isAttachedToWindow))) {
+                cancel()
+                spring.settle()
+                sink.onValue(spring.value())
+                return
             }
-            val fresh = ValueAnimator.ofFloat(0f, 1f)
-            fresh.duration = 1L
-            fresh.repeatCount = ValueAnimator.INFINITE
-            fresh.addUpdateListener(object : ValueAnimator.AnimatorUpdateListener {
-                override fun onAnimationUpdate(a: ValueAnimator) {
-                    val now = System.nanoTime()
-                    val dt = if (lastNs == 0L) 0.016f else (now - lastNs) / 1_000_000_000f
-                    lastNs = now
-                    val moving = spring.advance(dt)
-                    sink.onValue(spring.value())
-                    if (!moving) {
-                        spring.settle()
-                        sink.onValue(spring.value())
-                        a.cancel()
-                        lastNs = 0L
-                    }
-                }
-            })
-            clock = fresh
+            if (running) return
+            running = true
             lastNs = 0L
-            fresh.start()
+            val clock = Choreographer.getInstance()
+            choreographer = clock
+            clock.postFrameCallback(this)
+        }
+
+        override fun doFrame(frameTimeNanos: Long) {
+            if (!running) return
+            if (!enabled()) {
+                spring.settle()
+                sink.onValue(spring.value())
+                cancel()
+                return
+            }
+            // Establish the clock; do not invent a 16ms first frame on a 120Hz screen.
+            if (lastNs == 0L) {
+                lastNs = frameTimeNanos
+                choreographer?.postFrameCallback(this)
+                return
+            }
+            val dt = (frameTimeNanos - lastNs) / 1_000_000_000f / scale.coerceAtLeast(0.01f)
+            lastNs = frameTimeNanos
+            val moving = spring.advance(dt)
+            sink.onValue(spring.value())
+            if (moving && running) choreographer?.postFrameCallback(this) else cancel()
         }
 
         fun cancel() {
-            val c = clock
-            if (c != null) {
-                c.cancel()
-                lastNs = 0L
-            }
+            choreographer?.removeFrameCallback(this)
+            running = false
+            lastNs = 0L
         }
     }
 }

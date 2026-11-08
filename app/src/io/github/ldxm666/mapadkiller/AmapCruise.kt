@@ -405,17 +405,20 @@ class AmapCruise private constructor() {
                 return
             }
 
-            // ── 主判据 1：速度。任一路拿到即可，拿不到才是「没速度」 ────────────────────
-            if (s == null || s.kmh < 0f) {
+            if (advanceWindow(now, s)) enterCruise(s!!.kmh, s.src)
+            beat(true, false, false, kmh, src)
+        }
+
+        /** Deterministic window update; waiting for a slower location feed must not erase valid hold time. */
+        private fun advanceWindow(now: Long, s: Sample?): Boolean {
+            if (s == null || !s.kmh.isFinite() || s.kmh < 0f) {
                 miss(now, "nospeed")
-                beat(true, false, false, -1f, "none")
-                return
+                return false
             }
             val bad = gate(s)
             if (bad != null) {
                 miss(now, bad)
-                beat(true, false, false, s.kmh, s.src)
-                return
+                return false
             }
             prevKmh = s.kmh
             missTicks = 0
@@ -429,8 +432,7 @@ class AmapCruise private constructor() {
                 winLng = lastLng
                 gateWhy = "win"
                 logSpeed(s.kmh, "acc")
-                beat(true, false, false, s.kmh, s.src)
-                return
+                return false
             }
             // 迟到锚点：开窗时还没有任何定位点，第一个点到了再从此刻起量净位移
             // （否则 netM() 永远返回「拿不到」，净位移这关形同不存在）
@@ -449,18 +451,16 @@ class AmapCruise private constructor() {
                 speedOkSince = 0
                 missTicks = 0
                 gateWhy = "enter"
-                enterCruise(s.kmh, s.src)
+                return true
             } else if (holdMs >= needMs) {
-                // 时间够了、速度也一直达标，但净位移不够 ⇒ 原地抖 / 定位被钉死在同一个点。
-                // 老实现这里静默重置，日志上看起来跟「刚开窗」一模一样，根本没法排障；
-                // 现在 why=net 会一直挂在心跳里，还额外打一条 cruise_probe。
+                // 时间达标后继续等可信位移，避免低频定位每次都刚好错过窗口。
                 gateWhy = "net"
-                logSpeed(s.kmh, "net_reset")
-                winClear()
+                // Keep the same displacement baseline until a fresh point arrives.
+                // Slow/no-speed grace, background, navigation and cooldown still clear it.
             } else {
                 gateWhy = "win"
             }
-            beat(true, false, false, s.kmh, s.src)
+            return false
         }
 
         /**
@@ -488,9 +488,9 @@ class AmapCruise private constructor() {
                         " kmh=" + Math.round(kmh) + " src=" + src +
                         " auto=" + Config.cruiseAuto())
                 winClear()
-                if (cruise) {
-                    gateWhy = "in_cruise"
-                    beat(fg, true, nav, kmh, src)
+                if (!fg || cruise || nav) {
+                    gateWhy = if (!fg) "bg" else if (nav) "in_nav" else "in_cruise"
+                    beat(fg, cruise, nav, kmh, src)
                     return
                 }
                 gateWhy = "force"
@@ -641,6 +641,7 @@ class AmapCruise private constructor() {
          * 平时该文件不存在，对本功能没有任何影响。
          */
         private fun fromDebugFile(): Sample? {
+            if (!Config.debugLog()) return null
             try {
                 val f = java.io.File("/data/local/tmp/mapclean_cruise_kmh")
                 val now = SystemClock.elapsedRealtime()
@@ -714,6 +715,7 @@ class AmapCruise private constructor() {
                 var n = 0
                 n += H.hookAll(lc, "setSpeed", "amap_cruise_speed", object : XposedInterface.Hooker {
                     override fun intercept(chain: XposedInterface.Chain): Any? {
+                        val result = chain.proceed()
                         try {
                             val v = chain.getArg(0)
                             if (v is Float) {
@@ -726,7 +728,7 @@ class AmapCruise private constructor() {
                             }
                         } catch (ignored: Throwable) {
                         }
-                        return chain.proceed()
+                        return result
                     }
                 })
                 n += H.hookAll(lc, "setSpeedKmh", "amap_cruise_speed_kmh", object : XposedInterface.Hooker {
@@ -946,7 +948,15 @@ class AmapCruise private constructor() {
          * 老实现里「精度 &gt;45m 就整帧作废」「一步超 90m 就作废整个窗口」才是触发不了的主力。
          */
         private fun addFix(lat: Double, lng: Double, acc: Float, trusted: Boolean) {
-            val now = SystemClock.elapsedRealtime()
+            addFixAt(lat, lng, acc, trusted, SystemClock.elapsedRealtime())
+        }
+
+        private fun addFixAt(lat: Double, lng: Double, acc: Float, trusted: Boolean, now: Long) {
+            if (!lat.isFinite() || !lng.isFinite() || lat !in -90.0..90.0 || lng !in -180.0..180.0 ||
+                (lat == 0.0 && lng == 0.0)) return
+            // getLatestLocation() can return the same cached point on every 1s tick.
+            // It must not restart the displacement clock between two actual 2–5s updates.
+            if (lastPosAt > 0 && lat == lastLat && lng == lastLng) return
             if (!trusted || acc < 0f || acc > accMaxM()) {
                 // 精度不可信：只更新锚点（净位移要用），不累计路径
                 lastLat = lat
@@ -1041,6 +1051,11 @@ class AmapCruise private constructor() {
          */
         private fun verify(seq: Int, attempt: Int) {
             if (seq != enterSeq) return          // 已经被新一轮取代
+            if (!HostFg.fg()) {
+                enterSeq = 0
+                H.logv("event=cruise_enter_cancel reason=page_changed")
+                return
+            }
             var ok = false
             try {
                 ok = inCruise()
@@ -1049,6 +1064,13 @@ class AmapCruise private constructor() {
             if (ok) {
                 H.log(Log.INFO, MainHook.TAG, "event=cruise_enter_ok seq=" + seq + " after=" + attempt)
                 enterSeq = 0
+                return
+            }
+            // 高德的 isInNavigation() 也包含巡航/路况雷达，必须先认定巡航成功。
+            // 真正切入路线导航时才取消重试，避免把正在导航的页面拉回巡航。
+            if (inNavigation()) {
+                enterSeq = 0
+                H.logv("event=cruise_enter_cancel reason=in_navigation")
                 return
             }
             if (!driveProbeOk && attempt >= 2) {
@@ -1125,7 +1147,8 @@ class AmapCruise private constructor() {
         }
 
         /** 调高德自己的 IDriveNaviService 判定，拿不到时退化为 false（宁可多进一次也不误锁）。 */
-        private fun inCruise(): Boolean = callDriveBool("isInCruise")
+        // edog/home 在新版高德进入的是 DriveRadar；旧式巡航和路况雷达均视为成功。
+        private fun inCruise(): Boolean = callDriveBool("isInCruise") || callDriveBool("isInDriveRadar")
 
         private fun inNavigation(): Boolean = callDriveBool("isInNavigation")
 
@@ -1183,7 +1206,7 @@ class AmapCruise private constructor() {
         private fun gate(s: Sample?): String? {
             if (s == null) return "nospeed"
             lastAcc = s.acc
-            if (s.kmh < 0f) return "nospeed"
+            if (!s.kmh.isFinite() || s.kmh < 0f) return "nospeed"
             if (s.kmh < minKmh()) return "slow"
             if (s.kmh > MAX_KMH) return "fast"
             return null

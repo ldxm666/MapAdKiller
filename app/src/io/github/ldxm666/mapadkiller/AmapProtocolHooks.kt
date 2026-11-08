@@ -20,7 +20,8 @@ object AmapProtocolHooks {
     @Volatile
     private var sHostLoader: ClassLoader? = null
 
-    private val requests: MutableMap<Any?, String> = Collections.synchronizedMap(WeakHashMap<Any, String>())
+    private data class RequestScope(val path: String, val taxiHome: Boolean)
+    private val requests: MutableMap<Any?, RequestScope> = Collections.synchronizedMap(WeakHashMap<Any, RequestScope>())
     private val reportedCards: MutableSet<String> = Collections.synchronizedSet(HashSet<String>())
 
     @JvmStatic
@@ -168,7 +169,13 @@ object AmapProtocolHooks {
                     val options = chain.getArg(1)
                     val j = if (options is JSONObject) options else JSONObject(options as String)
                     val path = AmapData.requestPath(j.optString("url"))
-                    if (AmapData.handles(path) && chain.getArg(2) != null) requests.put(chain.getArg(2), path)
+                    val taxiHome = AmapTaxiData.handles(path) && AmapTaxiData.isHomeRequest(j)
+                    if ((AmapData.handles(path) || taxiHome) && chain.getArg(2) != null) {
+                        requests.put(chain.getArg(2), RequestScope(path, taxiHome))
+                    }
+                    if (Config.debugLog() && AmapTaxiData.handles(path)) {
+                        H.log("event=taxi_request path=$path home=$taxiHome")
+                    }
                 } catch (ignored: Exception) {}
                 return chain.proceed()
             }
@@ -183,12 +190,18 @@ object AmapProtocolHooks {
         return object : XposedInterface.Hooker {
             override fun intercept(chain: XposedInterface.Chain): Any? {
                 if (xhr && (chain.getArg(2) as? Int) != 4) return chain.proceed()
-                val path = requests.remove(chain.getArg(0))
+                val scope = requests.remove(chain.getArg(0))
                 val raw = chain.getArg(3)
-                if (path == null || raw !is String || (chain.getArg(1) as? Int) != 200) return chain.proceed()
+                if (scope == null || raw !is String || (chain.getArg(1) as? Int) != 200) return chain.proceed()
                 val args = chain.getArgs().toTypedArray()
                 try {
-                    args[3] = AmapData.response(path, raw, AmapData.CURRENT)
+                    args[3] = if (scope.taxiHome) AmapTaxiData.response(scope.path, raw, AmapData.CURRENT)
+                        else AmapData.response(scope.path, raw, AmapData.CURRENT)
+                    if (scope.taxiHome && Config.debugLog()) {
+                        H.log("event=taxi_response path=${scope.path} changed=${args[3] != raw}" +
+                            " before=[${AmapTaxiData.summary(scope.path, raw)}]" +
+                            " after=[${AmapTaxiData.summary(scope.path, args[3] as String)}]")
+                    }
                 } catch (e: Exception) {
                     diagnose("response", e)
                     return chain.proceed()

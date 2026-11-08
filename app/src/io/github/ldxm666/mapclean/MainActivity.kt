@@ -174,9 +174,9 @@ class MainActivity : Activity() {
         skin = sk
         window.setBackgroundDrawable(ColorDrawable(sk.bg))
         window.setStatusBarColor(sk.bg)
-        window.setNavigationBarColor(if (dark) 0xFF0A0B0E.toInt() else 0xFFFFFFFF.toInt())
+        window.setNavigationBarColor(sk.bg)
         var sysUi = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        if (!dark) sysUi = sysUi or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        if (!dark) sysUi = sysUi or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         window.decorView.systemUiVisibility = sysUi
 
         contentHost = FrameLayout(this)
@@ -217,33 +217,16 @@ class MainActivity : Activity() {
         pg.addView(aboutPage)
 
         navBar = buildBottomNav()
-        // 真正的悬浮：底栏**叠在内容之上**，不是排在内容流里。
-        //
-        // 之前 shell 是 LinearLayout（content 占 1 份 + navBar 紧随其后），底栏从布局上就
-        // 不覆盖任何内容 —— 无论背景做得多透明，看起来都只是「页面底部的一条」，浮不起来。
-        // 现在改成 FrameLayout，底栏用 layout_gravity=BOTTOM + 外边距悬在内容上，
-        // 内容区靠 paddingBottom 让出高度（不是给每页塞假底）。
+        // Keep the original floating capsule. Scroll containers reserve only its
+        // touch area; the system already fits the status and gesture bars.
         val shell = FrameLayout(this)
         shell.setBackgroundColor(sk.bg)
         shell.addView(contentHost, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        val navLp = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        navLp.gravity = Gravity.BOTTOM
-        shell.addView(navBar, navLp)
+        shell.addView(navBar, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+        reserveNavigationSpace(pg)
         setContentView(shell)
-
-        shell.setOnApplyWindowInsetsListener(object : View.OnApplyWindowInsetsListener {
-            override fun onApplyWindowInsets(v: View, insets: WindowInsets): WindowInsets {
-                val top = insets.systemWindowInsetTop
-                val bottom = insets.systemWindowInsetBottom
-                // 内容让出底栏高度（68 dp 胶囊 + 10 dp 下边距 + 8 dp 视觉间隙），
-                // 否则列表最后一行会被胶囊压住。
-                contentHost.setPadding(0, top, 0, sk.dp(112f) + bottom)
-                navBar.setPadding(sk.dp(16f), 0, sk.dp(16f), bottom + sk.dp(10f))
-                return insets
-            }
-        })
 
         // 高德发行版判定：一行日志，排障时直接 grep event=amap_edition
         try {
@@ -253,10 +236,13 @@ class MainActivity : Activity() {
         } catch (ignored: Throwable) {
         }
 
-        attachScrollAnimations()
         showTab(TAB_HOME, false)
         renderStatus()
-        shell.post(Runnable { UiKit.enter(contentHost, sk.dp(8f).toFloat(), 0L) })
+        shell.post {
+            val root = homePage?.getChildAt(0) as? ViewGroup
+            if (root != null) UiKit.enterStaggered(root, sk.dp(HyperMotion.DISTANCE_SMALL).toFloat(),
+                    HyperMotion.STAGGER, 0L)
+        }
 
         // 首次进入的强制提示（3 秒后才能点掉）。异常全吞：设置页崩了比少弹一次严重得多。
         // 用户要求：去掉每次打开模块的提示弹窗（FirstRunNotice.maybeShow 调用已移除）
@@ -555,6 +541,7 @@ class MainActivity : Activity() {
          * 只有真正承载配置的行（开关 / 滑块 / 离散值）才打，说明文字行不打。
          */
         private const val TAG_ITEM = 0x7f0f0002
+        private const val TAG_DRAWER_HEAD = 0x7f0f0003
 
         /** 卡片内行的上下 padding —— 单行 8 dp（配 56 dp 最小高居中）、带副标题 10 dp。 */
         private const val ROW_PAD_V = 8
@@ -592,6 +579,8 @@ class MainActivity : Activity() {
 
         private fun lockPage(v: View?) {
             if (v == null) return
+            // A read-only page still allows browsing its categories.
+            if (v.getTag(TAG_DRAWER_HEAD) != null) return
             if (v !is ScrollView) {
                 if (v.isClickable) v.isClickable = false
                 if (v.isLongClickable) v.isLongClickable = false
@@ -624,37 +613,15 @@ class MainActivity : Activity() {
 
     /** 版本行配色：已是最新=绿、有新版本=黄、未获取=灰（点一下强制刷新）。 */
     private fun renderVersionLines() {
-        if (verLine == null) return
+        val line = verLine ?: return
         val latest = UpdateChecker.latest(this)
         val out = UpdateChecker.isOutdated(this)
-        val txt: String
-        if (latest == null) {
-            verLine!!.setTextColor(cTxS())
-            txt = "当前 v" + Version.LABEL + " · 线上版本未获取"
-        } else if (out) {
-            verLine!!.setTextColor(if (skin == null) 0xFFC77700.toInt() else skin!!.warn)
-            txt = "当前 v" + Version.LABEL + " · 有新版本 v" + latest
-        } else {
-            verLine!!.setTextColor(cDotOk())
-            txt = "当前 v" + Version.LABEL + " · 已是最新"
-        }
-        verLine!!.text = txt
-        if (updateBtn == null) return
-        val pill = dp(999)
-        if (out && latest != null) {
-            updateBtn!!.text = "立即更新"
-            updateBtn!!.setTextColor(0xFFFFFFFF.toInt())
-            updateBtn!!.background = UiKit.ripple(0x33FFFFFF,
-                    UiKit.plate(if (skin == null) 0xFFC77700.toInt() else skin!!.warn, pill.toFloat()), pill.toFloat())
-        } else if (latest == null) {
-            updateBtn!!.text = "重试"
-            updateBtn!!.setTextColor(0xFFFFFFFF.toInt())
-            updateBtn!!.background = UiKit.ripple(0x33FFFFFF,
-                    UiKit.plate(cAccent(), pill.toFloat()), pill.toFloat())
-        } else {
-            updateBtn!!.text = "已是最新"
-            updateBtn!!.setTextColor(cDotOk())
-            updateBtn!!.background = UiKit.plate(if (dark) HyperDesign.alpha(skin!!.success, 0.14f) else HyperDesign.alpha(skin!!.success, 0.12f), pill.toFloat())
+        line.text = if (out && latest != null) "可更新至 v$latest" else "当前 v" + Version.LABEL
+        line.setTextColor(skin!!.text2)
+        updateBtn?.let { button ->
+            button.text = if (out) "更新" else if (latest == null) "检查" else "已是最新"
+            button.setTextColor(if (out || latest == null) skin!!.accent else skin!!.text3)
+            button.background = UiKit.rippleBare(cRipple(), dp(Skin.R_CONTROL).toFloat())
         }
     }
 
@@ -1067,9 +1034,10 @@ class MainActivity : Activity() {
         // 再叠一层 skin.shadow() 就是用户报的「怪状阴影」。
         s.group.background = skin!!.solid(skin!!.surface, Skin.R_CARD.toFloat())
         UiKit.clipRounded(s.group, dp(Skin.R_CARD.toFloat()).toFloat())
-        skin!!.shadow(s.group, 1f)
+        s.group.elevation = 0f
 
         val head = LinearLayout(this)
+        head.setTag(TAG_DRAWER_HEAD, true)
         head.orientation = LinearLayout.HORIZONTAL
         head.gravity = Gravity.CENTER_VERTICAL
         head.minimumHeight = dp(HyperDesign.ROW_H.toFloat())
@@ -1119,7 +1087,7 @@ class MainActivity : Activity() {
 
         val glp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        glp.topMargin = dp(HyperDesign.CARD_GAP.toFloat())
+        glp.topMargin = dp(Skin.S2.toFloat())
         list!!.addView(s.group, glp)
         secs.add(s)
         return s
@@ -1153,65 +1121,14 @@ class MainActivity : Activity() {
      * of snapping. The chevron rotates with a spring so the tap feels acknowledged.
      */
     private fun toggle(s: Sec) {
-        val expand = !s.expanded
-        s.expanded = expand
-        // 抽屉高度本身就是逐帧动画；再叠一层 LayoutTransition.CHANGING 会在同一帧里
-        // 把整列重新测量两遍（实测展开一次刷了 1300+ 帧）。动画期间先把它摘掉，
-        // 结束后再装回去，保证其它布局变化仍然有平滑过渡。
-        val host: ViewGroup? = if (s.group.parent is ViewGroup) s.group.parent as ViewGroup else null
-        val saved: android.animation.LayoutTransition? = host?.layoutTransition
-        if (host != null && saved != null) host.layoutTransition = null
-        val restore = Runnable {
-            if (host != null && saved != null) host.layoutTransition = saved
-        }
+        s.expanded = !s.expanded
+        val parent = s.group.parent as? ViewGroup ?: s.group
         s.chev.animate().cancel()
-        s.chev.animate().rotation(if (expand) 90f else 0f)
-                .setDuration(UiKit.DUR_BASE).setInterpolator(UiKit.SPRING).start()
-
-        if (expand) {
-            s.card.visibility = View.VISIBLE
-            s.card.layoutParams.height = 0
-            s.card.alpha = 0f
-            s.card.requestLayout()
-            s.card.post(Runnable {
-                val target = measureCard(s.card)
-                if (target <= 0) {
-                    revealNow(s)
-                    restore.run()
-                    return@Runnable
-                }
-                UiKit.animateInt(0, target, UiKit.DECELERATE, UiKit.DUR_SLOW,
-                        object : android.animation.ValueAnimator.AnimatorUpdateListener {
-                            override fun onAnimationUpdate(a: android.animation.ValueAnimator) {
-                                if (!s.expanded) return
-                                val h = a.animatedValue as Int
-                                s.card.layoutParams.height = h
-                                s.card.requestLayout()
-                                s.card.alpha = Math.min(1f, h / target.toFloat())
-                            }
-                        })
-                s.card.postDelayed(restore, UiKit.DUR_SLOW + 60L)
-            })
-        } else {
-            val from = s.card.height
-            UiKit.animateInt(from, 0, UiKit.ACCELERATE, UiKit.DUR_BASE,
-                    object : android.animation.ValueAnimator.AnimatorUpdateListener {
-                        override fun onAnimationUpdate(a: android.animation.ValueAnimator) {
-                            if (s.expanded) return
-                            val h = a.animatedValue as Int
-                            s.card.layoutParams.height = h
-                            s.card.requestLayout()
-                            s.card.alpha = if (from <= 0) 0f else Math.min(1f, h / from.toFloat())
-                        }
-                    })
-            s.card.postDelayed(Runnable {
-                if (s.expanded) return@Runnable
-                s.card.visibility = View.GONE
-                s.card.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                s.card.requestLayout()
-            }, UiKit.DUR_BASE + 20L)
-            s.card.postDelayed(restore, UiKit.DUR_BASE + 60L)
-        }
+        s.chev.animate().rotation(if (s.expanded) 90f else 0f).setStartDelay(0L)
+                .setDuration(if (HyperMotion.enabled()) HyperMotion.DUR_MOVE else 0L)
+                .setInterpolator(HyperMotion.STANDARD).start()
+        s.head.isSelected = s.expanded
+        UiKit.setExpanded(parent, s.card, s.expanded, true)
     }
 
     private fun revealNow(s: Sec) {
@@ -1236,133 +1153,59 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Render the same key/title/metric catalogue as the embedded panel. */
     private fun buildDrawers() {
-        var sec: Sec
-
-        sec = newDrawer("高德 · 主页标签栏")
-        for (tab in Config.TABS) addSwitch(sec.card, "显示标签「" + tab + "」", Config.K_TAB_PREFIX + tab)
-
-        sec = newDrawer("高德 · 地图标注")
-        addNoteRow(sec.card, "统一控制地图上的文字标注：兴趣点图标、店名、道路名与城市名。" +
-                "路网、水域与地形照常显示。修改后彻底关闭并重新打开高德生效。")
-        addSwitch(sec.card, "显示地图标注", Config.K_MAP_POI)
-
-        sec = newDrawer("高德 · 首页工具宫格")
-        addNoteRow(sec.card, "按固定工具 ID 控制显示。关闭全部首页推荐时采用原生工具数据构建等宽宫格，自动补位；图标与点击动作同步保留。")
-        addSwitch(sec.card, "显示首页工具宫格", Config.K_TOOLS_VISIBLE)
-        addSwitch(sec.card, "自动进入巡航（模块接管）", Config.K_CRUISE_AUTO)
-        addCruiseSlider(sec.card, "巡航触发速度下限", Config.K_CRUISE_KMH,
-                Config.CRUISE_KMH_MIN, Config.CRUISE_KMH_MAX, Config.CRUISE_KMH_DEFAULT, " km/h")
-        addCruiseSlider(sec.card, "巡航触发持续时间", Config.K_CRUISE_SEC,
-                Config.CRUISE_SEC_MIN, Config.CRUISE_SEC_MAX, Config.CRUISE_SEC_DEFAULT, " 秒")
-        addNoteRow(sec.card, "上面两个值决定「自动进入巡航」何时触发：速度持续超过下限、并保持够久才进入。" +
-                "默认 18 km/h / 15 秒；想更灵敏就一起调低（高德官方云控是 15 km/h / 5 秒）。" +
-                "\n\n调这两个值（以及上面那个开关）之前，高德必须先开着 —— 模块 App 和地图是两个进程，" +
-                "地图没运行时写入没有通道，会提示「未连接地图」。")
-        addSwitch(sec.card, "反转开关：仅显示已打开的工具", Config.K_TOOLS_ALLOWLIST)
-        addSwitch(sec.card, "工具图标统一彩绘（实验）", Config.K_TOOL_COLOR_ICON)
-        addNoteRow(sec.card, "开启反转后，只保留你明确打开的工具；未设置、新增和未知工具全部隐藏。关闭反转可恢复原有默认值。修改后重开高德生效。")
-        addNoteRow(sec.card, "以下目录取自高德「更多工具」，按出行、服务等分类。开启的工具会补入首页；新增推广工具默认关闭。同名工具按 ID 分别控制。")
-        // 键必须走 AmapPanel.moreToolsKey()：它优先返回目录里学到的真实键
-        // （tool_id_86 之类），拿不到才 fallback。此前这里直接拼 fallback 字面量，
-        // 而那个键没有任何读取方 —— 用户关掉「更多工具」，关的是空气。
-        addSwitch(sec.card, "显示「更多工具」", AmapPanel.moreToolsKey())
-        addSwitch(sec.card, "显示「高德出行节」", Config.K_TOOL_PREFIX + "高德出行节")
-        for (group in io.github.ldxm666.mapadkiller.AmapToolCatalog.GROUPS) {
-            sec = newDrawer("高德 · 工具：" + group)
-            for (tool in io.github.ldxm666.mapadkiller.AmapToolCatalog.ENTRIES) {
-                if (group != tool[2]) continue
-                var name = tool[1]
-                if ("145" == tool[0]) name += "（高德入口）"
-                if ("502" == tool[0]) name += "（支付宝入口）"
-                // 这里遍历的是 AmapToolCatalog.ENTRIES，buildKeys() 保证每个 ENTRIES 条目
-                // 都有自己的键（"tool_id_" + id），所以 key() 必然非空；!! 是把这个不变量
-                // 写进代码，而不是掩盖一个可能为 null 的路径。
-                addSwitch(sec.card, "显示「" + name + "」",
-                        io.github.ldxm666.mapadkiller.AmapToolCatalog.key(tool[0])!!)
+        fun addItem(card: LinearLayout, item: PanelTypes.Item) {
+            val key = item.key
+            if (key == null) addNoteRow(card, item.title)
+            else {
+                addSwitch(card, item.title, key)
+                if (!item.note.isNullOrEmpty()) addNoteRow(card, item.note!!)
             }
         }
-
-        // 搜索页金刚位（搜索框下方那一排彩色入口）。
-        // ⚠ 这个开关原先只注册在 AmapPanel，而 AmapPanel 只被 FloatingPanel 使用 ——
-        //   悬浮窗**只在免 root 内置版存在**，模块模式（LSPosed）根本没有悬浮窗。
-        //   ⇒ 模块用户点不到它。所以必须在模块 App 的配置页也注册一份。
-        sec = newDrawer("高德 · 搜索页")
-        addSwitch(sec.card, "显示搜索页快捷金刚位（实验，关闭会留白）", Config.K_SEARCH_GRID)
-        addNoteRow(sec.card, "搜索框下方那一排彩色入口（美食 / 酒店 / 景点门票 / 加油充电 / 超划算 / 扫街榜 等，随版本变化）。" +
-                "该排由高德 AJX 页面在运行时绘制，服务端数据、本地缓存、页面预载包三处都试过剔除，" +
-                "但页面总会回落到内置默认项（等于换另一批广告），故只能在显示层隐藏。" +
-                "代价：进入搜索页会先闪现约 0.3 秒再消失、每次进入重演一次、原位留一条空白。如实告知。")
-
-        sec = newDrawer("高德 · 实验")
-        addSwitch(sec.card, "帧率上限（实验）", Config.K_AMAP_FPS_ON)
-        addChoiceRow(sec.card, "目标帧率（实验）", Config.K_AMAP_FPS_TARGET,
-                intArrayOf(60, 90, 120), 60, " 帧")
-        addSwitch(sec.card, "去除建筑物模型（实验）", Config.K_AMAP_BUILDING_ON)
-        addNoteRow(sec.card, "默认全关。这两项动的是高德自己的地图渲染，不是广告也不是界面，" +
-                "判错就是地图错乱，所以缺省什么都不做。")
-        addNoteRow(sec.card, "⚠ 两项都是安装期门控：改完必须强停并重开高德才生效。" +
-                "「去除建筑物模型」是原生层补丁，一旦打上是进程级全局的 —— " +
-                "之后把开关关掉也要重启高德，楼块才会回来。")
-        addNoteRow(sec.card, "帧率上限是「限速」不是「提速」：高德本身跑不满时不会拉高。" +
-                "60 与 120 和屏幕刷新率整除，是精确值；90 需要屏幕本身支持 90Hz 输出，" +
-                "否则会落在最近的整数分频上（120Hz 屏通常约 80）。" +
-                "可在 logcat 搜 event=fps_sample 看实时帧数。")
-        addNoteRow(sec.card, "去除建筑物：导航 / 巡航态不再绘制 3D 与扁平楼块，只剩路网、绿地、" +
-                "地名与兴趣点。可在 logcat 搜 event=building_patch 确认补丁落点。")
-
-        sec = newDrawer("高德 · 首页推荐内容")
-        addSwitch(sec.card, "扫街榜 / 周边精选榜单（首页及分页）", Config.K_FEED_BOARD)
-        addSwitch(sec.card, "首页出行节 / 促销活动接口", Config.K_FEED_FESTIVAL)
-        addSwitch(sec.card, "地图右侧运营挂件（扫街榜 / 活动入口）", Config.K_MAP_PROMO)
-        addSwitch(sec.card, "天气卡片", Config.K_FEED_WEATHER)
-        addSwitch(sec.card, "攻略 / 内容流卡片", Config.K_FEED_CONTENT)
-        addSwitch(sec.card, "设置家 / 设置单位 / 常去地点", Config.K_HOME_CHIPS)
-        addSwitch(sec.card, "关闭首页搜索框热词轮播（文字流动 / 运营广告词）",
-                Config.K_HOTWORD_OFF)
-        addNoteRow(sec.card, "首页那支搜索框里的文字会自己流动（预置词/运营词，有时是广告）。" +
-                "打开本开关后文字被钉死成系统默认提示词「查找地点、公交、地铁」，" +
-                "热词品牌图标一并摘掉；关掉开关即可恢复原样。")
-        addNoteRow(sec.card, "适配高德 17.00.0.2005。旧版按文字区分的景区帖、距离帖等开关已合并为榜单和内容流。尚无精确入口的频道栏、快捷入口排不再提供开关。")
-
-        sec = newDrawer("高德 · 地点详情")
-        addSwitch(sec.card, "显示「发现好去处」照片推荐", Config.K_PLACE_RECOMMEND)
-        addNoteRow(sec.card, "关闭后移除长按选点详情里的推荐标题和照片信息流，刷新和分页同样生效。保留地址、逛逛周边工具、收藏、分享、新增和路线按钮。重新打开地点详情生效。")
-
-        sec = newDrawer("高德 · 「我的」页")
-        addSwitch(sec.card, "订单 / 收藏 / 待评价 一栏", Config.K_MY_ORDER_ROW)
-        addSwitch(sec.card, "车辆服务 / 高德运动 一栏", Config.K_MY_SERVICE_ROW)
-        addSwitch(sec.card, "达人任务卡片", Config.K_MY_TASK)
-        addSwitch(sec.card, "热门活动卡", Config.K_MY_PROMO_ROW)
-        addSwitch(sec.card, "猜你喜欢", Config.K_MY_GUESS)
-        addSwitch(sec.card, "好友动态", Config.K_MY_FRIENDS)
-        addNoteRow(sec.card, "按 Mine 卡片类型与入口行数据处理。搜索页运营卡、资质页及其他未完成协议适配的区域暂不提供开关。")
-        // 「其他 · 入口与调试」一组已挪到第 3 页（其他），见 buildOtherPage()
-
-        // ── 高德 · 省电 / 后台（v2.2.2 新增）──────────────────────────────────────
-        // 这批键以前只注册进了悬浮面板，模块版设置页一条都没有 —— 用户因此说「模块里没有
-        // 省电开关」。label 一律写成「关闭…」：这些键的 true 表示「该行为已被拦截」，
-        // 而 readState() 走 Config.defaultVisible 兜底 true ⇒ 默认显示为开。
-        //
-        // 刻意**不注册** labels_on：它是"启用第三方标注过滤"（反义，消费方用
-        // Config.selected 严格读、默认 false），混进这一组会让「开 = 已拦截」的读法出错。
-        sec = newDrawer("高德 · 省电 / 后台")
-        addNoteRow(sec.card, "开 = 该行为已被拦截（默认全开）；关 = 恢复高德原生行为。" +
-                "关掉推送长连接后，行程提醒 / 消息 / 家人地图会恢复，但 ACCS 长连接会重新占用 CPU。")
-        addSwitch(sec.card, "关闭推送长连接（ACCS，省电最多）", Config.K_PUSH_HARD_OFF)
-        addNoteRow(sec.card, "关掉后高德推送（行程提醒 / 活动 / 消息 / 家人地图）会恢复，" +
-                "但 ACCS 长连接会重新占用 CPU。")
-        addSwitch(sec.card, "关闭推送消息处理", Config.K_PUSH_OFF)
-        addSwitch(sec.card, "关闭推送服务壳（激进）", Config.K_PUSH_KILL_OFF)
-        addSwitch(sec.card, "关闭周期任务（WorkManager / JobScheduler）", Config.K_SUBPROC_JOB_OFF)
-        addNoteRow(sec.card, "关掉后高德的周期后台任务会恢复（更耗电）。")
-        addSwitch(sec.card, "关闭桌面小组件刷新", Config.K_SUBPROC_WIDGET_OFF)
-        addSwitch(sec.card, "关闭云控调度池（LotusPool）", Config.K_SUBPROC_LOTUSPOOL_OFF)
-        addSwitch(sec.card, "关闭阿里埋点 Analytics", Config.K_TRACK_OFF)
-        addSwitch(sec.card, "关闭开屏广告请求", Config.K_ALIMAMA_SPLASH_OFF)
-        addSwitch(sec.card, "关闭广告曝光上报", Config.K_ALIMAMA_LOG_OFF)
-        addSwitch(sec.card, "关闭子进程拦截（总闸，排查用）", Config.K_SUBPROC_OFF)
-        addNoteRow(sec.card, "一次性放行所有子进程拦截；怀疑某功能被误伤时先关这个。")
+        for (group in AmapPanel.groups()) {
+            // Keep long tool categories independently collapsible, but obtain
+            // every ID/key from the shared catalogue used by the hooks.
+            if (group.label == "首页工具" && group.sections != null) {
+                for (section in group.sections!!) {
+                    @Suppress("UNCHECKED_CAST")
+                    val items = section[1] as Array<PanelTypes.Item>
+                    if (items.isEmpty()) continue
+                    val sec = newDrawer("高德 · 工具：" + section[0])
+                    for (item in items) addItem(sec.card, item)
+                }
+                continue
+            }
+            val sec = newDrawer("高德 · " + group.label)
+            if (group.note != null) addNoteRow(sec.card, group.note!!)
+            group.items?.forEach { addItem(sec.card, it) }
+            group.sections?.forEach { section ->
+                val label = skin!!.text(section[0].toString(), Skin.T_CAPTION, Skin.MEDIUM, skin!!.text2)
+                label.setPadding(dp(16), dp(12), dp(16), dp(4))
+                sec.card.addView(label, skin!!.matchWrap())
+                @Suppress("UNCHECKED_CAST")
+                val items = section[1] as Array<PanelTypes.Item>
+                items.forEach { addItem(sec.card, it) }
+            }
+            group.metrics?.forEach { metric ->
+                val values = metric.values
+                val step = if (values.size > 1) values[1] - values[0] else 0
+                if (values.size > 3 && step > 0 && (1 until values.size).all { values[it] - values[it - 1] == step }) {
+                    addCruiseSlider(sec.card, metric.title, metric.key, values.first(), values.last(), metric.def, metric.unit, step)
+                } else addChoiceRow(sec.card, metric.title, metric.key, values, metric.def, metric.unit)
+                if (metric.note != null) addNoteRow(sec.card, metric.note!!)
+            }
+            group.action?.let { action ->
+                addActionButton(sec.card, action.label(), Runnable {
+                    glassDialog("开启全部净化拦截？", "将覆盖本组开关，部分项目需要强停重开高德后生效。",
+                            "开启", Runnable {
+                                val written = action.run()
+                                syncSwitches()
+                                toast(if (written > 0) "已保存，强停重开高德后生效" else "配置写入失败，请检查服务连接")
+                            }, null, null, "取消", null)
+                })
+            }
+        }
     }
 
     // ══════════════════════════════════════════════ v2.0.0 分页（百度 / 高德 / 其他）
@@ -1387,13 +1230,9 @@ class MainActivity : Activity() {
 
     /** 抽屉挂载点：CHANGING 过渡让折叠/展开时后续卡片平滑上移/下移 */
     private fun newMount(): LinearLayout {
-        val m = LinearLayout(this)
-        m.orientation = LinearLayout.VERTICAL
-        val lt = android.animation.LayoutTransition()
-        lt.enableTransitionType(android.animation.LayoutTransition.CHANGING)
-        lt.setDuration(190L)
-        m.layoutTransition = lt
-        return m
+        val mount = LinearLayout(this)
+        mount.orientation = LinearLayout.VERTICAL
+        return mount
     }
 
     /** 页 0：百度地图 —— 分类来自 io.github.ldxm666.bmapclean.Spec（开关写 bmapclean_config） */
@@ -1737,30 +1576,21 @@ class MainActivity : Activity() {
     }
 
     private fun expand(s: Sec) {
-        if (s.expanded) return
         s.expanded = true
-        s.card.visibility = View.VISIBLE
-        s.card.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
-        s.card.alpha = 0f
-        s.card.requestLayout()
-        s.card.animate().alpha(1f).setDuration(UiKit.DUR_BASE)
-                .setInterpolator(UiKit.DECELERATE).start()
+        val parent = s.group.parent as? ViewGroup ?: s.group
+        UiKit.setExpanded(parent, s.card, true, false)
         s.chev.animate().cancel()
-        s.chev.animate().rotation(90f)
-                .setDuration(UiKit.DUR_BASE).setInterpolator(UiKit.SPRING).start()
+        s.chev.rotation = 90f
+        s.head.isSelected = true
     }
 
     private fun collapse(s: Sec) {
-        if (!s.expanded) return
         s.expanded = false
+        val parent = s.group.parent as? ViewGroup ?: s.group
+        UiKit.setExpanded(parent, s.card, false, false)
         s.chev.animate().cancel()
-        s.chev.animate().rotation(0f)
-                .setDuration(UiKit.DUR_BASE).setInterpolator(UiKit.SPRING).start()
-        s.card.animate().alpha(0f).setDuration(UiKit.DUR_BASE)
-                .setInterpolator(UiKit.ACCELERATE)
-                .withEndAction(Runnable {
-                    s.card.visibility = View.GONE
-                }).start()
+        s.chev.rotation = 0f
+        s.head.isSelected = false
     }
 
     /**
@@ -1899,6 +1729,9 @@ class MainActivity : Activity() {
                 var ok = false
                 try {
                     ok = io.github.ldxm666.bmapclean.App.write(key, next)
+                    if (ok && next && io.github.ldxm666.bmapclean.Spec.isCommuteChild(key)) {
+                        bmapSwitches[io.github.ldxm666.bmapclean.Spec.K_HC]?.setChecked(true, true)
+                    }
                 } catch (ignored: Throwable) {
                 }
                 if (!ok) {
@@ -2247,114 +2080,35 @@ class MainActivity : Activity() {
                             posText: String?, posAction: Runnable?,
                             neuText: String?, neuAction: Runnable?,
                             negText: String?, negAction: Runnable?): AlertDialog {
+        val dialog = MotionDialog(this)
         val box = LinearLayout(this)
         box.orientation = LinearLayout.VERTICAL
-        box.background = skin!!.glassFor(box, GLASS_R.toFloat())
-        val pad = dp(20)
-        box.setPadding(pad, dp(18), pad, dp(10))
-        val tv = skin!!.text(title, 18f, Skin.MEDIUM, cTxP())   // 500，不是 700：全站标题统一 miuix 字重
-        box.addView(tv)
+        box.background = skin!!.solid(skin!!.surface, HyperDesign.R_DIALOG)
+        box.setPadding(dp(24), dp(24), dp(24), dp(16))
+        box.addView(skin!!.text(title, HyperDesign.T_SUBTITLE, Skin.MEDIUM, skin!!.text))
         if (!message.isNullOrEmpty()) {
-            val mv = text(message, 14f, Typeface.NORMAL, cTxS())
-            mv.setLineSpacing(0f, 1.2f)
-            val mlp = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            mlp.topMargin = dp(10)
-            box.addView(mv, mlp)
+            val scroll = BoundedScrollView(this)
+            scroll.addView(skin!!.body(message))
+            box.addView(scroll, withTop(skin!!, 12))
         }
-        val btns = LinearLayout(this)
-        btns.orientation = LinearLayout.HORIZONTAL
-        btns.gravity = Gravity.RIGHT
-        val blp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        blp.topMargin = dp(16)
-        box.addView(btns, blp)
-        val dlg = AlertDialog.Builder(this).create()
-        val defs: MutableList<Array<String>> = ArrayList()
-        if (negText != null) defs.add(arrayOf(negText, "neg"))
-        if (neuText != null) defs.add(arrayOf(neuText, "neu"))
-        if (posText != null) defs.add(arrayOf(posText, "pos"))
-        for (def in defs) {
-            val b = text(def[0], 14f, Typeface.BOLD, cAccent())
-            b.setPadding(dp(14), dp(10), dp(14), dp(10))
-            b.background = ripple(if (dark) tintBg(HyperDesign.alpha(skin!!.accent, 0.20f)) else tintBg(HyperDesign.alpha(skin!!.accent, 0.12f)), HEAD_R.toFloat())
-            val run = if ("pos" == def[1]) posAction else if ("neu" == def[1]) neuAction else negAction
-            val act: Runnable = run ?: Runnable { }
-            b.setOnClickListener(object : View.OnClickListener {
-                override fun onClick(v: View) {
-                    // 出场不能是硬消失。收起方向与入场相反：缩到 0.96（不是 0.92，
-                    // 出场位移要更小，否则读起来像"弹回去"而不是"收进去"）+ 淡出，
-                    // 140ms ACCELERATE（比入场快 100ms —— 消失永远该比出现干脆）。
-                    // 动作在动画结束时才执行，避免对话框还没走完页面就变了。
-                    box.animate().cancel()
-                    box.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f)
-                            .setDuration(140L).setInterpolator(UiKit.ACCELERATE)
-                            .withEndAction(Runnable {
-                                try {
-                                    act.run()
-                                } finally {
-                                    dlg.dismiss()
-                                }
-                            }).start()
-                }
-            })
-            val blp2 = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            blp2.leftMargin = dp(8)
-            btns.addView(b, blp2)
+        val actions = listOfNotNull(negText?.let { Pair(it, negAction) }, neuText?.let { Pair(it, neuAction) },
+                posText?.let { Pair(it, posAction) })
+        val buttons = LinearLayout(this)
+        val vertical = actions.size > 2 || resources.configuration.fontScale > 1.2f
+        buttons.orientation = if (vertical) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        buttons.gravity = Gravity.END
+        for ((label, action) in actions) {
+            val button = skin!!.textButton(label)
+            button.minimumHeight = dp(48)
+            button.setOnClickListener { dialog.dismissAfter(action) }
+            val lp = LinearLayout.LayoutParams(if (vertical) ViewGroup.LayoutParams.MATCH_PARENT else 0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, if (vertical) 0f else 1f)
+            buttons.addView(button, lp)
         }
-        dlg.setView(box)
-        // 弹窗入场：从 0.92 放大到 1 + 淡入。
-        //
-        // 这是全站**唯一**的弹窗出口（30 多处调用都走这里），所以一处就够覆盖全部。
-        // 之前是硬弹出来 —— Android 默认 Dialog 的窗口动画在这里被
-        // `setBackgroundDrawable(透明)` 抹掉了，等于完全没有过渡。
-        box.alpha = 0f
-        box.scaleX = 0.92f
-        box.scaleY = 0.92f
-        dlg.setOnShowListener(object : android.content.DialogInterface.OnShowListener {
-            override fun onShow(dialogInterface: android.content.DialogInterface) {
-                // 入场：240ms + 轻微过冲。SPRING 是自建的一条 overshoot 插值曲线，
-                // 比 DecelerateInterpolator 多一个"顶一下再落回"的过程 —— 对话框读起来
-                // 是"被放到桌面上"而不是"淡入了一张图"。
-                box.animate().alpha(1f).scaleX(1f).scaleY(1f)
-                        .setDuration(240L).setInterpolator(UiKit.SPRING).start()
-                // 遮罩本身也淡入：默认是瞬间变暗，和对话框的缩放不在同一节奏上。
-                dialogInterface.let {
-                    try {
-                        val w = dlg.window
-                        if (w != null) {
-                            val lp = w.attributes
-                            lp.dimAmount = 0f
-                            w.attributes = lp
-                            val a = android.animation.ValueAnimator.ofFloat(0f, 0.45f)
-                            a.duration = 240L
-                            a.interpolator = UiKit.DECELERATE
-                            a.addUpdateListener { an ->
-                                try {
-                                    val x = w.attributes
-                                    x.dimAmount = an.animatedValue as Float
-                                    w.attributes = x
-                                } catch (ignored: Throwable) {
-                                }
-                            }
-                            a.start()
-                        }
-                    } catch (ignored: Throwable) {
-                    }
-                }
-            }
-        })
-        dlg.show()
-        val w = dlg.getWindow()
-        if (w != null) {
-            w.setBackgroundDrawable(ColorDrawable(0x00000000))
-            val lp = w.getAttributes()
-            lp.dimAmount = 0.45f
-            lp.width = Math.min(resources.displayMetrics.widthPixels - dp(48), dp(360))
-            w.setAttributes(lp)
-        }
-        return dlg
+        box.addView(buttons, withTop(skin!!, 16))
+        dialog.setMotionView(box)
+        dialog.show()
+        return dialog
     }
 
     private fun tintBg(color: Int): GradientDrawable {
@@ -2792,7 +2546,7 @@ class MainActivity : Activity() {
         card.orientation = LinearLayout.VERTICAL
         card.background = skin!!.solid(skin!!.surface, Skin.R_CARD.toFloat())
         UiKit.clipRounded(card, dp(Skin.R_CARD.toFloat()).toFloat())
-        skin!!.shadow(card, 1f)
+        card.elevation = 0f
         return card
     }
 
@@ -2832,7 +2586,7 @@ class MainActivity : Activity() {
     private fun addSectionTitle(parent: LinearLayout, label: String) {
         val lp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        lp.topMargin = dp(Skin.S4.toFloat())
+        lp.topMargin = dp(Skin.S2.toFloat())
         parent.addView(sectionLabel(label), lp)
     }
 
@@ -2953,7 +2707,7 @@ class MainActivity : Activity() {
      * 两边改哪边都同步。
      */
     private fun addCruiseSlider(card: LinearLayout, title: String, key: String,
-                                min: Int, max: Int, def: Int, unit: String) {
+                                min: Int, max: Int, def: Int, unit: String, step: Int = 1) {
         val row = skin!!.row()
         row.orientation = LinearLayout.VERTICAL
 
@@ -2967,19 +2721,21 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         row.addView(head, skin!!.matchWrap())
 
-        val stops = (max - min) + 1
+        val stops = (max - min) / step + 1
         // 先问服务（模块版：地图进程的 remote prefs），拿不到再退回本地（内置版同进程）。
-        val init = Math.max(min, Math.min(max, App.readInt(key, Config.getInt(key, def))))
+        val raw = Math.max(min, Math.min(max, App.readInt(key, Config.getInt(key, def))))
+        val initialPosition = ((raw - min + step / 2) / step).coerceIn(0, stops - 1)
+        val init = min + initialPosition * step
         val slider = GlassSlider(this)
         slider.setStops(stops)
         slider.setTrackColors(0x1F8A94A4, skin!!.accent, skin!!.accent)
         slider.setTrackBandDp(40f)
-        slider.setPosition(init - min)
+        slider.setPosition(initialPosition)
         value.text = init.toString() + unit
         slider.contentDescription = title + "，" + init + unit
         slider.setOnPositionChange(object : GlassSlider.OnPositionChange {
             override fun onPositionChanged(view: GlassSlider, position: Int, settled: Boolean) {
-                val v = min + position
+                val v = min + position * step
                 value.text = v.toString() + unit
                 view.contentDescription = title + "，" + v + unit
                 if (settled) {
@@ -2988,7 +2744,7 @@ class MainActivity : Activity() {
                     // 以为调好了，然后去怪巡航不触发。
                     if (!App.writeInt(key, v)) {
                         val back = Math.max(min, Math.min(max, App.readInt(key, def)))
-                        view.setPosition(back - min)
+                        view.setPosition(((back - min + step / 2) / step).coerceIn(0, stops - 1))
                         value.text = back.toString() + unit
                         view.contentDescription = title + "，" + back + unit
                         Toast.makeText(this@MainActivity,
@@ -3256,9 +3012,9 @@ class MainActivity : Activity() {
     private var backupStatus: TextView? = null
     private var configSummary: TextView? = null
     /** 分段控件的滑动指示器（选中项底下的白色 squircle 滑块）。 */
-    private var segmentIndicator: View? = null
+    private var segmentTabs: MiuixTabs? = null
     /** 分段控件里承载 chip 的横排容器，用来按 chip 的 left/width 定位指示器。 */
-    private var segmentTrack: LinearLayout? = null
+    private var configTransition = 0
     /** 与 appPageIds 一一对应：该页对应的地图 App 未安装时为 true（chip 置灰、点击只提示）。 */
     private val appDisabled: MutableList<Boolean> = ArrayList()
 
@@ -3279,258 +3035,123 @@ class MainActivity : Activity() {
     private var announceCard: LinearLayout? = null
 
     private fun buildAnnounceCard(): LinearLayout {
-        val card = LinearLayout(this)
-        card.orientation = LinearLayout.VERTICAL
-        card.setPadding(skin!!.dp(Skin.S4.toFloat()), skin!!.dp(Skin.S4.toFloat()), skin!!.dp(Skin.S4.toFloat()), skin!!.dp(Skin.S4.toFloat()))
-        UiKit.clipRounded(card, skin!!.dp(Skin.R_CARD.toFloat()).toFloat())
-        skin!!.shadow(card, 7f)
-        card.isClickable = true
-        UiKit.pressable(card, 0.995f)
-        card.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                Announce.showLatest(this@MainActivity)
-            }
-        })
-        renderAnnounceCard(card)
-
-        // 读完公告后把红点去掉。Weak 引用，Activity 没了回调自动失效。
-        val self = java.lang.ref.WeakReference<MainActivity>(this)
+        val row = newCardRow(true)
+        row.isClickable = true
+        row.isFocusable = true
+        row.setOnClickListener { Announce.showLatest(this) }
+        renderAnnounceCard(row)
+        val ref = java.lang.ref.WeakReference(this)
         Announce.setOnChanged(Runnable {
-            val activity = self.get()
-            if (activity != null && activity.announceCard != null) {
-                activity.renderAnnounceCard(activity.announceCard!!)
+            ref.get()?.let { activity ->
+                activity.announceCard?.let { activity.renderAnnounceCard(it) }
             }
         })
-        return card
+        return row
     }
 
     /** 重画卡片内容（不改卡片本身）。未读 ⇒ 着色 + 红点；已读 ⇒ 普通卡 + 标题即最近一条。 */
     private fun renderAnnounceCard(card: LinearLayout) {
-        var unread = false
-        var latest: String? = null
-        try {
-            unread = Announce.hasUnread(this)
-            latest = Announce.latestTitle(this)
-        } catch (ignored: Throwable) {
-        }
-        card.background = if (unread)
-            skin!!.tintedGlass(skin!!.accent, Skin.R_CARD.toFloat())
-        else
-            skin!!.glassFor(card, Skin.R_CARD.toFloat())
+        val unread = try { Announce.hasUnread(this) } catch (_: Throwable) { false }
+        val latest = try { Announce.latestTitle(this) } catch (_: Throwable) { null }
         card.removeAllViews()
-
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.addView(iconTile(Icon.INFO, skin!!.text2, skin!!.surface2), fixed(skin!!, 38, 38))
-
-        val texts = LinearLayout(this)
-        texts.orientation = LinearLayout.VERTICAL
-        texts.addView(skin!!.rowTitle(if (unread) "服务器公告" else "最新公告"))
-        val line = skin!!.text(if (latest != null) latest else "暂无公告",
-                Skin.T_CAPTION, Skin.REGULAR, skin!!.text2)
-        line.isSingleLine = true
-        line.ellipsize = android.text.TextUtils.TruncateAt.END
-        val lineLp = skin!!.matchWrap()
-        lineLp.topMargin = skin!!.dp(2f)
-        texts.addView(line, lineLp)
-        val textsLp = LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        textsLp.leftMargin = skin!!.dp(12f)
-        row.addView(texts, textsLp)
-
-        if (unread) {
-            val dotLp = fixed(skin!!, 8, 8)
-            dotLp.rightMargin = skin!!.dp(6f)
-            row.addView(dot(skin!!.danger, 8), dotLp)
-        }
-        row.addView(Icon(this, Icon.CHEVRON, if (unread) skin!!.accent else skin!!.text3),
-                fixed(skin!!, 18, 18))
-        card.addView(row, skin!!.matchWrap())
+        val column = skin!!.rowText("公告", latest ?: "查看项目公告")
+        // Announcements stay a quiet row; unread state is a single small dot.
+        val summary = column.getChildAt(1) as? TextView
+        summary?.isSingleLine = true
+        summary?.ellipsize = android.text.TextUtils.TruncateAt.END
+        val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        lp.rightMargin = dp(8)
+        card.addView(column, lp)
+        if (unread) card.addView(dot(skin!!.accent, 6), fixedMargin(skin!!, 6, 6, 8))
+        card.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 16, 16))
     }
 
     private fun buildHomePage(): ScrollView {
         val sv = ScrollView(this)
-        sv.setFillViewport(true)
-        sv.clipToPadding = false
+        sv.isFillViewport = true
         sv.isVerticalScrollBarEnabled = false
+        val root = pageRoot(sv)
+        root.addView(compactHeader("MapAdKiller", if (embedded()) "地图净化 · 内置版" else "地图净化 · LSPosed 模块"))
 
-        val root = LinearLayout(this)
-        root.orientation = LinearLayout.VERTICAL
-        root.setPadding(skin!!.dp(Skin.S5.toFloat()), skin!!.dp(Skin.S3.toFloat()), skin!!.dp(Skin.S5.toFloat()), skin!!.dp(Skin.S7.toFloat()))
-        sv.addView(root, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        // 标题行：品牌 + 版本胶囊
-        val top = LinearLayout(this)
-        top.orientation = LinearLayout.HORIZONTAL
-        top.gravity = Gravity.CENTER_VERTICAL
-        val brand = LinearLayout(this)
-        brand.orientation = LinearLayout.VERTICAL
-        brand.addView(skin!!.display("MapAdKiller"))
-        val tagline = skin!!.caption(if (embedded())
-                "地图广告净化 · 免 root 整合版"
-                else "地图广告净化 · LSPosed 模块")
-        val tagLp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        tagLp.topMargin = skin!!.dp(3f)
-        brand.addView(tagline, tagLp)
-        top.addView(brand, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(skin!!.chip("v" + Version.LABEL, skin!!.chipBg, skin!!.text3))
-        top.setPadding(skin!!.dp(Skin.S2.toFloat()), skin!!.dp(Skin.S1.toFloat()), skin!!.dp(Skin.S2.toFloat()), skin!!.dp(Skin.S2.toFloat()))
-        top.background = skin!!.headerScrim()
-        root.addView(top, skin!!.matchWrap())
-
-        announceCard = buildAnnounceCard()
-        root.addView(announceCard, withTop(skin!!, Skin.S4))
-
-        // 状态卡：这一块就是原来屏幕顶部的那一整块，只是挪到了首页
-        val status = LinearLayout(this)
-        status.orientation = LinearLayout.VERTICAL
-        status.setPadding(skin!!.dp(18f), skin!!.dp(18f), skin!!.dp(18f), skin!!.dp(14f))
-        status.background = skin!!.glassFor(status, Skin.R_CARD.toFloat(),
-                UiKit.blend(skin!!.glassTint(), skin!!.accent, 0.08f))
-        UiKit.clipRounded(status, skin!!.dp(Skin.R_CARD.toFloat()).toFloat())
-        skin!!.shadow(status, 6f)
-        status.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                showStatusDetail()
-            }
-        })
-        UiKit.pressable(status, 0.995f)
-
+        val status = newSurfaceCard()
+        status.setPadding(dp(16), dp(16), dp(16), dp(16))
+        status.isClickable = true
+        status.isFocusable = true
+        status.setOnClickListener { showStatusDetail() }
+        UiKit.pressable(status, HyperDesign.PRESS_ROW)
         val statusTop = LinearLayout(this)
-        statusTop.orientation = LinearLayout.HORIZONTAL
         statusTop.gravity = Gravity.CENTER_VERTICAL
-
-        navPill = LinearLayout(this)
-        navPill!!.orientation = LinearLayout.HORIZONTAL
-        navPill!!.gravity = Gravity.CENTER_VERTICAL
-        val dotLp = LinearLayout.LayoutParams(skin!!.dp(8f), skin!!.dp(8f))
-        dotLp.rightMargin = skin!!.dp(7f)
-        dotLp.gravity = Gravity.CENTER_VERTICAL
-        navPill!!.addView(dot(skin!!.success, 8), dotLp)
-        statusPillText = skin!!.text("连接中", 20f, Skin.BOLD, skin!!.text)
+        navPill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        navPill!!.addView(dot(skin!!.text3, 6), fixedMargin(skin!!, 6, 6, 8))
+        statusPillText = skin!!.text("连接中", HyperDesign.T_SUBTITLE, Skin.MEDIUM, skin!!.text)
         navPill!!.addView(statusPillText)
-        statusTop.addView(navPill, LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-
-        val detail = LinearLayout(this)
-        detail.orientation = LinearLayout.HORIZONTAL
-        detail.gravity = Gravity.CENTER_VERTICAL
-        detail.addView(skin!!.text("运行状态", Skin.T_CAPTION, Skin.MEDIUM, skin!!.accent))
-        val chev = Icon(this, Icon.CHEVRON, skin!!.accent)
-        val chevLp = LinearLayout.LayoutParams(skin!!.dp(15f), skin!!.dp(15f))
-        chevLp.leftMargin = skin!!.dp(2f)
-        detail.addView(chev, chevLp)
-        statusTop.addView(detail)
+        statusTop.addView(navPill, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        statusTop.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 16, 16))
         status.addView(statusTop, skin!!.matchWrap())
+        statusView = skin!!.caption("").apply {
+            maxLines = 3
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        status.addView(statusView, withTop(skin!!, 8))
+        root.addView(status, skin!!.matchWrap())
 
-        statusView = skin!!.text("", Skin.T_CAPTION + 0.5f, Skin.REGULAR, skin!!.text2)
-        statusView!!.setLineSpacing(skin!!.dp(2f).toFloat(), 1.15f)
-        val stLp = skin!!.matchWrap()
-        stLp.topMargin = skin!!.dp(7f)
-        status.addView(statusView, stLp)
-
-        // 这里原本画一条 1 dp 的 stroke 色横线，把「连接状态」和下面的指标行隔开。
-        // 去掉：LSPosed 的设置页在卡片内不画分隔线，靠间距分组。保留 14 dp 的上留白
-        // 来维持原来的节奏，只是不再有线。
-        val hair = View(this)
-        hair.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0)
-        val hairLp = hair.layoutParams as LinearLayout.LayoutParams
-        hairLp.topMargin = skin!!.dp(14f)
-
-        metricRow = LinearLayout(this)
-        metricRow!!.orientation = LinearLayout.HORIZONTAL
-        val mrlp = skin!!.matchWrap()
-        mrlp.topMargin = skin!!.dp(12f)
-        status.addView(metricRow, mrlp)
-        buildHomeMetrics()
-        root.addView(status, withTop(skin!!, Skin.S4))
-
-        // 更新卡
-        val update = skin!!.card()
-        val updateRow = LinearLayout(this)
-        updateRow.orientation = LinearLayout.HORIZONTAL
-        updateRow.gravity = Gravity.CENTER_VERTICAL
-        updateRow.addView(iconTile(Icon.REFRESH, skin!!.text2, skin!!.surface2), fixed(skin!!, 38, 38))
-        val updateText = LinearLayout(this)
-        updateText.orientation = LinearLayout.VERTICAL
-        updateText.addView(skin!!.rowTitle("版本更新"))
-        verLine = skin!!.text("当前版本 v" + Version.LABEL, Skin.T_CAPTION, Skin.REGULAR, skin!!.text2)
-        verLine!!.isSingleLine = true
-        verLine!!.ellipsize = android.text.TextUtils.TruncateAt.END
-        val vlp = skin!!.matchWrap()
-        vlp.topMargin = skin!!.dp(2f)
-        updateText.addView(verLine, vlp)
-        val utlp = LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        utlp.leftMargin = skin!!.dp(12f)
-        updateRow.addView(updateText, utlp)
-        updateBtn = skin!!.textButton("检查")
-        updateBtn!!.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                if (UpdateChecker.isOutdated(this@MainActivity)) {
-                    showUpdateDialog(UpdateChecker.latest(this@MainActivity)!!)
-                    return
-                }
-                Toast.makeText(this@MainActivity, "正在检查更新…", Toast.LENGTH_SHORT).show()
-                UpdateChecker.check(this@MainActivity, true, updateCb)
-            }
-        })
-        updateRow.addView(updateBtn)
-        update.addView(updateRow, skin!!.matchWrap())
-        root.addView(update, withTop(skin!!, Skin.S3))
-
-        // 数据与日志（v2.2.6）：抓取云数据 / 运行日志，首页直达
-        skin!!.addSection(root, "数据与日志")
-        val diag = skin!!.listCard()
-        diag.addView(cloudDataRow())
-        diag.addView(skin!!.hairline())
-        diag.addView(logRow())
-        root.addView(diag, skin!!.matchWrap())
-        loadCloudState()
-
-        // 应用入口
-        skin!!.addSection(root, "应用")
-        val apps = skin!!.listCard()
-        // 已安装的排前面，未安装的沉底；同类之间保持 百度 → 高德 → 腾讯 的固定顺序。
-        val appPkgs = arrayOf("com.baidu.BaiduMap", "com.autonavi.minimap", "com.tencent.map")
-        val appNames = arrayOf("百度地图", "高德地图", "腾讯地图")
-        val appOrder = arrayOf(0, 1, 2)
-        java.util.Arrays.sort(appOrder, java.util.Comparator<Int> { a, b ->
-            val ia = installedVersion(appPkgs[a]) != null
-            val ib = installedVersion(appPkgs[b]) != null
-            if (ia != ib) return@Comparator if (ia) -1 else 1
-            a - b
-        })
-        for (k in appOrder.indices) {
-            val idx = appOrder[k]
-            if (k > 0) apps.addView(skin!!.hairline())
-            apps.addView(appRow(appPkgs[idx], appNames[idx], idx))
+        addSectionTitle(root, "地图应用")
+        val apps = newSurfaceCard()
+        val packages = arrayOf("com.baidu.BaiduMap", "com.autonavi.minimap", "com.tencent.map")
+        val names = arrayOf("百度地图", "高德地图", "腾讯地图")
+        val order = packages.indices.sortedBy { if (installedVersion(packages[it]) == null) 1 else 0 }
+        for (index in order) {
+            if (!embedded() || embeddedHost == packages[index]) apps.addView(appRow(packages[index], names[index], index))
         }
         root.addView(apps, skin!!.matchWrap())
 
-        // 作者与链接
-        skin!!.addSection(root, "作者")
-        root.addView(buildAuthorCard(), skin!!.matchWrap())
+        addSectionTitle(root, "工具")
+        val tools = newSurfaceCard()
+        tools.addView(cloudDataRow())
+        tools.addView(logRow())
+        announceCard = buildAnnounceCard()
+        tools.addView(announceCard)
 
-        // 赞赏：主页最后一个区块，点开收款码
-        skin!!.addSection(root, "赞赏")
-        val donate = skin!!.listCard()
-        donate.addView(donateRow())
-        root.addView(donate, skin!!.matchWrap())
+        val update = newCardRow(true)
+        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        texts.addView(skin!!.rowTitle("版本更新"))
+        verLine = skin!!.caption("当前 v" + Version.LABEL)
+        texts.addView(verLine, withTop(skin!!, 2))
+        update.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        updateBtn = skin!!.textButton("检查").apply {
+            setOnClickListener {
+                if (UpdateChecker.isOutdated(this@MainActivity)) {
+                    UpdateChecker.latest(this@MainActivity)?.let { showUpdateDialog(it) }
+                } else {
+                    text = "检查中…"
+                    UpdateChecker.check(this@MainActivity, true, updateCb)
+                }
+            }
+        }
+        update.addView(updateBtn)
+        update.setOnClickListener { updateBtn?.performClick() }
+        tools.addView(update)
+        root.addView(tools, skin!!.matchWrap())
 
-        val foot = skin!!.footnote("免费开源 · 禁止倒卖 · MapAdKiller v" + Version.LABEL)
+        val foot = skin!!.footnote("免费开源 · 禁止倒卖")
         foot.gravity = Gravity.CENTER
-        val flp = skin!!.matchWrap()
-        flp.topMargin = skin!!.dp(Skin.S6.toFloat())
-        root.addView(foot, flp)
-
-        adLine = skin!!.footnote("")
-        adLine!!.visibility = View.GONE
+        root.addView(foot, withTop(skin!!, 20))
+        adLine = skin!!.footnote("").apply { visibility = View.GONE }
+        loadCloudState()
         renderVersionLines()
         return sv
+    }
+
+    private fun compactHeader(title: String, subtitle: String? = null): LinearLayout {
+        val header = LinearLayout(this)
+        header.orientation = LinearLayout.VERTICAL
+        header.setPadding(dp(HyperDesign.ROW_PAD), dp(12), dp(HyperDesign.ROW_PAD), dp(16))
+        header.addView(skin!!.text(title, HyperDesign.T_TITLE, Skin.MEDIUM, skin!!.text))
+        if (!subtitle.isNullOrEmpty()) header.addView(skin!!.caption(subtitle), withTop(skin!!, 4))
+        return header
     }
 
     // ══════════════════════════════════════════════════ 首页 · 数据与日志（v2.2.6）
@@ -3560,61 +3181,31 @@ class MainActivity : Activity() {
 
     /** 「抓取云数据」一行：官方云端下发的首页卡片 / 金刚位 / 工具宫格 / 云控开关，按版本抓一份基线。 */
     private fun cloudDataRow(): LinearLayout {
-        val row = skin!!.row()
-        row.addView(iconTile(Icon.DOWNLOAD, skin!!.text2, skin!!.surface2), fixed(skin!!, 38, 38))
-
-        val box = LinearLayout(this)
-        box.orientation = LinearLayout.VERTICAL
-        box.addView(skin!!.rowTitle("抓取云数据"))
-        cloudSub = skin!!.text("读取状态…", Skin.T_CAPTION, Skin.REGULAR, skin!!.text2)
-        cloudSub!!.isSingleLine = true
-        cloudSub!!.ellipsize = android.text.TextUtils.TruncateAt.END
-        val slp = skin!!.matchWrap()
-        slp.topMargin = skin!!.dp(2f)
-        box.addView(cloudSub, slp)
-
-        val blp = LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        blp.leftMargin = skin!!.dp(12f)
-        row.addView(box, blp)
-        row.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 18, 18))
-
-        row.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                startCloudCapture()
-            }
-        })
-        UiKit.pressable(row, 0.99f)
+        val row = newCardRow(true)
+        val col = skin!!.rowText("云端数据", null)
+        cloudSub = skin!!.caption("读取状态…").apply {
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        col.addView(cloudSub, withTop(skin!!, 2))
+        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 16, 16))
+        row.setOnClickListener { startCloudCapture() }
         return row
     }
 
     /** 「运行日志」一行：进程内环形缓冲（最近 10 分钟）查看 / 复制 / 导出 txt。 */
     private fun logRow(): LinearLayout {
-        val row = skin!!.row()
-        row.addView(iconTile(Icon.ARCHIVE, skin!!.text2, skin!!.surface2), fixed(skin!!, 38, 38))
-
-        val box = LinearLayout(this)
-        box.orientation = LinearLayout.VERTICAL
-        box.addView(skin!!.rowTitle("运行日志"))
-        logSub = skin!!.text("点此查看 / 导出运行日志", Skin.T_CAPTION, Skin.REGULAR, skin!!.text2)
-        logSub!!.isSingleLine = true
-        logSub!!.ellipsize = android.text.TextUtils.TruncateAt.END
-        val slp = skin!!.matchWrap()
-        slp.topMargin = skin!!.dp(2f)
-        box.addView(logSub, slp)
-
-        val blp = LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        blp.leftMargin = skin!!.dp(12f)
-        row.addView(box, blp)
-        row.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 18, 18))
-
-        row.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                showLogDialog()
-            }
-        })
-        UiKit.pressable(row, 0.99f)
+        val row = newCardRow(true)
+        val col = skin!!.rowText("运行日志", null)
+        logSub = skin!!.caption("查看与导出日志").apply {
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        col.addView(logSub, withTop(skin!!, 2))
+        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 16, 16))
+        row.setOnClickListener { showLogDialog() }
         return row
     }
 
@@ -4253,40 +3844,18 @@ class MainActivity : Activity() {
 
     private fun appRow(pkg: String, label: String, vendor: Int): LinearLayout {
         val version = installedVersion(pkg)
-        // 未安装：收成一行紧凑条目，且不画灰底单字图标（v2.2.5）
         if (version == null) return appRowUninstalled(pkg, label, vendor)
-
-        val row = skin!!.row()
-        row.addView(appIcon(pkg, label), fixedMargin(skin!!, 42, 42, 12))
-
-        val count = if (vendor == 0) bmapSwitches.size else if (vendor == 1) switches.size else tmapSwitches.size
-        val recommended = recommendedVersion(pkg)
-        var caption = "推荐 " + (if (recommended == null) "—" else recommended)
-        if (version == null) caption += if (embedded()) " · 未安装" else " · 本机未安装"
-        else caption += " · 本机 " + version + (if (count > 0) " · " + count + " 项" else "")
-        // 高德两个发行版是**两次独立构建**（DEX 全不同、native 地址不同），
-        // 混淆名会重排，所以"现在装的是哪个版"直接决定用哪套锚点 —— 必须在界面上写清，
-        // 否则用户报"某功能没反应"时，第一步就卡在不知道他装的是哪版。
-        if (AmapEdition.PKG_AMAP == pkg) {
-            val ed = AmapEdition.detect(this)
-            caption += " · " + ed.label()
-            if (ed.edition == AmapEdition.Edition.UNKNOWN) {
-                // 认不出时不猜，只提示：猜错会让 native 补丁打错地址。
-                caption += "（无法识别，部分功能不启用）"
-            }
+        val row = newCardRow(true)
+        row.addView(appIcon(pkg, label), fixedMargin(skin!!, 32, 32, 12))
+        val count = when (vendor) { 0 -> bmapSwitches.size; 1 -> switches.size; else -> tmapSwitches.size }
+        var summary = "v$version · $count 项开关"
+        if (AmapEdition.PKG_AMAP == pkg) summary += " · " + AmapEdition.detect(this).label()
+        row.addView(skin!!.rowText(label, summary), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 16, 16))
+        row.setOnClickListener {
+            selectApp(if (embedded()) 0 else vendor)
+            showTab(TAB_CONFIG, true)
         }
-        row.addView(skin!!.rowText(label, caption), LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-
-        val chev = Icon(this, Icon.CHEVRON, skin!!.text3)
-        row.addView(chev, fixed(skin!!, 18, 18))
-        row.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                showTab(TAB_CONFIG, true)
-                selectApp(vendor)
-            }
-        })
-        UiKit.pressable(row, 0.99f)
         return row
     }
 
@@ -4295,53 +3864,21 @@ class MainActivity : Activity() {
      * 仍然可点 —— 进对应功能页能看到有哪些开关、推荐哪个版本，只是不再占一整坨。
      */
     private fun appRowUninstalled(pkg: String, label: String, vendor: Int): LinearLayout {
-        val row = skin!!.row()
-        row.minimumHeight = skin!!.dp(44f)
-
-        // 图标常态化：不再用 20dp 下载箭头（像「待下载的文件」），改成品牌色圆角方形 App 图标，
-        // 与已安装项的 42dp 图标同一视觉语言。装了对应 App 会自动换成它自己的真图标。
-        val ilp = LinearLayout.LayoutParams(skin!!.dp(32f), skin!!.dp(32f))
-        ilp.rightMargin = skin!!.dp(12f)
-        // 优先用**该 App 的原生启动图标**（从它的 APK 里提出来内嵌的）；取不到才退回品牌色圆角图标。
-        // 三家的原生图标都内嵌了一份，未安装时也能显示自己的图标（不再只有腾讯有）。
-        val real: Drawable? =
-                if ("com.tencent.map" == pkg) TencentIconAsset.drawable(this)
-                else if ("com.baidu.BaiduMap" == pkg) BaiduIconAsset.drawable(this)
-                else if ("com.autonavi.minimap" == pkg) AmapIconAsset.drawable(this) else null
-        if (real != null) {
-            val iv = ImageView(this)
-            iv.setImageDrawable(real)
-            iv.scaleType = ImageView.ScaleType.FIT_CENTER
-            row.addView(iv, ilp)
-        } else {
-            row.addView(AppIcon(this, vendor), ilp)
+        val row = newCardRow(true)
+        val icon = when (pkg) {
+            "com.tencent.map" -> TencentIconAsset.drawable(this)
+            "com.baidu.BaiduMap" -> BaiduIconAsset.drawable(this)
+            "com.autonavi.minimap" -> AmapIconAsset.drawable(this)
+            else -> null
         }
-
-        // 名称正常色 +「未安装」红色。两个 TextView 比 SpannableString 更简单，也不会多引类。
-        val nameWrap = LinearLayout(this)
-        nameWrap.orientation = LinearLayout.HORIZONTAL
-        nameWrap.gravity = Gravity.CENTER_VERTICAL
-        nameWrap.addView(skin!!.text(label, Skin.T_ROW, Skin.MEDIUM, skin!!.text2))
-        // 「未安装」是状态说明，不是错误。之前用硬编码 Material Red 0xFFE53935，
-        // 和整套 grey/blue 打架（一屏三个红色标签，视觉噪音比信息本身还大）。
-        // 改成次文字灰 —— LSPosed 全部状态文案都是中性色，颜色只留给开关和主动作。
-        nameWrap.addView(skin!!.text(if (embedded()) " · 未安装" else " · 本机未安装",
-                Skin.T_CAPTION, Skin.REGULAR, skin!!.text3))
-        row.addView(nameWrap, LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-
-        // 未安装时**不再**显示「推荐 x」：那是模块验证过的固定版本号，跟用户手机装什么无关，
-        // 摆出来只会让人以为要装这个版本（用户反馈「推荐版本是测试机的固定版本」）。
-        // 已安装的行里「推荐」直接等于本机版本，见 recommendedVersion()。
-        row.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 18, 18))
-
-        row.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                showTab(TAB_CONFIG, true)
-                selectApp(vendor)
-            }
-        })
-        UiKit.pressable(row, 0.99f)
+        val image = ImageView(this)
+        image.setImageDrawable(icon)
+        image.alpha = 0.6f
+        UiKit.clipRounded(image, dp(8).toFloat())
+        row.addView(image, fixedMargin(skin!!, 32, 32, 12))
+        row.addView(skin!!.rowText(label, "未安装"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(Icon(this, Icon.CHEVRON, skin!!.text3), fixed(skin!!, 16, 16))
+        row.setOnClickListener { toast("$label 未安装") }
         return row
     }
 
@@ -4483,84 +4020,44 @@ class MainActivity : Activity() {
         head.orientation = LinearLayout.VERTICAL
         // 文字左缘统一落在 28 dp（页边距 12 + 卡内 16）—— 和分组标题、行标题同一条竖线。
         val textInset = HyperDesign.PAGE_PAD + HyperDesign.ROW_PAD
-        head.setPadding(skin!!.dp(textInset.toFloat()), skin!!.dp(Skin.S3.toFloat()),
-                skin!!.dp(textInset.toFloat()), 0)
-        head.addView(skin!!.display("配置"))
-        val sub = skin!!.caption(if (embedded()) "当前地图的开关分组" else "按应用调整模块开关")
-        val subLp = skin!!.matchWrap()
-        subLp.topMargin = skin!!.dp(3f)
-        head.addView(sub, subLp)
-        head.background = skin!!.headerScrim()
+        head.setPadding(dp(textInset), dp(16), dp(textInset), dp(12))
+        val heading = LinearLayout(this)
+        heading.gravity = Gravity.CENTER_VERTICAL
+        heading.addView(skin!!.text("配置", HyperDesign.T_TITLE, Skin.MEDIUM, skin!!.text),
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        configSummary = skin!!.caption("")
+        heading.addView(configSummary)
+        head.addView(heading, skin!!.matchWrap())
         screen.addView(head, skin!!.matchWrap())
 
-        // 分段控件 —— miuix TabRow 的做法：整条 surfaceContainerHigh 底，选中项是**一块浮在
-        // 上面的滑块**（带投影），切换时滑块整体平移。旧版是「给选中项描一圈边」的胶囊，
-        // 读起来像两个按钮各穿了一件外套，且没有"选中块在移动"的方向感。
-        val segWrap = FrameLayout(this)
-        segWrap.setPadding(skin!!.dp(4f), skin!!.dp(4f), skin!!.dp(4f), skin!!.dp(4f))
-        segWrap.background = skin!!.solid(skin!!.surface2, Skin.R_CONTROL.toFloat())
-        UiKit.clipRounded(segWrap, dp(Skin.R_CONTROL.toFloat()).toFloat())
-        val indicator = View(this)
-        // 深色下 surfaceContainer 与 surfaceContainerHigh 同值（都是 #242424），白色滑块会整个
-        // 消失在轨道里；改用 secondaryVariant（深色 #434343）—— 仍是 token，不新造颜色。
-        indicator.background = skin!!.solid(
-                if (dark) HyperDesign.of(true).secondaryVariant else skin!!.surface,
-                Skin.R_CONTROL.toFloat())
-        UiKit.clipRounded(indicator, dp(Skin.R_CONTROL.toFloat()).toFloat())
-        skin!!.shadow(indicator, 2f)
-        segWrap.addView(indicator, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
-        val segment = LinearLayout(this)
-        segment.orientation = LinearLayout.HORIZONTAL
-        segWrap.addView(segment, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(40f)))
-        segmentTrack = segment
-        segmentIndicator = indicator
-        if (embedded()) {
-            addAppChip(segment, if (embeddedAmap()) "高德地图" else "百度地图")
-        } else {
-            addAppChip(segment, "百度地图")
-            addAppChip(segment, "高德地图")
-            addAppChip(segment, "腾讯地图")
-        }
-        // 换横竖屏 / 密度变化后 chip 会被重新量宽，指示器得跟着回到选中项下面。
-        segment.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
-            override fun onLayoutChange(v: View, left: Int, top: Int, right: Int, bottom: Int,
-                                       oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int) {
-                layoutSegmentIndicator(false)
-            }
-        })
-        // ★ 高度必须**定死**，不能用 matchWrap()（WRAP_CONTENT）。
-        //
-        // segWrap 里放了一个 MATCH_PARENT 高度的指示器。FrameLayout 量子 View 时，
-        // MATCH_PARENT 要拿父容器的高度来算；父容器又是 WRAP_CONTENT（要等子 View 量完
-        // 才知道自己多高）—— 循环。实际结果是 FrameLayout 退回用 LinearLayout 给出的
-        // **剩余空间**去量它，于是轨道撑满整页、白色滑块变成一根竖条。
-        //
-        // 48 = 40（chip 行）+ 4 + 4（上下 padding），与内部 segment 的高度一致。
-        val segLp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(48f))
-        segLp.topMargin = skin!!.dp(Skin.S4.toFloat())
-        segLp.leftMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
-        segLp.rightMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
-        screen.addView(segWrap, segLp)
-
-        configSummary = skin!!.footnote("")
-        val cslp = skin!!.matchWrap()
-        cslp.topMargin = skin!!.dp(Skin.S2.toFloat())
-        cslp.leftMargin = skin!!.dp(textInset.toFloat())
-        cslp.rightMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
-        screen.addView(configSummary, cslp)
+        val tabs = MiuixTabs(this, dark)
+        tabs.setItems(if (embedded()) listOf(if (embeddedAmap()) "高德地图" else "百度地图")
+                else listOf("百度地图", "高德地图", "腾讯地图"), true,
+                MiuixTabs.OnSelect { selectApp(it) })
+        segmentTabs = tabs
+        appChips.addAll(tabs.labels())
+        val tabsLp = skin!!.matchWrap()
+        tabsLp.leftMargin = dp(HyperDesign.PAGE_PAD)
+        tabsLp.rightMargin = dp(HyperDesign.PAGE_PAD)
+        screen.addView(tabs, tabsLp)
 
         // 内置版只读说明条：不是脚注 —— 整页置灰之后，这一条是用户唯一的出口提示，
         // 必须首屏可见、且「长按悬浮球」几个字要能一眼抓住（见 applyEmbeddedNotice 的 Spannable）。
-        embeddedNotice = skin!!.text("", Skin.T_BODY, Skin.MEDIUM, skin!!.text)
+        embeddedNotice = skin!!.text("", Skin.T_CAPTION, Skin.REGULAR, skin!!.text2)
         embeddedNotice!!.visibility = View.GONE
         embeddedNotice!!.setLineSpacing(0f, 1.2f)
         val noticePad = skin!!.dp(Skin.S3.toFloat())
-        embeddedNotice!!.setPadding(noticePad, noticePad, noticePad, noticePad)
-        embeddedNotice!!.background = skin!!.solid(skin!!.surface2, Skin.R_INNER.toFloat())
+        embeddedNotice!!.setPadding(dp(16), dp(8), dp(16), dp(4))
+        embeddedNotice!!.background = null
+        embeddedNotice!!.isFocusable = true
+        embeddedNotice!!.setOnClickListener {
+            val pkg = appPageIds.getOrNull(appIndex)?.let { hostPackageOf(it) }
+            val launch = pkg?.let { packageManager.getLaunchIntentForPackage(it) }
+            if (launch != null) startActivity(launch)
+            else toast("请先安装对应地图")
+        }
         val noticeLp = skin!!.matchWrap()
-        noticeLp.topMargin = skin!!.dp(Skin.S3.toFloat())
+        noticeLp.topMargin = 0
         noticeLp.leftMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
         noticeLp.rightMargin = skin!!.dp(HyperDesign.PAGE_PAD.toFloat())
         screen.addView(embeddedNotice, noticeLp)
@@ -4623,7 +4120,7 @@ class MainActivity : Activity() {
             }
         }
         selectApp(initial)
-        segment.post(Runnable { layoutSegmentIndicator(false) })
+        tabs.post { tabs.select(appIndex, false) }
         probeEmbeddedBuilds()
         return screen
     }
@@ -4643,24 +4140,7 @@ class MainActivity : Activity() {
      * 宽度跟 chip 实测宽走：等分时都一样，横竖屏/密度变化后由 layout 监听重新对齐。
      */
     private fun layoutSegmentIndicator(animate: Boolean) {
-        val track = segmentTrack ?: return
-        val ind = segmentIndicator ?: return
-        if (appIndex < 0 || appIndex >= track.childCount) return
-        val chip = track.getChildAt(appIndex)
-        if (chip.width <= 0) return
-        val lp = ind.layoutParams
-        if (lp != null && lp.width != chip.width) {
-            lp.width = chip.width
-            ind.layoutParams = lp
-        }
-        val target = chip.left.toFloat()
-        ind.animate().cancel()
-        if (animate) {
-            ind.animate().translationX(target).setDuration(200L)
-                    .setInterpolator(UiKit.STANDARD).start()
-        } else {
-            ind.translationX = target
-        }
+        segmentTabs?.select(appIndex, animate)
     }
 
     private fun addAppChip(segment: LinearLayout, label: String) {
@@ -4690,40 +4170,39 @@ class MainActivity : Activity() {
 
     /** 切换地图应用（0 百度 / 1 高德 / 2 腾讯；内置版只有一个，下标恒为 0）。 */
     private fun selectApp(index: Int) {
-        if (index < 0 || index >= appPages.size) return
-        if (index < appDisabled.size && appDisabled[index]) {
-            var anyEnabled = false
-            for (i in appDisabled.indices) {
-                if (!appDisabled[i]) anyEnabled = true
-            }
-            // 三家都没装的极端情况下仍然显示一页：整块空白比"只读的一页"更让人以为模块坏了。
-            if (anyEnabled && index < appChips.size) {
-                Toast.makeText(this@MainActivity, appChips[index].text.toString()
-                        + "未安装，装好后重新打开本页即可配置", Toast.LENGTH_SHORT).show()
-                return
-            }
+        if (index !in appPages.indices) return
+        if (index < appDisabled.size && appDisabled[index] && appDisabled.any { !it }) {
+            toast(appChips[index].text.toString() + "未安装")
+            return
         }
+        val previous = appIndex
+        val changed = previous != index
+        val generation = ++configTransition
+        val animate = changed && tabIndex == TAB_CONFIG && HyperMotion.enabled(configHost)
         appIndex = index
-        for (i in 0 until appPages.size) {
-            appPages[i].visibility = if (i == index) View.VISIBLE else View.GONE
+        for (i in appPages.indices) {
+            val page = appPages[i]
+            page.animate().cancel()
+            page.translationX = 0f
+            page.translationY = 0f
+            page.alpha = 1f
+            page.visibility = if (i == index || (animate && i == previous)) View.VISIBLE else View.GONE
         }
-        for (i in 0 until appChips.size) {
-            val chip = appChips[i]
-            val on = i == index
-            chip.setTextColor(if (on) skin!!.text else skin!!.text2)
-            chip.setTypeface(if (on) Skin.MEDIUM else Skin.REGULAR)
-            chip.background = null
+        if (animate) {
+            val direction = if (index > previous) 1 else -1
+            val outgoing = appPages[previous]
+            outgoing.animate().alpha(0f).translationX(-direction * dp(HyperMotion.DISTANCE_SMALL).toFloat())
+                .setStartDelay(0L).setDuration(HyperMotion.DUR_EXIT).setInterpolator(HyperMotion.ACCELERATE)
+                .withEndAction { if (generation == configTransition) outgoing.visibility = View.GONE }.start()
+            UiKit.contentIn(appPages[index], direction)
         }
-        layoutSegmentIndicator(true)
-        if (configSummary != null && index < appChips.size && index < appPageIds.size) {
+        layoutSegmentIndicator(animate)
+        if (index < appPageIds.size) {
             val pageId = appPageIds[index]
-            val count = if (pageId == PAGE_BAIDU) bmapSwitches.size
-            else if (pageId == PAGE_AMAP) switches.size else tmapSwitches.size
-            configSummary!!.text = appChips[index].text.toString() + " · " + count + " 项开关"
+            val count = when (pageId) { PAGE_BAIDU -> bmapSwitches.size; PAGE_AMAP -> switches.size; else -> tmapSwitches.size }
+            configSummary?.text = "$count 项开关"
         }
-        if (tabIndex == TAB_CONFIG && finder != null) {
-            finder!!.attach(appPageIds[index])
-        }
+        if (tabIndex == TAB_CONFIG) finder?.attach(appPageIds[index])
         applyEmbeddedNotice()
     }
 
@@ -4770,7 +4249,6 @@ class MainActivity : Activity() {
         if (embeddedLocked.add(pageId)) {
             val page = if (appIndex >= 0 && appIndex < appPages.size) appPages[appIndex] else null
             lockPage(page)
-            if (page != null) page.alpha = 0.6f
         }
     }
 
@@ -4782,21 +4260,12 @@ class MainActivity : Activity() {
      * "该去哪儿改"这个动作上。
      */
     private fun buildEmbeddedNoticeText(): CharSequence {
-        val head = "当前是免 root 内置版：这里的开关写不进地图，改了也不生效。"
-        val action = "请在地图里轻点悬浮球"
-        val tail = "，用悬浮球面板修改 —— 那一套才是真正生效的配置。"
-        val all = head + "\n" + action + tail
-        val span = SpannableString(all)
-        val start = head.length + 1
-        val end = start + action.length
-        try {
-            span.setSpan(StyleSpan(Typeface.BOLD), start, end,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            span.setSpan(ForegroundColorSpan(cAccent()), start, end,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        } catch (ignored: Throwable) {
+        val text = "内置版配置在地图内修改，点此打开地图。"
+        return SpannableString(text).apply {
+            val action = "打开地图"
+            val start = text.indexOf(action)
+            setSpan(ForegroundColorSpan(cAccent()), start, start + action.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
-        return span
     }
 
     /**
@@ -4814,60 +4283,35 @@ class MainActivity : Activity() {
         val item = LinearLayout(this)
         item.orientation = LinearLayout.VERTICAL
         item.gravity = Gravity.CENTER
-        item.setPadding(0, skin!!.dp(4f), 0, skin!!.dp(4f))
-        item.background = UiKit.rippleBare(if (dark) 0x22FFFFFF else 0x0F000000, skin!!.dp(14f).toFloat())
-
-        val pill = FrameLayout(this)
-        val icon = Icon(this, kind, skin!!.text2)
-        val iconLp = FrameLayout.LayoutParams(
-                skin!!.dp(22f), skin!!.dp(22f), Gravity.CENTER)
-        pill.addView(icon, iconLp)
-        item.addView(pill, LinearLayout.LayoutParams(skin!!.dp(46f), skin!!.dp(28f)))
-
-        val text = skin!!.text(label, 10.5f, Skin.MEDIUM, skin!!.text2)
-        val tlp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        tlp.topMargin = skin!!.dp(2f)
-        item.addView(text, tlp)
-
-        item.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                showTab(index, true)
-            }
-        })
-        parent.addView(item, LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        item.setPadding(0, dp(4), 0, dp(4))
+        item.isClickable = true
+        item.isFocusable = true
+        item.contentDescription = label
+        val iconHost = FrameLayout(this)
+        val icon = Icon(this, kind, skin!!.text3)
+        iconHost.addView(icon, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        item.addView(iconHost, LinearLayout.LayoutParams(dp(46), dp(28)))
+        val text = skin!!.text(label, 10.5f, Skin.MEDIUM, skin!!.text3)
+        text.gravity = Gravity.CENTER
+        text.isSingleLine = true
+        item.addView(text, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
+        item.setOnClickListener { showTab(index, true) }
+        UiKit.pressable(item, HyperDesign.PRESS_ROW)
+        parent.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         navItems.add(item)
         navIcons.add(icon)
         navLabels.add(text)
-        item.tag = pill
     }
 
     private fun applyNav() {
-        for (i in 0 until navItems.size) {
-            val on = i == tabIndex
-            // 选中态：**不画背景块**，只把图标与文字从灰提成黑。
-            // LSPosed Manager 的底栏就是这样 —— 真机取色：未选 #838383、选中 #000000，
-            // 底栏底就是页面底 #F7F7F7，没有任何胶囊或填充。之前那个 accentSoft 圆角块
-            // 会把底栏读成一排按钮，和上面卡片抢层级。
-            navIcons[i].setColor(if (on) skin!!.text else skin!!.text3)
-            navLabels[i].setTextColor(if (on) skin!!.text else skin!!.text3)
-            navLabels[i].setTypeface(if (on) Skin.MEDIUM else Skin.REGULAR)
-            navItems[i].background = null
-            navItems[i].setPadding(0, skin!!.dp(4f), 0, skin!!.dp(3f))
-            if (on) {
-                val item = navItems[i]
-                item.scaleX = 0.94f
-                item.scaleY = 0.94f
-                item.animate().scaleX(1f).scaleY(1f)
-                        .setDuration(260L).setInterpolator(UiKit.SPRING).start()
-                navIcons[i].scaleX = 0.86f
-                navIcons[i].scaleY = 0.86f
-                navIcons[i].animate().scaleX(1f).scaleY(1f)
-                        .setDuration(260L).setInterpolator(UiKit.SPRING).start()
-            }
+        for (i in navItems.indices) {
+            val selected = i == tabIndex
+            navItems[i].isSelected = selected
+            navIcons[i].setColor(if (selected) skin!!.text else skin!!.text3)
+            navLabels[i].setTextColor(if (selected) skin!!.text else skin!!.text3)
+            navLabels[i].typeface = if (selected) Skin.MEDIUM else Skin.REGULAR
         }
-        // 指示器滑到当前项 —— 弹簧位移，连点两个 tab 会从当前位置滑过去。
         moveNavIndicator(tabIndex, true)
     }
 
@@ -4880,29 +4324,9 @@ class MainActivity : Activity() {
     /** Tab is on screen: refresh the bar, wire the search index, restore scroll state. */
     private fun onTabShown(index: Int) {
         tabIndex = index
-        if (index == TAB_CONFIG) {
-            if (finder != null && appIndex < appPageIds.size) {
-                finder!!.attach(appPageIds[appIndex])
-            }
-        } else if (finder != null) {
-            finder!!.dismissKeyboard()
-        }
+        if (index == TAB_CONFIG && appIndex < appPageIds.size) finder?.attach(appPageIds[appIndex])
+        else finder?.dismissKeyboard()
         applyNav()
-
-        // 每次切 tab 都播一轮入场：卡片依次淡入 + 从下方 10 dp 上浮，间隔 26 ms。
-        //
-        // 之前只有「首页第一次显示」播一次（homeAnimated 守卫），其余切换是硬切 ——
-        // LSPosed 的每个页面都有入场动效，硬切在对比之下显得很廉价。
-        //
-        // 用 startDelay 而不是 ValueAnimator 串联：页面被快速来回切时，上一轮的 delay
-        // 天然被新的一轮覆盖（enter 里会 cancel 同 View 的旧动画），不会堆积。
-        val page = pageFor(index) as? ViewGroup
-        if (page != null && page.childCount > 0) {
-            val host = page.getChildAt(0) as? ViewGroup
-            if (host != null) {
-                UiKit.enterStaggered(host, skin!!.dp(10f).toFloat(), 26L, 20L)
-            }
-        }
     }
 
     /* ────────────────────────────────────────────────────── 滚动联动动效 */
@@ -4987,172 +4411,49 @@ class MainActivity : Activity() {
 
     private fun buildBackupPage(): ScrollView {
         val sv = ScrollView(this)
-        sv.setFillViewport(true)
-        sv.clipToPadding = false
+        sv.isFillViewport = true
         sv.isVerticalScrollBarEnabled = false
-        val root = LinearLayout(this)
-        root.orientation = LinearLayout.VERTICAL
-        root.setPadding(skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), skin!!.dp(Skin.S3.toFloat()),
-                skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), skin!!.dp(Skin.S7.toFloat()))
-        sv.addView(root, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val root = pageRoot(sv)
+        root.addView(compactHeader("备份", "配置文件与本机快照"))
+        backupStatus = skin!!.caption("").apply {
+            visibility = View.GONE
+            setPadding(dp(16), 0, dp(16), dp(12))
+        }
+        root.addView(backupStatus, skin!!.matchWrap())
 
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.VERTICAL
-        // 标题与卡片内文字同一条竖线（页边距 12 + 卡内 16 = 28）。
-        val textInset = HyperDesign.ROW_PAD
-        head.setPadding(skin!!.dp(textInset.toFloat()), 0, skin!!.dp(textInset.toFloat()), 0)
-        head.addView(skin!!.display("备份"))
-        val sub = skin!!.caption("配置文件 · 快照 · 跨设备迁移")
-        val subLp = skin!!.matchWrap()
-        subLp.topMargin = skin!!.dp(3f)
-        head.addView(sub, subLp)
-        head.background = skin!!.headerScrim()
-        root.addView(head, skin!!.matchWrap())
+        val files = newSurfaceCard()
+        files.addView(plainLinkRow("导出配置", "保存为 JSON 文件", false, Runnable {
+            ConfigBackup.bind(configStore(), configSchema(), packageName)
+            ConfigBackup.startExport(this, ConfigBackup.REQ_EXPORT)
+            ConfigBackup.takeError()?.let { setBackupStatus(it, true) }
+        }, Icon.CHEVRON))
+        files.addView(plainLinkRow("导入配置", "选择文件，预览后应用", false, Runnable {
+            ConfigBackup.bind(configStore(), configSchema(), packageName)
+            ConfigBackup.startImport(this, ConfigBackup.REQ_IMPORT)
+            ConfigBackup.takeError()?.let { setBackupStatus(it, true) }
+        }, Icon.CHEVRON))
+        root.addView(files, skin!!.matchWrap())
 
-        backupStatus = skin!!.text("", Skin.T_CAPTION, Skin.REGULAR, skin!!.text3)
-        // 初始为空 —— 直接 GONE，否则空行在首卡上方留一条 18 dp 的空白。
-        backupStatus!!.visibility = View.GONE
-        val bslp = skin!!.matchWrap()
-        bslp.topMargin = skin!!.dp(Skin.S2.toFloat())
-        bslp.leftMargin = skin!!.dp(textInset.toFloat())
-        bslp.rightMargin = skin!!.dp(textInset.toFloat())
-        root.addView(backupStatus, bslp)
+        addSectionTitle(root, "本机快照")
+        val snapshot = newSurfaceCard()
+        snapshot.addView(plainLinkRow("保存快照", "重装应用或清除数据后失效", false, Runnable {
+            saveSnapshot()
+            setBackupStatus("已保存本机快照", false)
+        }, Icon.CHEVRON))
+        snapshot.addView(plainLinkRow("恢复快照", null, false, Runnable {
+            if (readSnapshot() == null) setBackupStatus("还没有保存过快照", true)
+            else glassDialog("恢复快照？", "将覆盖当前全部开关。", "恢复", Runnable { restoreSnapshot() }, null, null, "取消", null)
+        }, Icon.CHEVRON))
+        root.addView(snapshot, skin!!.matchWrap())
 
-        // 导出
-        // 主操作是**文字按钮**，不是全宽实心蓝：miuix 的主操作要么描边、要么纯文字，
-        // 一整条实心蓝压在页面上会把"导出"抬成整页唯一重点 —— 它只是四件事之一。
-        val export = newSurfaceCard()
-        val exportRow = newCardRow(true)
-        val exportLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        exportLp.rightMargin = dp(Skin.S2.toFloat())
-        exportRow.addView(skin!!.rowText("导出配置文件",
-                "保存为 .json 文件，可用于备份或迁移 · 将包含全部开关：" + configCounts()),
-                exportLp)
-        val exportBtn = skin!!.textButton("导出")
-        // 文字按钮也要 40 dp 的触摸高度（miuix Button 的最小尺寸 58×40）：
-        // 13.5 sp 的字加自带 padding 只有 28 dp，手指按起来是在赌。
-        exportBtn.minimumHeight = dp(40f)
-        exportRow.addView(exportBtn, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        // 点整行 = 点按钮：miuix 的设置项行是整行可点，只有一个 28 dp 的文字按钮可点会很别扭。
-        exportRow.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                exportBtn.performClick()
-            }
-        })
-        export.addView(exportRow, skin!!.matchWrap())
-        exportBtn.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                ConfigBackup.bind(configStore(), configSchema(), packageName)
-                ConfigBackup.startExport(this@MainActivity, ConfigBackup.REQ_EXPORT)
-                val error = ConfigBackup.takeError()
-                if (error != null) {
-                    setBackupStatus(error, true)
-                } else {
-                    setBackupStatus("已打开系统保存对话框，选择位置即可导出", false)
-                }
-            }
-        })
-        root.addView(export, withTop(skin!!, HyperDesign.CARD_GAP))
-
-        // 导入
-        val imp = newSurfaceCard()
-        val impRow = newCardRow(true)
-        val impLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        impLp.rightMargin = dp(Skin.S2.toFloat())
-        impRow.addView(skin!!.rowText("导入配置文件",
-                "选择 .json 文件，先预览再写入，不会静默覆盖"),
-                impLp)
-        val importBtn = skin!!.textButton("选择文件")
-        importBtn.minimumHeight = dp(40f)
-        impRow.addView(importBtn, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        impRow.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                importBtn.performClick()
-            }
-        })
-        imp.addView(impRow, skin!!.matchWrap())
-        // 副行：兼容说明单独一行、13 sp、比正文淡一档 —— 它是补充，不是第二条操作。
-        val importHint = skin!!.text("兼容旧版「复制粘贴」的文本：存成 .json 后同样可以导入。",
-                Skin.T_CAPTION, Skin.REGULAR, skin!!.text3)
-        importHint.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), 0,
-                dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S3.toFloat()))
-        imp.addView(importHint, skin!!.matchWrap())
-        importBtn.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                ConfigBackup.bind(configStore(), configSchema(), packageName)
-                ConfigBackup.startImport(this@MainActivity, ConfigBackup.REQ_IMPORT)
-                val error = ConfigBackup.takeError()
-                if (error != null) setBackupStatus(error, true)
-            }
-        })
-        root.addView(imp, withTop(skin!!, HyperDesign.CARD_GAP))
-
-        // 本机快照
-        val snap = newSurfaceCard()
-        val snapTitle = skin!!.rowText("本机快照", "保存在本机；重装应用或清除数据后失效")
-        snapTitle.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S4.toFloat()),
-                dp(HyperDesign.ROW_PAD.toFloat()), 0)
-        snap.addView(snapTitle, skin!!.matchWrap())
-
-        val snapRow = LinearLayout(this)
-        snapRow.orientation = LinearLayout.HORIZONTAL
-        snapRow.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S2.toFloat()),
-                dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S1.toFloat()))
-        val saveBtn = skin!!.textButton("保存快照")
-        val restoreBtn = skin!!.textButton("恢复快照")
-        saveBtn.minimumHeight = dp(40f)
-        restoreBtn.minimumHeight = dp(40f)
-        val sbLp = LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        sbLp.rightMargin = skin!!.dp(Skin.S2.toFloat())
-        snapRow.addView(saveBtn, sbLp)
-        snapRow.addView(restoreBtn, LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        snap.addView(snapRow, skin!!.matchWrap())
-        saveBtn.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                saveSnapshot()
-                setBackupStatus("已保存本机快照", false)
-            }
-        })
-        restoreBtn.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                if (readSnapshot() == null) {
-                    setBackupStatus("还没有保存过快照", true)
-                    return
-                }
-                glassDialog("恢复快照？", "将覆盖当前全部开关，回到上次保存的快照。",
-                        "恢复", Runnable { restoreSnapshot() }, null, null, "取消", null)
-            }
-        })
-        root.addView(snap, withTop(skin!!, HyperDesign.CARD_GAP))
-
-        // 高级：文本方式
-        // 次级卡片：纯链接、无按钮、无图标块 —— 整张卡只有一个「入口」的身份，
-        // 层级靠"没有主操作"来体现，而不是再换一套颜色。
+        addSectionTitle(root, "更多")
         val advanced = newSurfaceCard()
-        val advLabel = skin!!.text("高级", Skin.T_CAPTION, Skin.MEDIUM, skin!!.text3)
-        advLabel.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(Skin.S3.toFloat()),
-                dp(HyperDesign.ROW_PAD.toFloat()), dp(2))
-        advanced.addView(advLabel, skin!!.matchWrap())
-        advanced.addView(plainLinkRow("复制配置文本", "发给其它设备粘贴导入", false,
-                Runnable { exportConfig() }), skin!!.matchWrap())
-        advanced.addView(plainLinkRow("从剪贴板导入", "粘贴旧版文本并预览", false,
-                Runnable { importConfig() }), skin!!.matchWrap())
-        root.addView(advanced, withTop(skin!!, HyperDesign.CARD_GAP))
-
-        // 恢复默认：破坏性操作单独一张卡、标题走危险色，不跟上面两条链接混在一张卡里。
-        val danger = newSurfaceCard()
-        danger.addView(plainLinkRow("恢复默认设置", "清空本模块写入的开关，回到出厂值", true,
-                Runnable {
-                    glassDialog("恢复默认？", "恢复" + settingsTargetLabel() +
-                            "的默认开关，强停地图 App 后生效。",
-                            "恢复默认", Runnable { resetConfig() }, null, null, "取消", null)
-                }), skin!!.matchWrap())
-        root.addView(danger, withTop(skin!!, HyperDesign.CARD_GAP))
+        advanced.addView(plainLinkRow("复制配置文本", null, false, Runnable { exportConfig() }, Icon.CHEVRON))
+        advanced.addView(plainLinkRow("从剪贴板导入", null, false, Runnable { importConfig() }, Icon.CHEVRON))
+        advanced.addView(plainLinkRow("恢复默认设置", null, true, Runnable {
+            glassDialog("恢复默认？", "将恢复全部地图开关，重新进入地图后生效。", "恢复默认", Runnable { resetConfig() }, null, null, "取消", null)
+        }, Icon.CHEVRON))
+        root.addView(advanced, skin!!.matchWrap())
         return sv
     }
 
@@ -5184,121 +4485,55 @@ class MainActivity : Activity() {
 
     private fun buildAboutPage(): ScrollView {
         val sv = ScrollView(this)
-        sv.setFillViewport(true)
-        sv.clipToPadding = false
+        sv.isFillViewport = true
         sv.isVerticalScrollBarEnabled = false
-        val root = LinearLayout(this)
-        root.orientation = LinearLayout.VERTICAL
-        // 顶部不留内边距：hero 自己带 24 dp，加起来正好是「上 24」。
-        root.setPadding(skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), 0,
-                skin!!.dp(HyperDesign.PAGE_PAD.toFloat()), skin!!.dp(Skin.S6.toFloat()))
-        sv.addView(root, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val root = pageRoot(sv)
+        val header = LinearLayout(this)
+        header.gravity = Gravity.CENTER_VERTICAL
+        header.setPadding(dp(16), dp(16), dp(16), dp(20))
+        val logo = ImageView(this)
+        logo.contentDescription = "MapAdKiller 应用图标"
+        logo.scaleType = ImageView.ScaleType.FIT_CENTER
+        val moduleIcon = ModuleResources.drawable(this, "ic_launcher")
+        logo.setImageDrawable(moduleIcon ?: if (!embedded()) applicationInfo.loadIcon(packageManager) else null)
+        UiKit.clipRounded(logo, dp(10).toFloat())
+        header.addView(logo, fixedMargin(skin!!, 44, 44, 12))
+        val title = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        title.addView(skin!!.text("MapAdKiller", HyperDesign.T_TITLE, Skin.MEDIUM, skin!!.text))
+        title.addView(skin!!.caption("v" + Version.LABEL + " · " + if (embedded()) "内置版" else "LSPosed 模块"), withTop(skin!!, 4))
+        header.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(header, skin!!.matchWrap())
 
-        // ── 顶部 hero：图标 / 应用名 / 版本 / 一句话定位 ─────────────────────────
-        // 取代原来的「关于 + 身份卡 + 版本胶囊」三件套：那三样说的是同一件事，
-        // 却占了 3 个视觉层级，标题在最左、版本胶囊贴最右、中间一大片空。
-        val hero = LinearLayout(this)
-        hero.orientation = LinearLayout.VERTICAL
-        val textInset = HyperDesign.ROW_PAD
-        hero.setPadding(skin!!.dp(textInset.toFloat()), skin!!.dp(Skin.S6.toFloat()),
-                skin!!.dp(textInset.toFloat()), skin!!.dp(Skin.S6.toFloat()))
-
-        val logo = FrameLayout(this)
-        var launcher: Drawable? = null
-        try {
-            launcher = ModuleResources.drawable(this, "ic_launcher")
-        } catch (ignored: Throwable) {
-        }
-        if (launcher != null) {
-            val image = ImageView(this)
-            image.setImageDrawable(launcher)
-            logo.addView(image, FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        }
-        UiKit.clipRounded(logo, skin!!.dp(14f).toFloat())
-        hero.addView(logo, LinearLayout.LayoutParams(skin!!.dp(56f), skin!!.dp(56f)))
-
-        // 24 sp：T_TITLE 这一档，skin.text 会自动带 -0.015 字距（20 sp 以上收一点才不散）。
-        hero.addView(skin!!.text("MapAdKiller", HyperDesign.T_TITLE, Skin.MEDIUM, skin!!.text),
-                withTop(skin!!, Skin.S3))
-        hero.addView(skin!!.caption("v" + Version.LABEL + " · "
-                        + (if (embedded()) "免 root 整合版" else "LSPosed 模块")),
-                withTop(skin!!, Skin.S1))
-        hero.addView(skin!!.caption("开源 · 免费 · 无广告"), withTop(skin!!, 2))
-        root.addView(hero, skin!!.matchWrap())
-
-        // 卡片一「项目」：三行纯链接，没有行内图标块，右侧只留一个小外链箭头。
-        addSectionTitle(root, "项目")
         val links = newSurfaceCard()
-        links.addView(plainLinkRow("GitHub 主页", "github.com/ldxm666/MapAdKiller", false,
-                Runnable { openUrl(Version.REPO) }), skin!!.matchWrap())
-        links.addView(plainLinkRow("Telegram 群组", "反馈 / 交流 / 第一时间更新", false,
-                Runnable { openUrl(Version.TG) }), skin!!.matchWrap())
-        links.addView(plainLinkRow("赞赏支持", "感谢投喂 · 扫码请作者喝杯咖啡", false,
-                Runnable { showDonateDialog() }, Icon.CHEVRON), skin!!.matchWrap())
+        links.addView(plainLinkRow("GitHub 项目", null, false, Runnable { openUrl(Version.REPO) }))
+        links.addView(plainLinkRow("Telegram 交流", null, false, Runnable { openUrl(Version.TG) }))
+        links.addView(plainLinkRow("赞赏支持", null, false, Runnable { showDonateDialog() }, Icon.CHEVRON))
         root.addView(links, skin!!.matchWrap())
 
-        // 卡片二「声明」：一段说明文字。14 sp / 行距 1.2 / onBackgroundVariant ——
-        // 声明是"读"的内容，不是"点"的内容，所以不给行、不给按钮、不给分隔线。
-        addSectionTitle(root, "声明")
-        val note = skin!!.card()
-        val body = skin!!.text("本模块免费开源，禁止任何形式的倒卖。\n" +
-                "不上传你的配置与使用数据；联网只用于检查更新和拉取公告。\n" +
-                "广告与推荐内容的拦截规则随地图版本变化，升级地图后请回来看一眼开关状态。\n" +
-                "遇到问题请带上机型、地图版本与日志到 GitHub Issues 或 Telegram 群反馈。",
-                Skin.T_BODY, Skin.REGULAR, HyperDesign.of(dark).onBackgroundVariant)
-        note.addView(body, skin!!.matchWrap())
-        root.addView(note, skin!!.matchWrap())
-
-        // 支持版本：模块真正验证过的地图版本，和本机安装版本并排显示
         addSectionTitle(root, "支持版本")
         val versions = newSurfaceCard()
-        for (i in Version.TARGETS.indices) {
-            val pkg = Version.TARGETS[i][0]
-            if (embedded() && pkg != embeddedHost) continue
+        for (target in Version.TARGETS) {
+            if (embedded() && target[0] != embeddedHost) continue
+            val installed = installedVersion(target[0])
             val row = newCardRow(true)
             row.isClickable = false
-            row.addView(skin!!.rowText(Version.TARGETS[i][1],
-                    "推荐版本 " + recommendedVersion(pkg)),
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            val installed = installedVersion(pkg)
-            val match = installed != null && installed.startsWith(Version.TARGETS[i][2])
-            val chipLp = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            chipLp.leftMargin = dp(Skin.S2.toFloat())
-            row.addView(skin!!.chip(
-                    if (installed == null) "未安装" else "本机 " + installed,
-                    if (installed == null) skin!!.chipBg
-                    else (if (match) HyperDesign.alpha(skin!!.success, if (dark) 0.14f else 0.12f)
-                    else HyperDesign.alpha(skin!!.warn, if (dark) 0.16f else 0.10f)),
-                    if (installed == null) skin!!.text3
-                    else (if (match) skin!!.success else skin!!.warn)), chipLp)
-            versions.addView(row, skin!!.matchWrap())
+            row.addView(skin!!.rowText(target[1], "本机 " + (installed ?: "未安装") + " · 适配基线 " + target[2]), skin!!.matchWrap())
+            versions.addView(row)
         }
         root.addView(versions, skin!!.matchWrap())
 
-        // 通用设置
         addSectionTitle(root, "通用")
         val general = newSurfaceCard()
         if (embedded()) {
-            addNoteRow(general, "当前为免 root 整合版：设置只作用于本地图，配置保存在本地图的嵌入式模块服务中。")
+            addNoteRow(general, "配置仅作用于当前地图。")
             if (embeddedAmap()) addSwitch(general, "调试日志", Config.K_DEBUG_LOG)
         } else {
             addLocalSwitch(general, "隐藏桌面图标", App.K_HIDE_ICON)
-            addNoteRow(general, "隐藏后桌面图标消失；LSPosed 管理器里的「打开」入口不受影响，" +
-                    "快捷设置磁贴与 adb 命令也始终可用。")
-            addSwitch(general, "调试日志（框架输出协议适配错误）", Config.K_DEBUG_LOG)
         }
         root.addView(general, skin!!.matchWrap())
-
-        // 底部：版本号居中 13 sp 灰字，下方留 24 dp（由根容器的下内边距给出）。
-        val foot = skin!!.text("MapAdKiller v" + Version.LABEL,
-                Skin.T_CAPTION, Skin.REGULAR, skin!!.text3)
-        foot.gravity = Gravity.CENTER
-        val flp = skin!!.matchWrap()
-        flp.topMargin = skin!!.dp(Skin.S6.toFloat())
-        root.addView(foot, flp)
+        val note = skin!!.caption("免费开源，禁止倒卖。\n不上传配置与使用数据；联网仅用于检查更新和获取公告。\n反馈问题时请附上机型、地图版本与日志。")
+        note.setPadding(dp(16), dp(16), dp(16), dp(8))
+        root.addView(note, skin!!.matchWrap())
         return sv
     }
 
@@ -5351,55 +4586,32 @@ class MainActivity : Activity() {
     private fun buildBottomNav(): LinearLayout {
         navBar = LinearLayout(this)
         navBar.orientation = LinearLayout.VERTICAL
-        navBar.setBackgroundColor(0x00000000)
-        navBar.setPadding(skin!!.dp(16f), 0, skin!!.dp(16f), skin!!.dp(10f))
-
-        navHolder = FrameLayout(this)
-        // 半透明底 + 真正的背景模糊。
-        //
-        // 之前是 solid(surface) —— 纯色不透，浮起来也像贴了一张白纸。要「真悬浮」必须
-        // 能看见下面的内容：底色降到 ~72% 不透明，再用 RenderEffect 把**背景**糊掉
-        // （API 31+ 的 View.setBackgroundBlurRadius，作用是这个 View 后面的内容，
-        // 不是 View 自己），这才是毛玻璃而不是半透明白。
-        //
-        // 低版本（API 26~30）没有背景模糊，只能靠 92% 高不透明 + 描边保证可读性，
-        // 否则半透明文字会和下层内容糊在一起。
-        // 应用内的「背板模糊」没有公开 API：android-34 的 View 没有
-        // setBackgroundBlurRadius（那是 render 层的东西，不是 View 的方法），
-        // 而窗口级 FLAG_BLUR_BEHIND 模糊的是**整个窗口背后**，对「栏后面那块内容」
-        // 无效。所以这里做真半透明：内容从胶囊底下滚过去时能看见，这才是悬浮的读感。
-        //
-        // 高亮底把文字压住的同时保留通透度：0.88 在浅色下能看见下面的卡片边缘，
-        // 又不至于让「首页/配置」这两个字跟滚动内容糊在一起。
-        val body = if (dark) 0xFF1A1A1A.toInt() else 0xFFFFFFFF.toInt()
-        navHolder!!.background = skin!!.solid(HyperDesign.alpha(body, 0.88f), 28f)
-        UiKit.clipRounded(navHolder!!, skin!!.dp(28f).toFloat())
-        skin!!.shadow(navHolder!!, 10f)
-        // 68 dp = 图标容器 28 + 文字 ~15 + 项内上下 8 + 行内上下 8，留 9 dp 余量。
-        // 62 dp 时文字底部会被胶囊裁掉一截（首页/配置/备份/关于 四个字的下缘发虚）。
-        navBar.addView(navHolder, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, skin!!.dp(68f)))
-
-        navIndicator = View(this)
-        navIndicator!!.background = skin!!.solid(
-                HyperDesign.alpha(skin!!.accent, if (dark) 0.18f else 0.10f), 20f)
+        navBar.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        navBar.setPadding(dp(16), 0, dp(16), dp(10))
+        val holder = FrameLayout(this)
+        navHolder = holder
+        holder.background = skin!!.solid(HyperDesign.alpha(skin!!.surface, 0.88f), 28f)
+        UiKit.clipRounded(holder, dp(28f).toFloat())
+        skin!!.shadow(holder, 10f)
+        navBar.addView(holder, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68)))
+        val indicator = View(this)
+        indicator.background = skin!!.solid(HyperDesign.alpha(skin!!.accent, if (dark) 0.18f else 0.10f), 20f)
+        indicator.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        navIndicator = indicator
         val ilp = FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
-        ilp.leftMargin = skin!!.dp(6f)
-        ilp.rightMargin = 0
-        ilp.topMargin = skin!!.dp(5f)
-        ilp.bottomMargin = skin!!.dp(5f)
-        navHolder!!.addView(navIndicator, ilp)
-
+        ilp.leftMargin = dp(10)
+        ilp.topMargin = dp(5)
+        ilp.bottomMargin = dp(5)
+        holder.addView(indicator, ilp)
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
-        row.setPadding(skin!!.dp(6f), skin!!.dp(5f), skin!!.dp(6f), skin!!.dp(5f))
-        navHolder!!.addView(row, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
+        row.setPadding(dp(6), dp(5), dp(6), dp(5))
+        holder.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addNavItem(row, Icon.HOME, "首页")
         addNavItem(row, Icon.TUNE, "配置")
         addNavItem(row, Icon.ARCHIVE, "备份")
         addNavItem(row, Icon.INFO, "关于")
+        holder.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> moveNavIndicator(tabIndex, false) }
         return navBar
     }
 
@@ -5411,36 +4623,31 @@ class MainActivity : Activity() {
      */
     private fun moveNavIndicator(index: Int, animate: Boolean) {
         val holder = navHolder ?: return
-        val ind = navIndicator ?: return
-        val run = Runnable {
-            val w = holder.width
-            if (w <= 0) return@Runnable
-            val inset = skin!!.dp(6f)
-            val cellW = (w - inset * 2) / 4f
-            val lp = ind.layoutParams as FrameLayout.LayoutParams
-            val targetW = Math.max(1, cellW.toInt() - skin!!.dp(8f))
-            if (lp.width != targetW) {
-                lp.width = targetW
-                lp.leftMargin = inset + skin!!.dp(4f)
-                ind.layoutParams = lp
-            }
-            val targetX = cellW * index
-
-            // 用 ViewPropertyAnimator 而不是 HyperMotion.Driver：
-            // Driver 内部那个 ValueAnimator 在「settle 时自我 cancel、下一轮再 start」这条
-            // 路径上不重启（实测指示器永远停在第一格），而 ViewPropertyAnimator 每次
-            // animate() 都会自动取消上一段并从当前值续走，行为确定。
-            // 曲线仍用 UiKit.SPRING —— 轻微过冲，读起来是「滑过去轻轻撞一下」。
-            ind.animate().cancel()
-            if (!animate) {
-                ind.translationX = targetX
-            } else {
-                ind.animate().translationX(targetX)
-                        .setDuration(300L)
-                        .setInterpolator(UiKit.SPRING)
-                        .start()
-            }
+        val indicator = navIndicator ?: return
+        if (holder.width <= 0) { holder.post { moveNavIndicator(tabIndex, false) }; return }
+        val inset = dp(6)
+        val cellWidth = (holder.width - inset * 2) / 4f
+        val lp = indicator.layoutParams as FrameLayout.LayoutParams
+        val targetWidth = maxOf(1, cellWidth.toInt() - dp(8))
+        if (lp.width != targetWidth) {
+            lp.width = targetWidth
+            indicator.layoutParams = lp
         }
-        if (holder.width > 0) run.run() else holder.post(run)
+        val target = cellWidth * index
+        var driver = navIndicatorDriver
+        if (driver == null) {
+            driver = HyperMotion.drivePage(indicator.translationX, HyperMotion.Driver.Sink { indicator.translationX = it }).bindTo(indicator)
+            navIndicatorDriver = driver
+        }
+        if (animate) driver.to(target) else driver.snapTo(target)
+    }
+
+    private fun reserveNavigationSpace(view: View) {
+        if (view is ScrollView) {
+            view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom + dp(86))
+            view.clipToPadding = false
+        } else if (view is ViewGroup) {
+            for (i in 0 until view.childCount) reserveNavigationSpace(view.getChildAt(i))
+        }
     }
 }

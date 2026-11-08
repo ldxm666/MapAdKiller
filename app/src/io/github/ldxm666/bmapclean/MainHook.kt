@@ -47,6 +47,10 @@ class MainHook private constructor() {
             }
 
             if (PKG_BMAP != pkg) return
+            // Official cashier/WXPay callbacks also run in :SandBoxProcess. Only the
+            // debug observer belongs there; homepage cleanup remains main-only.
+            try { BaiduPayment.install(param.classLoader) }
+            catch (t: Throwable) { H.log(Log.WARN, TAG, "payment observer unavailable: " + t.javaClass.simpleName) }
             // 只做主进程：首页 UI 全在主进程
             if (proc != null && proc.contains(":")) {
                 H.log(Log.INFO, TAG, "event=skip_subprocess process=" + proc)

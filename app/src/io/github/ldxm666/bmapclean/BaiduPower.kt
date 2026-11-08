@@ -123,8 +123,8 @@ class BaiduPower private constructor() {
                 return
             }
             val K = Cfg.K_BG_SERVICE_OFF
-            h(cl, "com.baidu.baidumaps.notification.service.NotificationService", "onStartCommand", 3,
-                    "baidu.power.bg.notification", K, notSticky("NotificationService.onStartCommand"))
+            // Navigation/trip notifications belong to the user. Never stop the
+            // shared NotificationService as an advertising/background task.
             h(cl, "com.baidu.mapframework.component3.update.ComUpdateService", "onStartCommand", 3,
                     "baidu.power.bg.update", K, notSticky("ComUpdateService.onStartCommand"))
             // ⚠ 父类是 IntentService ⇒ 真正的工作在 onHandleIntent；这里按 scout 建议拦 onStartCommand
@@ -324,7 +324,7 @@ class BaiduPower private constructor() {
 
         @JvmStatic
         fun isWidgetUpdate(action: String?): Boolean {
-            return action != null && action.endsWith("APPWIDGET_UPDATE")
+            return "android.appwidget.action.APPWIDGET_UPDATE" == action
         }
 
         /** 返回常量 false。 */

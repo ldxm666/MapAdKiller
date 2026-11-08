@@ -60,24 +60,25 @@ object AmapCruiseOfficial {
 
     @JvmStatic
     fun install(cl: ClassLoader) {
-        if (!Config.cruiseOfficial()) {
-            H.log(Log.INFO, MainHook.TAG, "event=cruise_official_skip reason=off")
-            return
-        }
+        // Install once, consult the live preference in the hook. An initially OFF
+        // process must still be able to enable this feature without restarting.
 
-        // \u4e24\u4e2a\u7c7b\u90fd\u7528 hookAll\uff1a\u6309\u540d\u5b57\u6302\uff0c\u4e0d\u5199\u6b7b\u53c2\u6570\u7c7b\u578b\u3002
-        // \u7406\u7531\uff1a\u8fd9\u4e24\u4e2a\u65b9\u6cd5\u7684\u53c2\u6570\u662f boolean\uff0c\u4f46\u53cd\u5c04\u53d6\u5230\u7684\u91cd\u8f7d/\u6a21\u578b\u7c7b\u578b\u53ef\u80fd\u968f\u5c0f\u7248\u672c\u53d8\uff1b
-        // hookAll \u628a\u540c\u540d\u7684\u5168\u6302\u4e0a\uff0c\u53ea\u8981\u53c2\u6570\u91cc\u6709 boolean \u5c31\u80fd\u6539\u3002
+        // Both CN and Play 17.02 expose these exact single-boolean entry points.
+        // Do not intercept unrelated overloads when the native API changes.
         var n = 0
         try {
-            n += H.hookAll(H.cls(cl, CLS_MODULE), "setAutoEnterDriveRadar",
-                    "amap_cruise_official_module", FORCE_TRUE)
+            val before = H.ok.get()
+            H.hookSig(H.cls(cl, CLS_MODULE), "setAutoEnterDriveRadar",
+                    "amap_cruise_official_module", FORCE_TRUE, Boolean::class.javaPrimitiveType)
+            n += H.ok.get() - before
         } catch (t: Throwable) {
             H.log(Log.WARN, MainHook.TAG, "event=cruise_official_fail part=module", t)
         }
         try {
-            n += H.hookAll(H.cls(cl, CLS_PAGE), "setAutoEnterDriveRadar",
-                    "amap_cruise_official_page", FORCE_TRUE)
+            val before = H.ok.get()
+            H.hookSig(H.cls(cl, CLS_PAGE), "setAutoEnterDriveRadar",
+                    "amap_cruise_official_page", FORCE_TRUE, Boolean::class.javaPrimitiveType)
+            n += H.ok.get() - before
         } catch (t: Throwable) {
             H.log(Log.WARN, MainHook.TAG, "event=cruise_official_fail part=page", t)
         }
@@ -99,9 +100,10 @@ object AmapCruiseOfficial {
      */
     private val FORCE_TRUE: XposedInterface.Hooker = object : XposedInterface.Hooker {
         override fun intercept(chain: XposedInterface.Chain): Any? {
+            var replacement: Array<Any?>? = null
             try {
-                val list = chain.getArgs()
-                if (list != null) {
+                val list = if (Config.cruiseOfficial()) chain.getArgs() else null
+                if (list != null && list.size == 1 && list[0] is Boolean) {
                     val args = list.toTypedArray()
                     var changed = false
                     for (i in args.indices) {
@@ -113,7 +115,7 @@ object AmapCruiseOfficial {
                     if (changed) {
                         H.log(Log.INFO, MainHook.TAG, "event=cruise_official_forced method="
                                 + chain.executable.name)
-                        return chain.proceed(args)
+                        replacement = args
                     }
                 }
             } catch (t: Throwable) {
@@ -121,7 +123,8 @@ object AmapCruiseOfficial {
                 H.log(Log.WARN, MainHook.TAG, "event=cruise_official_argfail err="
                         + t.javaClass.simpleName)
             }
-            return chain.proceed()
+            // Never catch an exception from the native method and proceed a second time.
+            return if (replacement != null) chain.proceed(replacement!!) else chain.proceed()
         }
     }
 }

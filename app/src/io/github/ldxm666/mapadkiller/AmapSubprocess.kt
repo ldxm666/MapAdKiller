@@ -59,12 +59,6 @@ object AmapSubprocess {
             "com.amap.bundle.desktopwidget_dynamic.ability.base.DWAbsProvider"
 
     /**
-     * `com.amap.bundle.desktopwidget.service.DesktopWidgetService`（classes4.dex，super=android.app.Service）
-     */
-    private const val CLS_WIDGET_SERVICE =
-            "com.amap.bundle.desktopwidget.service.DesktopWidgetService"
-
-    /**
      * 自己**覆写**了 `onReceive(Context,Intent)V` 的 4 个直接子类。
      *
      * <p>为什么必须单独挂：`onReceive` 是虚方法，系统调的是 Manifest 里那个类的实现。
@@ -85,9 +79,9 @@ object AmapSubprocess {
      * 它是「长按桌面图标 → 创建快捷方式」的回调，只在**用户主动操作**时触发，
      * 不构成周期耗电；拦了反而会让"添加快捷方式"失败 —— 收益为零、代价是功能坏掉。
      *
-     * <p>**刻意不挂** `com.amap.bundle.desktopwidget.hiboard.HiBoardCardProvider`：
-     * 它是 ContentProvider（OPPO 原子卡片，`onCreate()Z`），让它 onCreate 返回 false
-     * 会让 provider 发布失败，任何查询它的系统组件都会拿到 null ⇒ 中风险，不做。
+     * <p>保留 `com.amap.bundle.desktopwidget.hiboard.HiBoardCardProvider` 的完整生命周期：
+     * OPPO 系统卡片属于用户功能，既不能拦 provider 发布，也不能跳过卡片 SDK 初始化。
+     * 标准小组件周期广播的省电开关不再承担禁用厂商卡片的职责。
      */
     private val CLS_WIDGET_OVERRIDERS = arrayOf(
             "com.autonavi.bundle.amaphome.desktopwidget.ToolboxWidgetProvider",
@@ -100,38 +94,6 @@ object AmapSubprocess {
             // 所以挂上它不会让"长按图标→添加快捷方式"失败。
             "com.amap.bundle.desktopwidget.shortcut.AmapShortCutProvider"
     )
-
-    /**
-     * OPPO 系「原子卡片」：`com.amap.bundle.desktopwidget.hiboard.HiBoardCardProvider`
-     * （classes4.dex，super=`com.oplus.cardwidget.serviceLayer.AppCardWidgetProvider`
-     * → `BaseInterfaceLayerProvider` → `BaseCardStrategyProvider`）。
-     *
-     * <p>它是**独立继承树**，不归上面两个 widget 基类管，所以必须单独处理。
-     *
-     * <p>📌 **勘误**：`subprocess-inventory.md` 把本类描述成「ContentProvider」是**不准**的。
-     * DEX 实测 super 链是
-     * `AppCardWidgetProvider → BaseInterfaceLayerProvider → BaseCardStrategyProvider`，
-     * 三个都在 `com.oplus.cardwidget.serviceLayer` 包内，是 **OPPO 卡片框架自己的 provider 基类**，
-     * 不是 `android.content.ContentProvider` 的直接子类。
-     * 它之所以容易被当成 ContentProvider，是因为 Manifest 里它确实是用 `<provider>` 标签
-     * 声明的（`components.csv`）—— 声明标签 ≠ 类的父类。
-     *
-     * <p>⚠ **不选 `onCreate()Z → false` 的原因（重要，别照 scout2 的报告改回去）**：
-     * ① 因为 Manifest 用的是 `<provider>` 标签，进程启动时系统会实例化它并调 `onCreate()`；
-     * ② 而 `onCreate()Z` 在**整个 OPPO 卡片基类链上都有同签名覆写**
-     *    （`AppCardWidgetProvider` / `BaseAppCardWidgetProvider` / `BaseInterfaceLayerProvider`
-     *    逐个 `--Methods --Filter onCreate` 都能查到 `public onCreate()Z`），
-     *    这条链最终**可能**接到 `ContentProvider.onCreate()`；
-     * ③ 一旦它真是 `ContentProvider.onCreate()`，返回 `false` 就等于
-     *    **provider 发布失败** —— 任何查询它的系统组件（OPPO 桌面 / 卡片服务）都会拿到 null，
-     *    属**中风险**，且失败点在系统侧、模块这边看不到堆栈；
-     * ④ 而 `initCardWidget()V` 是卡片 SDK 自己的初始化入口（**void**），
-     *    不 proceed 的效果等价（卡片永不初始化），却**没有发布失败的风险**。
-     * ⇒ 选 void 的那个：宁可少拦一层，也不冒 provider 发布失败的风险。
-     * **这条结论已与 Lead 对齐（2026-10-20），不要改回 `onCreate()Z`。**
-     */
-    private const val CLS_HIBOARD =
-            "com.amap.bundle.desktopwidget.hiboard.HiBoardCardProvider"
 
     /** `com.amap.bundle.lotuspool.internal.LotusPoolService`（classes4.dex，super=android.app.Service） */
     private const val CLS_LOTUSPOOL =
@@ -196,7 +158,7 @@ object AmapSubprocess {
      * 然后才调 `super.onReceive`。只挂最上面那个的话，动态那一族的自有逻辑照样先跑一遍。
      */
     private fun installWidget(cl: ClassLoader) {
-        // ★ 安装期门控：开关关掉就**根本不装**这 8 条（零成本，而不是装上进拦截器再放行）。
+        // ★ 安装期门控：开关关掉就**根本不装**这 7 条（零成本，而不是装上进拦截器再放行）。
         // 代价：改这个开关要强停并重开高德才生效。
         if (!Config.installGate(Config.K_SUBPROC_WIDGET_OFF)) {
             H.log(Log.INFO, MainHook.TAG, "event=hook_skipped key=subproc_widget_off reason=switch_off")
@@ -212,12 +174,10 @@ object AmapSubprocess {
             H.hookSig(H.cls(cl, name), "onReceive", "amap_widget_receive_" + shortName(name),
                     WIDGET_RECEIVE, Context::class.java, Intent::class.java)
         }
-        // 3) 服务：不让它常驻
-        H.hookSig(H.cls(cl, CLS_WIDGET_SERVICE), "onStartCommand", "amap_widget_service",
-                idleService("DesktopWidgetService"),
-                Intent::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
-        // 4) OPPO 原子卡片（独立继承树）：卡片的初始化入口直接 return。
-        H.hookSig(H.cls(cl, CLS_HIBOARD), "initCardWidget", "amap_hiboard_init", WIDGET_INIT)
+        // DesktopWidgetService posts an ongoing navigation notification (native
+        // category=navigation and com.autonavi.minimap.navigating=true). Do not
+        // stop this shared service. OPPO HiBoard initialization is also a user
+        // system-card path: leave its complete lifecycle untouched.
     }
 
     // ══════════════════════════════════════════════ :locationservice
@@ -306,26 +266,6 @@ object AmapSubprocess {
     }
 
     /**
-     * OPPO 原子卡片的初始化入口：直接 return，卡片 SDK 永不初始化。
-     *
-     * <p>`initCardWidget()V` 是 void ⇒ 不 proceed 即短路。
-     */
-    private val WIDGET_INIT: XposedInterface.Hooker = object : XposedInterface.Hooker {
-        private var reported = false
-        override fun intercept(chain: XposedInterface.Chain): Any? {
-            try {
-                if (!reported) {
-                    reported = true
-                    H.log(Log.INFO, MainHook.TAG, "event=hiboard_blocked method=initCardWidget")
-                }
-            } catch (ignored: Throwable) {
-            }
-            // 装上就无条件短路（安装期门控已决定装不装），零 Config 读。
-            return null
-        }
-    }
-
-    /**
      * 服务空闲化：返回 `START_NOT_STICKY`，**每个服务实例最多 stopSelf 一次**。
      *
      * <p>为什么返回值必须显式给 2 而不是 `chain.proceed()` 之后再 stop：
@@ -371,14 +311,7 @@ object AmapSubprocess {
         return Config.installGate(Config.K_SUBPROC_OFF)
     }
 
-    /**
-     * `APPWIDGET_UPDATE` 的 action 判定。
-     *
-     * <p>不只认 `android.appwidget.action.APPWIDGET_UPDATE`：
-     * 17.01 的 `--Xref appwidget` 在 `BaseDesktopWidgetProvider.onReceive` 里
-     * 同时命中过 `miui.appwidget.action.APPWIDGET_UPDATE`（MIUI 变体）。
-     * 用后缀匹配一次覆盖，避免下次又漏厂商分支。
-     */
+    /** Standard periodic widgets only; preserve OEM card actions. */
     private fun isWidgetUpdate(action: String?): Boolean {
         // ★ 只拦**标准** AppWidget 广播，放行厂商自己的 action（2026-10-20 用户反馈「导航不上
         // 小米灵动岛」后收紧）。

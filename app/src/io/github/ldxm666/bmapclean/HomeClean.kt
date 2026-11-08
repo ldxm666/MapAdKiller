@@ -222,7 +222,6 @@ class HomeClean private constructor() {
                 n += applyFeed(decor)
                 n += applyMine(decor)
                 n += applySearchChips(decor)
-                measurePanel(decor)
                 dumpComponentIds(decor)   // TEMP probe
 
                 if (Cfg.debug()) {
@@ -314,7 +313,6 @@ class HomeClean private constructor() {
                 val rowView: View? = Anchors.find(wrap, ROW_IDS[r], ROW_NUMS[r])
                 if (rowView !is ViewGroup) continue
                 val row = rowView
-                var hidCell = false
                 for (i in 0 until row.childCount) {
                     val cell = row.getChildAt(i)
                     val label = label(cell)
@@ -322,10 +320,9 @@ class HomeClean private constructor() {
                     if (Cfg.debug()) {
                         H.log(Log.INFO, MainHook.TAG, "toolGrid row" + (r + 1) + "[" + i + "]=" + label)
                     }
-                    if (toolCellHidden(label) && hide(cell)) { n++; hidCell = true }
+                    if (toolCellHidden(label) && hide(cell)) n++
                 }
-                // 宫格少一格不能留白 → 同行剩余项按等分槽位重摆（只改 translationX，不动尺寸）
-                if (hidCell) spreadRowEvenly(row)
+                // Packing belongs to the native model adapter, never a second geometry pass.
             }
             return n
         }
@@ -339,6 +336,7 @@ class HomeClean private constructor() {
          * 「设置页有开关、勾了不生效」。
          */
         private fun toolCellHidden(label: String): Boolean {
+            if (label == "公交地铁") return !BaiduHooks.toolVisible(label)
             val labels = Spec.toolLabels()
             for (i in labels.indices) {
                 val k = labels[i]
@@ -355,30 +353,10 @@ class HomeClean private constructor() {
         // ══════════════════════════════════════════════════ ③ 回家 / 去公司
 
         private fun applyHomeCompany(decor: View): Int {
-            var n = 0
-            val wrap: View? = Anchors.find(decor, Anchors.ID_HC_WRAP, Anchors.NUM_HC_WRAP)
-            if (wrap == null) return 0
-
-            if (!Cfg.visible(Spec.K_HC)) {
-                return if (hide(wrap)) 1 else 0
-            }
-
-            val homeV = Cfg.visible(Spec.K_HC_HOME)
-            val compV = Cfg.visible(Spec.K_HC_COMPANY)
-
-            val h: View? = Anchors.find(decor, Anchors.ID_HC_HOME, Anchors.NUM_HC_HOME)
-            if (h != null && !homeV && hide(h)) n++
-
-            val c: View? = Anchors.find(decor, Anchors.ID_HC_COMPANY, Anchors.NUM_HC_COMPANY)
-            if (c != null && !compV && hide(c)) n++
-
-            // 中间竖线：两侧有一侧没了就没意义
-            val d: View? = Anchors.find(decor, Anchors.ID_HC_DIVIDER, Anchors.NUM_HC_DIVIDER)
-            if (d != null && (!homeV || !compV)) hide(d)
-
-            // 「去设置」是纯文案（左右各一个，用了同一个 id），按文案全量摘除
-            if (!Cfg.visible(Spec.K_HC_SETTING)) n += hideByExactText(wrap, "去设置")
-            return n
+            // One reversible owner for native commute views. Text-only hiding used
+            // to remove the Home setup prompt and never restore it after re-enabling.
+            BaiduCommute.applyCurrent()
+            return 0
         }
 
         // ══════════════════════════════════════════════════ ④ 天气 / 行程栏
@@ -753,49 +731,6 @@ class HomeClean private constructor() {
             }
         }
 
-        // ══════════════════════════════════════════ ⑧ 面板能上拉多高
-
-        /** 面板内剩余可见内容的实际高度（相对面板顶部）。0 = 还没量到。 */
-        @Volatile
-        private var sPanelContentHeight = 0
-
-        /**
-         * 量出首页面板里**剩余可见内容**的实际高度。
-         *
-         * 推荐 / 天气被摘掉之后，面板容器本身仍是展开态那个高度 —— Talos（Yoga 自绘）不会因为
-         * 子项变少就塌陷，于是上滑能拉出一大片空白。这里把内容底边记下来，交给
-         * {@link #clampPeek} 把 peek 高度夹住：用多少就上拉多少。
-         */
-        private fun measurePanel(decor: View) {
-            try {
-                val panel: View? = Anchors.find(decor, Anchors.ID_HOME_PANEL, Anchors.NUM_HOME_PANEL)
-                if (panel !is ViewGroup) { sPanelContentHeight = 0; return }
-                var bottom = 0
-                for (i in 0 until panel.childCount) {
-                    val c = panel.getChildAt(i)
-                    if (c == null || c.visibility == View.GONE) continue
-                    if (c.height <= 0) continue      // 还没量到尺寸
-                    bottom = Math.max(bottom, c.bottom)
-                }
-                sPanelContentHeight = bottom
-            } catch (ignored: Throwable) {
-                sPanelContentHeight = 0
-            }
-        }
-
-        /**
-         * 把引擎算出的 peek 高度夹到"剩余内容高度"。
-         *
-         * <p>原来的实现只在首页被清到**全空**时才归零；只关掉推荐 / 天气时它照样返回整个面板的
-         * 高度，于是上滑依旧能拉出空白。量不到内容高度时**原样返回**，宁可保持原状也不乱改。
-         */
-        @JvmStatic
-        fun clampPeek(peek: Int): Int {
-            val content = sPanelContentHeight
-            if (content <= 0) return peek
-            return Math.min(peek, content)
-        }
-
         /**
          * TEMP 探针：把首页所有 container/component 的 **id 名 + 纵向位置 + 高度** 打进 logcat。
          *
@@ -881,35 +816,6 @@ class HomeClean private constructor() {
                 if (Cfg.debug() && moved > 1) {
                     H.log(Log.INFO, MainHook.TAG, "restackColumn " + g.javaClass.simpleName
                             + " visibleItems=" + moved)
-                }
-            } catch (ignored: Throwable) {}
-        }
-
-        /**
-         * 手工横向均分：把一行里剩余可见项按「等分槽位 + 槽内居中」重新摆位。
-         * 同样只改 `translationX`，尺寸与命中区域不变。
-         */
-        private fun spreadRowEvenly(row: ViewGroup?) {
-            if (row == null) return
-            try {
-                var visible = 0
-                for (i in 0 until row.childCount) {
-                    if (row.getChildAt(i).visibility != View.GONE) visible++
-                }
-                val w = row.width
-                if (visible == 0 || w <= 0) return
-                var idx = 0
-                for (i in 0 until row.childCount) {
-                    val c = row.getChildAt(i)
-                    if (c.visibility == View.GONE) continue
-                    val slot = w / visible
-                    val target = idx * slot + Math.max(0, (slot - c.width) / 2)
-                    c.translationX = (target - c.left).toFloat()
-                    idx++
-                }
-                if (Cfg.debug()) {
-                    H.log(Log.INFO, MainHook.TAG, "spreadRowEvenly " + row.javaClass.simpleName
-                            + " visible=" + visible + " w=" + w)
                 }
             } catch (ignored: Throwable) {}
         }

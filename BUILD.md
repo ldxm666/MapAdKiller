@@ -1,308 +1,69 @@
-# MapAdKiller 2.3.2 构建说明
+# MapAdKiller 2.3.3 构建说明
 
-本文覆盖四种产物的完整构建流程：**模块版**、**三个国内版内置包**、**Play 版内置包**。
+主源码位于 `app/src`，使用 Kotlin 1.9.23；API 桩、回归测试和部分构建工具仍有 Java。模块、三个国内内置包和高德 Play 拆分内置包使用同一套源码。版本事实源为 `app/src/io/github/ldxm666/mapclean/Version.kt`（NAME/LABEL/CODE = 2.3.3/2.3.3/2303），并保持 Manifest、module.prop 一致。
 
-所有命令都在仓库根目录执行，路径按 Windows + PowerShell 写；Linux/macOS 只需换分隔符。
+## 环境与路径
 
----
+当前脚本以 Windows PowerShell / Python 3.10+ 为基线，并非直接兼容 Linux/macOS 的脚本。
 
-## 一、环境
+| 依赖 | 要求 |
+| --- | --- |
+| JDK | 17，Java/Kotlin JVM target 8 |
+| Android SDK | platform android-34、build-tools 35.0.0 |
+| Kotlin | 1.9.23；使用 Gradle 8.9 分发包 lib 目录中的 embeddable compiler 及依赖 |
+| Kotlin 运行库 | `app/libs/kotlin-stdlib-1.9.23.jar`，必须进入 DEX |
+| libxposed | `app/libs/dependencies.json` 固定的 API 102、service、interface JAR |
+| LSPatch | v1.2 build 487，仅内置版构建需要 |
+| Android NDK | 26.3.11579264，仅修改 native 源码后重编需要 |
 
-| 组件 | 版本 | 说明 |
-|---|---|---|
-| JDK | 17（或 8+） | `javac --release 8` 编译，产物跑在 Android 8.0+ |
-| Android SDK build-tools | **35.0.0** | `app/build.ps1` 里写死了这个版本 |
-| Android platform | **android-34** | 提供 `android.jar`（compile-only，不进包） |
-| NDK | **26.3.11579264** | 只在重编 `libamapbldpatch.so` 时需要 |
-| LSPatch CLI | **v1.2-487** | `lspatch-v1.2-487-release.jar`，打内置版必需 |
+`app/build.ps1` 目前包含本机 JDK、SDK、KotlinLib 绝对路径。自行构建时须将脚本开头的 `$Jdk`、`$Sdk`、`$KotlinLib` 改为自己的安装路径；同时核对 KotlinJars 数组中 compiler、stdlib、reflect、script-runtime、trove4j、annotations、daemon 文件均存在。临时编译目录使用 ASCII 路径，避免 aapt2/d8 的非 ASCII 路径问题。`tools/build_variant.py` 也会探测 Kotlin 编译器路径，迁移环境时请核对其工具链解析逻辑。
 
-默认路径（脚本里可直接改）：
+## 完整模块
 
-```
-Sdk = %LOCALAPPDATA%\Android\Sdk
-Jdk = JAVA_HOME 或 C:\Program Files\Java\jdk-17
-NDK = %LOCALAPPDATA%\Android\Sdk\ndk\26.3.11579264
-```
-
-LSPatch jar 需要自己下载：
-
-```
-https://github.com/JingMatrix/LSPatch/releases/tag/v1.2
-sha256 d238fdc414d121b7fa454d8b4ccf420df3a8c97d563761861ff92bd9c5da2165
-```
-
----
-
-## 二、模块版（`MapClean-lsp-v2.3.2.apk`）
+在项目根目录执行：
 
 ```powershell
-cd MapAdKiller
-powershell -NoProfile -ExecutionPolicy Bypass -File app\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File app/build.ps1
+python tools/verify_module.py --ModuleApk output/MapClean-lsp-v2.3.3.apk --ExpectedVersion 2.3.3 --ExpectedVersionCode 2303 --Java D:/JDK/bin/java.exe --OutputReport output/module-verification.json
 ```
 
-产物：
-```
-output\MapClean-lsp-2.3.2.apk        ← 发布用
-app\dist\BMapClean.apk               ← 同内容，历史路径
-```
+产物：`output/MapClean-lsp-v2.3.3.apk`，另复制到历史路径 `app/dist/BMapClean.apk`。
 
-六个步骤：准备 API 桩 → 编译 → d8 → aapt2 → zipalign+签名 → 落盘。
+生产构建依赖本地 `app/debug.keystore`，不会自动创建/替换。生产证书 SHA-256 为 `cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed`。源码归档不包含签名私钥；第三方开发构建必须使用自己的密钥并明确调整签名校验配置，因此不能覆盖官方模块。不要把私钥或口令提交到仓库。
 
-**版本号只改三处**，脚本会从 `Version.java` 读并回填：
+构建依次准备 API 桩、编译 Kotlin、合并必要 service/interface 与 Kotlin runtime、d8、打包资源和 native、16 KiB zipalign、签名并验证。不要将测试 DEX 或 API compile-only 桩打入生产 APK。
 
-```
-app/src/io/github/ldxm666/mapclean/Version.java    NAME / LABEL / CODE
-app/AndroidManifest.xml                            android:versionCode / versionName
-app/META-INF/xposed/module.prop                    version / versionCode
-```
+## 国内版内置包
 
-> `app/debug.keystore` **必须存在**。脚本不会自动生成 —— 曾经自动生成过一次，
-> 结果密钥丢了，老用户无法覆盖升级（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
-> 证书 SHA-256 应为 `cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed`。
-
----
-
-## 三、国内版内置包（高德 / 百度 / 腾讯）
-
-内置版 = 把模块 APK 塞进宿主 APK，用 LSPatch 打补丁，用户不需要框架。
-
-### 3.1 准备原始宿主 APK
-
-从设备拉取当前安装的官方版：
-
-```bash
-adb shell pm path com.autonavi.minimap    # 高德
-adb shell pm path com.baidu.BaiduMap      # 百度
-adb shell pm path com.tencent.map         # 腾讯
-adb pull <上面输出的路径> original.apk
-```
-
-2.3.2 对应的基线版本：
-
-| 宿主 | 版本 | versionCode |
-|---|---|---|
-| 高德地图（国内版） | 17.02.0.2010 | 170200 |
-| 百度地图 | 22.1.20 | 1665 |
-| 腾讯地图 | 11.7.0 | 6013 |
-
-### 3.2 构建
+准备合法取得的原始宿主：高德 17.02.0.2010、百度 22.1.20、腾讯 11.7.0（6013）。原始 APK 不在源码归档中。LSPatch CLI 来源：[JingMatrix/LSPatch v1.2](https://github.com/JingMatrix/LSPatch/releases/tag/v1.2)，SHA-256：`d238fdc414d121b7fa454d8b4ccf420df3a8c97d563761861ff92bd9c5da2165`。
 
 ```powershell
-$JAR = "path\to\lspatch-v1.2-487-release.jar"
-
-# 高德
-python tools\build_variant.py --Target amap `
-  --OriginalApk "path\to\amap-1702002010-base.apk" `
-  --OutputDirectory output\nonroot-amap-232 `
-  --LspatchJar $JAR --SignatureBypass 2
-
-# 百度
-python tools\build_variant.py --Target baidu `
-  --OriginalApk "path\to\baidu-22.1.20-base.apk" `
-  --OutputDirectory output\nonroot-baidu-232 `
-  --LspatchJar $JAR --SignatureBypass 2
-
-# 腾讯
-python tools\build_variant.py --Target tmap `
-  --OriginalApk "path\to\tmap-11.7.0-base.apk" `
-  --OutputDirectory output\nonroot-tmap-232 `
-  --LspatchJar $JAR --SignatureBypass 2
+$env:JAVA_HOME = 'D:/JDK'
+$jar = 'path/to/lspatch-v1.2-487-release.jar'
+python tools/build_variant.py --Target amap --OriginalApk path/to/amap-base.apk --OutputDirectory output/nonroot-amap-233 --ArtifactName Amap-2.3.3-nonroot-embedded.apk --LspatchJar $jar --SignatureBypass 2
+python tools/build_variant.py --Target baidu --OriginalApk path/to/baidu-base.apk --OutputDirectory output/nonroot-baidu-233 --ArtifactName Baidu-2.3.3-nonroot-embedded.apk --LspatchJar $jar --SignatureBypass 2
+python tools/build_variant.py --Target tmap --OriginalApk path/to/tencent-base.apk --OutputDirectory output/nonroot-tmap-233 --ArtifactName Tencent-2.3.3-nonroot-embedded.apk --LspatchJar $jar --SignatureBypass 2
 ```
 
-每个约 3–5 分钟。产物在 `output\nonroot-<target>-232\<宿主名>-2.3.2-免root内置版.apk`。
+可以显式提供 `--Java`、`--Javac`、`--Jar`、`--AndroidSdk`、`--BuildToolsVersion`。每个变体独立裁剪其它地图实现并编译；共享面板、配置、目标地图转发入口、宿主白名单和必要功能类必须保留，构建期校验失败即停止。产物旁包含 `variant-verification.json`、LSPatch 许可和来源说明。
 
-### 3.3 精简构建做了什么
+## 高德 Google Play 拆分包
 
-每个变体只保留自己那半的代码，其余包整体裁掉或替换成 no-op 桩：
-
-| 变体 | 保留 | 裁掉 |
-|---|---|---|
-| `amap` | `mapadkiller` 全量、`mapclean` 界面 | `bmapclean` 全部 |
-| `baidu` | `bmapclean` 全量 | `mapadkiller` 全部 |
-| `tmap` | `tmapclean` 全量 | `mapadkiller`、`bmapclean` 大部分 |
-
-> **`mapclean` 包在所有变体里都保留** —— 它是内置版的设置界面与悬浮球。
->
-> 一个 APK 只能声明一个 Xposed 入口（`META-INF/xposed/java_init.list`），
-> 百度与腾讯的 hook 靠共享源码里的显式转发到达。曾经有人为了让精简构建能编译，
-> 把这两个转发删了 —— 精简构建是过了，但完整模块的百度从此完全没反应。
-> 现在 `TARGETS[*]["invariants"]` 会在构建期检查转发是否还在，缺了直接失败。
-
-### 3.4 验证
+准备同一次安装导出的 `base.apk`、`split_config.arm64_v8a.apk`、`split_config.xxxhdpi.apk`、`split_config.zh.apk`，放在同一目录。不要混用国内版 native 库或不同版本 split。
 
 ```powershell
-python tools\verify_module.py --Apk "output\nonroot-amap-232\高德地图-2.3.2-免root内置版.apk"
+python tools/build_variant.py --Target amap --OriginalApk path/to/play-splits --OutputDirectory output/nonroot-play-233 --ArtifactName Amap-Play-2.3.3-nonroot-embedded.apk --LspatchJar $jar --SignatureBypass 2
 ```
 
-构建脚本自己也会写 `variant-verification.json`，含每个 split 的 sha256、
-精简计划（`slimPlan.removed` / `.stubbed`）和 LSPatch 输入哈希。
+输出同名目录中的四个 APK，需共同安装。国内/Play 高德的功能模块 DEX 应一致，原宿主及 native 锚点独立校验。Play 内置版支持范围见发布说明，不能仅因 DEX 一致就认定所有宿主路径已经实机验证。
 
----
-
-## 四、Play 版内置包（高德 17.02.2.2014）
-
-### 4.1 为什么单独一套流程
-
-Play 版是 **App Bundle 拆分包**，不是单个 APK：
-
-```
-base.apk                    164,456,253 B
-split_config.arm64_v8a.apk   83,378,338 B   ← 所有 native 库都在这里
-split_config.xxxhdpi.apk        615,811 B
-split_config.zh.apk           1,065,369 B
-```
-
-而且它和国内版是**两次独立构建**：8 个 DEX 全部不同，`libamapr.so` 也不同
-（32,984,120 vs 32,983,424 字节）。所以 native 补丁地址不能共用。
-
-### 4.2 拉取 split
-
-```bash
-adb shell pm path com.autonavi.minimap
-# 输出四行，逐个 pull 到同一个目录，保持原文件名
-adb pull /data/app/.../base.apk              play-170222014\base.apk
-adb pull /data/app/.../split_config.arm64_v8a.apk play-170222014\split_config.arm64_v8a.apk
-adb pull /data/app/.../split_config.xxxhdpi.apk   play-170222014\split_config.xxxhdpi.apk
-adb pull /data/app/.../split_config.zh.apk        play-170222014\split_config.zh.apk
-```
-
-### 4.3 构建
-
-`--OriginalApk` 指向**目录**，脚本会自动按 `base.apk` 优先排序：
+## 测试、源码归档与发布
 
 ```powershell
-python tools\build_variant.py --Target amap `
-  --OriginalApk "path\to\play-170222014" `
-  --OutputDirectory output\nonroot-amap-play-232 `
-  --LspatchJar $JAR --SignatureBypass 2
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-android.ps1 -BuildDirectory 'ASCII_PATH_FROM_BUILD_OK'
+python tools/build_source_zip.py --SourceDirectory path/to/clean-committed-tree --OutputZip output/MapAdKiller-2.3.3-source.zip
 ```
 
-产物是一个**目录**，四个文件：
+Android 回归需要 adb 设备；BuildDirectory 使用模块构建最后输出的 `BUILD OK src=...`。发布验证还须将内置包中的生产模块解出，使用独立测试 DEX 运行针对性测试，避免测试副本掩盖裁剪错误。
 
-```
-高德地图-2.3.2-免root内置版\
-    base.apk                    170,063,729 B
-    split_config.arm64_v8a.apk   83,398,690 B
-    split_config.xxxhdpi.apk        656,643 B
-    split_config.zh.apk           1,077,529 B
-```
-
-发布时打包成 zip（含 `安装说明.txt`），文件名 `Amap-Play-2.3.2-nonroot-embedded.zip`。
-
-### 4.4 native 偏移（Play 版）
-
-`app/native/amap_buildings.c` 里是**双变体表**，运行时按三重自检选择：
-
-```c
-static const patch_variant VARIANTS[] = {
-    { "17.02.0", 0x1f40868UL, 0x18b17e0UL, 0xe84148UL },  // 国内版
-    { "17.02.2", 0x1f40b08UL, 0x18b1a74UL, 0xe842c8UL },  // Play 版
-};
-```
-
-三关全过才写内存：
-1. 槽值 `== base + fn_process`
-2. 该地址四条指令是已知序言
-3. gadget 处是 `mov x0, xzr; ret`
-
-都不匹配 → **完全不碰**，只记一行 `anchor_mismatch`，高德零崩溃。
-
-> 旧 gadget `0xe84148` 在 Play 版里已变成 `ret; stp…`（某个函数的中间），
-> 照抄会跳进无效位置。这就是选择必须靠自检、不能靠版本号的原因。
-
-新增一个版本 = 加一行，然后用 `elf_scan.py` 走同一条链重推：
-
-```
-xref "BuildingStyleLayer" → factory → constructor → vtable → slot[4]
-```
-
-工具在 `tools/`，推导记录见 `docs/`。
-
-### 4.5 重编 native 库
-
-改了 `amap_buildings.c` **必须**重编，否则 APK 里还是旧补丁，症状是"改了没生效"：
-
-```powershell
-python app\native\build_buildings.py
-# NATIVE OK arm64-v8a 6912 bytes -> app\libs\arm64-v8a\libamapbldpatch.so
-```
-
-只有 arm64-v8a —— 里面每个常量都是 arm64 `libamapr.so` 的地址，
-32 位或 x86 版本会得到错误地址，运行时自检会拒绝打补丁。
-
----
-
-## 五、安装（内置版）
-
-### 5.1 单 APK（国内版）
-
-```bash
-adb install -r -d -g "高德地图-2.3.2-免root内置版.apk"
-```
-
-### 5.2 split（Play 版）
-
-```bash
-adb install-multiple -r -d -g base.apk split_config.arm64_v8a.apk split_config.xxxhdpi.apk split_config.zh.apk
-```
-
-**只装 base.apk 会失败**：`INSTALL_FAILED_MISSING_SPLIT`。
-
-部分国产 ROM（HyperOS / MIUI）的 `pm` 没有 `install-multiple`，`adb install-multiple`
-又会被 `INSTALL_FAILED_USER_RESTRICTED` 拦。这时用 session API：
-
-```bash
-SID=$(su -c 'cmd package install-create -r -d -g' | sed -n 's/.*\[\([0-9]*\)\].*/\1/p')
-su -c "cmd package install-write -S 170063729 $SID base ./base.apk"
-su -c "cmd package install-write -S 83398690 $SID config.arm64_v8a ./split_config.arm64_v8a.apk"
-su -c "cmd package install-write -S 656643 $SID config.xxxhdpi ./split_config.xxxhdpi.apk"
-su -c "cmd package install-write -S 1077529 $SID config.zh ./split_config.zh.apk"
-su -c "cmd package install-commit $SID"
-```
-
-内置版签名与官方不同，**装之前必须卸载官方版**（会清除登录态与离线地图）。
-
----
-
-## 六、发布清单
-
-| 文件 | 大小 | 放哪 |
-|---|---|---|
-| `MapClean-lsp-2.3.2.apk` | 4.7 MB | 主仓库 Release + 模块仓库 Release |
-| `高德地图-2.3.2-免root内置版.apk` | 175 MB | 主仓库 Release |
-| `百度地图-2.3.2-免root内置版.apk` | 220 MB | 主仓库 Release |
-| `腾讯地图-2.3.2-免root内置版.apk` | 171 MB | 主仓库 Release |
-| `Amap-Play-2.3.2-nonroot-embedded.zip` | 196 MB | 主仓库 Release（tag `v2.3.2-play`） |
-
-> 模块仓库（`Xposed-Modules-Repo/io.github.ldxm666.mapadkiller`）**只发模块 APK**，
-> 不发内置版。tag 格式 `2302-2.3.2`。
-
-GitHub 会剥掉非 ASCII 文件名，Release 资产请用 ASCII 名上传：
-
-```
-MapClean-lsp-v2.3.2.apk
-Amap-2.3.2-nonroot-embedded.apk
-Baidu-2.3.2-nonroot-embedded.apk
-Tencent-2.3.2-nonroot-embedded.apk
-Amap-Play-2.3.2-nonroot-embedded.zip
-```
-
----
-
-## 七、常见问题
-
-**构建报"需要class, interface或enum"** — 文件被写成了带 BOM 的 UTF-8。
-PowerShell 5.1 的 `Set-Content -Encoding UTF8` 会加 BOM。用 Python 字节写入，
-或 `New-Object System.Text.UTF8Encoding($false)`。
-
-**临时目录必须 ASCII** — `aapt2` / `d8` 在非 ASCII 路径上会失败。
-
-**`libamapbldpatch.so` 没进包** — `pack_native_libraries` 会检查它存在。
-如果改了 `.c` 却没重编，APK 里仍是旧补丁，症状是"改了没生效"。
-
-**百度/腾讯内置版里为什么有 `libamapbldpatch.so`** — 打包脚本无条件复制所有
-`app/libs/<abi>/*.so`。这两个变体的 `mapadkiller` 包已被裁掉，dex 里没有调用方，
-所以它是死重量（736 字节），不影响功能。
-
-**改完开关不生效** — 高德的建筑与帧率是**安装期门控**，改完必须强停重开高德。
-面板文案里写明了这一点。
+源码包从已审核的提交树生成，包含 Kotlin runtime、必要编译依赖、native 源码/库、变体桩和测试；排除设备抓取、个人配置、地图原包、输出 APK、凭据和私钥。公开 release 应附 SHA256SUMS、源码和第三方许可；发布前核对版本、证书及所有宿主内嵌模块，不通过则不发布。详见 [2.3.3 验证说明](docs/VALIDATION-2.3.3.md)。

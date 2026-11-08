@@ -24,8 +24,8 @@ import java.util.HashMap
  * <h3>策略</h3>
  * <ul>
  *   <li>内置版：**本地 `mapclean_cfg` 为准**（宿主自己的 SharedPreferences，永远可写），
- *       远程只做 best-effort 镜像；读取时 local 打底、remote 覆盖（remote 可用时以它为准，
- *       保持与 LSPosed 模块版一致）。</li>
+ *       远程只做 best-effort 镜像；读取时 remote 打底、local 覆盖，避免失败的镜像写入
+ *       用旧值盖掉已成功保存到本地的新值。</li>
  *   <li>模块版（LSPosed）：保持原来的 remote 优先逻辑，不受影响。</li>
  *   <li>每次写入都做 write→read 自校验，不一致打 `event=cfg_roundtrip_fail`。</li>
  * </ul>
@@ -71,18 +71,30 @@ object CfgStore {
         }
     }
 
-    /** 合并读：local 打底，remote 覆盖（remote 读不到就只用 local）。 */
+    /** 内置版 local 为准；模块版保持 remote 优先。未设置的键仍从另一后端补齐。 */
     @JvmStatic
     fun readAll(): Map<String, Any?> {
-        val out = HashMap<String, Any?>()
+        val emb = embedded()
+        // 早期 remote 是暂用值；现在 Context 可用时，先完成旧配置迁移及本地后端切换。
+        if (emb) Config.prefs()
+        var localValues: Map<String, *> = emptyMap<String, Any?>()
+        var remoteValues: Map<String, *> = emptyMap<String, Any?>()
         val lp = local()
         if (lp != null) {
-            try { out.putAll(lp.all) } catch (ignored: Throwable) {}
+            try { localValues = lp.all } catch (ignored: Throwable) {}
         }
         val rp = remote()
         if (rp != null) {
-            try { out.putAll(rp.all) } catch (ignored: Throwable) {}
+            try { remoteValues = rp.all } catch (ignored: Throwable) {}
         }
+        return mergeValues(emb, localValues, remoteValues)
+    }
+
+    @JvmStatic
+    fun mergeValues(embedded: Boolean, local: Map<String, *>, remote: Map<String, *>): Map<String, Any?> {
+        val out = HashMap<String, Any?>()
+        out.putAll(if (embedded) remote else local)
+        out.putAll(if (embedded) local else remote)
         return out
     }
 
@@ -122,7 +134,7 @@ object CfgStore {
         return ok
     }
 
-    /** 合并读 int（local 打底、remote 覆盖，与布尔同一条路径）。 */
+    /** 合并读 int，与布尔使用同一优先级。 */
     @JvmStatic
     fun readInt(key: String, fallback: Int): Int {
         try {

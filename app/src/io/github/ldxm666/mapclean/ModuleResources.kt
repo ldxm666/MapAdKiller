@@ -57,6 +57,12 @@ class ModuleResources private constructor() {
         /** The module's resources, or null when they could not be reached. */
         @JvmStatic
         fun get(host: Context): Resources? {
+            // In the standalone app the resources are already available. Android
+            // does not guarantee a CodeSource for an APK-loaded class.
+            if (host.packageName == MODULE_PACKAGE) {
+                sourcePath = host.applicationInfo.sourceDir
+                return host.resources
+            }
             if (!attempted) {
                 synchronized(ModuleResources::class.java) {
                     if (!attempted) {

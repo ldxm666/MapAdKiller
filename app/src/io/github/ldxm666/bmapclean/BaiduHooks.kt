@@ -3,13 +3,10 @@ package io.github.ldxm666.bmapclean
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.util.ArrayList
-import java.util.WeakHashMap
 
 import io.github.libxposed.api.XposedInterface
 
@@ -19,7 +16,6 @@ class BaiduHooks private constructor() {
     companion object {
 
         private const val DU = "com.baidu.baidumaps.duhelper.commute."
-        private val rowCounts: MutableMap<View, Int> = WeakHashMap()
         /** 搜索框快捷入口的开关状态只打一次日志，避免 getView 每次回调都刷屏。 */
         private val sChipsLogged = java.util.concurrent.atomic.AtomicBoolean()
         /**
@@ -32,7 +28,6 @@ class BaiduHooks private constructor() {
         @Volatile
         private var sSearchRoot: java.lang.ref.WeakReference<View> =
                 java.lang.ref.WeakReference<View>(null)
-        private val toolIdsLogged: MutableSet<String> = java.util.HashSet()
         /** 已回报给设置页的未知宫格文案（本进程内去重） */
         private val discoveredTools: MutableSet<String> = java.util.HashSet()
 
@@ -199,18 +194,18 @@ class BaiduHooks private constructor() {
                 }
             })
             val home = H.cls(cl, "com.baidu.baidumaps.aihome.panel.HomeUIComponent")
-            // 面板能上拉多高。原来只在首页**全空**时才归零；只关掉推荐 / 天气时它照样返回整个
-            // 面板的高度，上滑就拉出一片空白。现在夹到"剩余可见内容"的高度（见 HomeClean.clampPeek）。
+            // Keep the engine's requested peek intact. BaiduPanelHeight fits both bounds
+            // after layout; a second wrapper-height clamp would feed stale heights back in.
             hook(home, "calcBasePeekHeight", object : XposedInterface.Hooker {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
                     if (emptyHome()) return 0
-                    return io.github.ldxm666.bmapclean.HomeClean.clampPeek(chain.proceed() as Int)
+                    return chain.proceed()
                 }
             }, android.content.res.Resources::class.java, Int::class.java)
             hook(home, "adjustPeekHeightByState", object : XposedInterface.Hooker {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
                     if (emptyHome()) return 0
-                    return io.github.ldxm666.bmapclean.HomeClean.clampPeek(chain.proceed() as Int)
+                    return chain.proceed()
                 }
             }, H.cls(cl, "com.baidu.baidumaps.aihome.newhome.CollapsePanelState"), Int::class.java, Int::class.java, android.content.res.Resources::class.java)
             for (name in arrayOf("addUfoView", "onResume")) hook(home, name, object : XposedInterface.Hooker {
@@ -250,7 +245,6 @@ class BaiduHooks private constructor() {
                 }
             })
             component(cl, "RoutePanelShortCutUIComponent", Spec.K_TOOLS)
-            component(cl, "CAAHCUIComponent", Spec.K_HC)
             val feed = H.cls(cl, DU + "FeedUIComponent")
             hook(feed, "getView", object : XposedInterface.Hooker {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
@@ -267,7 +261,8 @@ class BaiduHooks private constructor() {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
                     val id = chain.getArg(0) as String?
                     val hide = if ("du_trip_entrance" == id) !Cfg.visible(Spec.K_TOOLS)
-                        else if ("du_trip_address" == id) !Cfg.visible(Spec.K_HC)
+                        // Keep the native commute controller registered while hidden, so
+                        // enabling Home can restore it without killing the map process.
                         else if ("du_trip_main_card" == id) !Spec.effectiveVisible(Spec.K_AI_NOW, Spec.HOOK_READ)
                         else if ("du_aide_feed" == id) !Spec.effectiveVisible(Spec.K_FEED_QUALITY, Spec.HOOK_READ)
                                 && !Spec.effectiveVisible(Spec.K_FEED_CHIPS, Spec.HOOK_READ)
@@ -292,48 +287,22 @@ class BaiduHooks private constructor() {
                 }
             })
             val addressComponent = H.cls(cl, DU + "CAAHCUIComponent")
-            for (name in arrayOf("initView", "viewLocalShow", "initBg", "selfUpdate")) {
+            for (name in arrayOf("initView", "viewLocalShow", "initBg", "onResume", "getView")) {
                 hook(addressComponent, name, object : XposedInterface.Hooker {
                     override fun intercept(chain: XposedInterface.Chain): Any? {
                         val r = chain.proceed()
-                        address(chain.getThisObject())
+                        BaiduCommute.apply(chain.getThisObject())
                         return r
                     }
                 })
             }
-            val row = H.cls(cl, "com.baidu.baidumaps.duhelper.view.ShortCutRow")
-            hook(row, "update", object : XposedInterface.Hooker {
-                override fun intercept(chain: XposedInterface.Chain): Any? {
-                    val source = chain.getArg(0) as List<*>
-                    val selected = ArrayList<Any?>()
-                    for (model in source) {
-                        val unit = field(model, "d")
-                        val label = field(field(unit, "b"), "a")
-                        val title = if (label is String) label else ""
-                        if (toolVisible(title)) selected.add(model)
-                        val identity = "" + field(model, "m") + ":" + title
-                        if (toolIdsLogged.add(identity)) H.log("tool model " + identity)
-                    }
-                    val args = chain.getArgs().toTypedArray()
-                    args[0] = selected
-                    val r = chain.proceed(args)
-                    val view = chain.getThisObject() as View
-                    rowCounts[view] = selected.size
-                    layoutRow(view, selected.size)
-                    return r
-                }
-            }, List::class.java, IntArray::class.java, Array<String>::class.java, Int::class.java)
-            hook(row, "onSlide", object : XposedInterface.Hooker {
-                override fun intercept(chain: XposedInterface.Chain): Any? {
-                    val count = rowCounts[chain.getThisObject() as View]
-                    return if (count != null && count < 5) null else chain.proceed()
-                }
-            }, Float::class.java)
+            BaiduCommute.install(cl)
+            BaiduToolGrid.install(cl)
             // Feed data and user-center card bindings are handled in their own Talos bundle only.
             BaiduTalos.install(cl)
         }
         @JvmStatic
-        private fun toolVisible(title: String?): Boolean {
+        fun toolVisible(title: String?): Boolean {
             if (!Cfg.visible(Spec.K_TOOLS)) return false
             var name = title
             if ("公交地铁" == name) name = "公共交通"
@@ -373,24 +342,6 @@ class BaiduHooks private constructor() {
                     return view
                 }
             })
-        }
-        private fun address(self: Any?) {
-            val binding = field(self, "mBinding")
-            if (binding == null) return
-            if (!Cfg.visible(Spec.K_HC)) { hide(invoke(binding, "getRoot") as View?); return }
-            if (!Cfg.visible(Spec.K_HC_HOME)) hide(field(self, "homeInfo") as View?)
-            if (!Cfg.visible(Spec.K_HC_COMPANY)) hide(field(self, "companyInfo") as View?)
-            if (!Cfg.visible(Spec.K_HC_SETTING)) {
-                hide(field(binding, "settingContainer") as View?)
-                val width = self!!.javaClass.getDeclaredField("settingContainerWidth")
-                width.isAccessible = true
-                width.setInt(self, 0)
-                val content = field(binding, "containerBesidesTitle") as View?
-                if (content != null && content.layoutParams is ViewGroup.MarginLayoutParams) {
-                    val lp = content.layoutParams as ViewGroup.MarginLayoutParams
-                    if (lp.rightMargin != 0) { lp.rightMargin = 0; content.layoutParams = lp }
-                }
-            }
         }
         private fun tabs(panel: Any?) {
             val binding = invoke(panel, "getAihomeBinding")
@@ -438,24 +389,6 @@ class BaiduHooks private constructor() {
             if (!master) { hide(bar); hide(invoke(binding, "getRoot") as View?) }
             if (!master || !Cfg.visible(Spec.K_TAB + Spec.TABS[2])) hide(field(binding, "homeAiContainer") as View?)
         }
-        private fun layoutRow(row: View, count: Int) {
-            val cells = field(row, "frameLayouts")
-            if (cells !is List<*>) return
-            val rowWidth = row.width
-            val width = if (rowWidth <= 0) row.resources.displayMetrics.widthPixels else rowWidth
-            for (i in 0 until cells.size) {
-                val cell = cells[i] as View
-                if (i >= count) { hide(cell); continue }
-                cell.visibility = View.VISIBLE
-                cell.alpha = 1f
-                cell.translationX = 0f
-                val lp = cell.layoutParams as FrameLayout.LayoutParams
-                val w = Math.max(1, width / Math.max(1, count))
-                if (lp.width != w || lp.leftMargin != i * w) { lp.width = w; lp.leftMargin = i * w; cell.layoutParams = lp }
-            }
-            if (count == 0) hide(row) else row.visibility = View.VISIBLE
-        }
-
         // ── 首页工具面板「排成一行」── 已整体回退 ─────────────────────────────
         // 上一版把承载工具格的 *父容器* 高度直接设成 cell 的测量高度：父容器被压小、
         // 子 View 仍按原尺寸绘制 ⇒ 图标被裁成一条弧，下面「设置家/设置单位」那行上移压上来。

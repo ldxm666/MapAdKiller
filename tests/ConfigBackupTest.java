@@ -21,9 +21,9 @@ public final class ConfigBackupTest {
             if (!groups.containsKey(group)) groups.put(group, new LinkedHashMap<String, Object>());
             return new LinkedHashMap<>(groups.get(group));
         }
-        public boolean write(String group, Map<String, Object> values) {
+        public boolean write(String group, Map<String, ? extends Object> values) {
             read(group);
-            for (Map.Entry<String, Object> value : values.entrySet()) {
+            for (Map.Entry<String, ? extends Object> value : values.entrySet()) {
                 if (value.getValue() == null) groups.get(group).remove(value.getKey());
                 else groups.get(group).put(value.getKey(), value.getValue());
             }

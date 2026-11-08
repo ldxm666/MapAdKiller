@@ -127,12 +127,62 @@ object TmapTools {
     fun install(cl: ClassLoader, jceIn: Class<*>?) {
         installCatalogueReport(cl, jceIn)
         installHomeDataFilter(cl)
+        installNativeGridHeight(cl)
         installGridRoom(cl)
         installGridGuard(cl)
+        installCompactProgress(cl)
         installPanelSettle(cl)
         installPanelLevel(cl)
         installMoreFilter(cl)
         installPresetTrim(cl)
+    }
+
+    private fun installNativeGridHeight(cl: ClassLoader) {
+        H.hookSig(H.cls(cl, HOME_GROUP_VIEW), "getViewMaxHeight", "tmap_tools_full_height",
+            object : XposedInterface.Hooker {
+                override fun intercept(chain: XposedInterface.Chain): Any? {
+                    val native = chain.proceed()
+                    val grid = chain.getThisObject() as? View ?: return native
+                    if (native !is Int || !expandOn()) return native
+                    val cells = H.field(H.field(grid, "h"), "l") as? List<*> ?: return native
+                    return TmapPanelContent.expandedGridHeight(native, cells.size,
+                        grid.resources.displayMetrics.density)
+                }
+            })
+    }
+
+    private var homeSignature = ""
+    private var contentSignature = ""
+    /** A collapsed grid is an animation state, never the expanded content bound. */
+    @JvmStatic fun expandedGeometryReady(): Boolean {
+        val grid = lastGrid ?: return false
+        if (!Cfg.visible(Spec.K_TOOLS) || grid.visibility == View.GONE) return true
+        return roomFullLp > 0 && grid.height >= roomFullLp - 4
+    }
+    /** Only verified content roots; the native footer includes a viewport-sized spacer. */
+    @JvmStatic fun visibleContentBottom(content: View, card: View): Int {
+        val grid = lastGrid ?: return -1
+        if (!TmapHomeFav.contentResolved()) return -1
+        val tools = TmapPanelContent.boxBottom(grid, content)
+        if (Cfg.visible(Spec.K_TOOLS) && grid.visibility == View.VISIBLE && tools < 0) return -1
+        val fav = TmapHomeFav.visibleSectionBottom(content)
+        val search = H.call(card, "getTopBarViewHeight") as? Int ?: return -1
+        if (Cfg.debug()) {
+            val signature = "$search:$tools:$fav"
+            if (signature != contentSignature) {
+                contentSignature = signature
+                Cfg.log("TMFit roots search=$search tools=$tools fav=$fav grid=${grid.height} container=${content.javaClass.simpleName}")
+            }
+        }
+        return maxOf(search, tools, fav)
+    }
+    @JvmStatic fun homeContentChanged() {
+        val signature = "${Cfg.visible(Spec.K_HOME_FAV)}:${Cfg.visible(Spec.K_HOME_FEED)}"
+        if (signature == homeSignature) return
+        homeSignature = signature
+        roomConverged = false
+        scheduleRoom(lastGrid)
+        TmapPanelFit.request(lastGrid)
     }
 
     /**
@@ -238,7 +288,12 @@ object TmapTools {
                     val view = self
                     val state: HomeState
                     synchronized(HOMES) {
-                        val s = HOMES[view] ?: HomeState().also { HOMES[view] = it }
+                        val s = HOMES[view] ?: HomeState().also {
+                            HOMES[view] = it
+                            view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                                TmapPanelFit.request(view)
+                            }
+                        }
                         s.data = original
                         s.signature = configSignature(original)
                         s.pending = false
@@ -276,76 +331,22 @@ object TmapTools {
                         scheduleDump(view, "update")
                         scheduleFacts(view, "update")
                     }
+                    roomFullLp = view.layoutParams?.height ?: -1
                     scheduleRoom(view)
+                    TmapPanelFit.request(view)
                     return result
                 }
             }, data)
         Diag.note("tools_grid_hook", "HomeFeatureGroupView.updateItemList(gbt)")
     }
 
-    /**
-     * 首页宫格「永久完整三排」——<b>只钉那一次初始值，绝不拦每帧调用</b>。
-     *
-     * <h3>为什么不能 hook {@code HomeFeatureGroupView#a(F)V}</h3>
-     *
-     * <p>上一版就是这么干的：把 {@code a(float)} 的入参钉成 {@code 1.0f}。它炸了。
-     * {@code a(F)} 是宫格唯一的"高度 + 透明度"驱动，面板拖动（{@code ewt#a(F)} /
-     * {@code HomePageCardAdapter#a(F)}）与两个 120ms 动画（{@code j()} / {@code k()}，
-     * {@code ValueAnimator.ofFloat(0,1)} / {@code (1,0)}）<b>每帧</b>都调它；而它的函数体是
-     * <pre>
-     * public void a(float f2) {
-     *     float h = this.n ? getViewMidHeight() + (getViewMaxHeight() - getViewMidHeight()) * f2
-     *                      : (getViewMidHeight() + dimen) * f2;
-     *     boolean z = f2 &lt;= 0f || f2 &gt;= 1f;
-     *     a(h, z);                    // → LayoutParams.height = h; requestLayout()
-     *     if (z) c(f2); else b(f2);
-     *     ...
-     * }
-     * </pre>
-     * 末端会落到 {@code a(h, z)} → {@code requestLayout()}。拦每一帧 = 每帧强制一次整棵
-     * 首页树的 measure/layout，主线程被拖死 → <b>ANR</b>。
-     *
-     * <p>真机实证（{@code /data/anr/} + logcat）：
-     * <pre>
-     * ANR in Window{aeed051 u0 com.tencent.map/com.tencent.map.AppIcon}.
-     * Reason:Input dispatching timed out (... is not responding. Waited 5000ms for MotionEvent(action=MOVE))
-     * anr_2026-10-15_02-08-25-345 / _02-10-03-646 / _02-10-26-562 / _02-12-45-792 / _02-26-36-867
-     * </pre>
-     * 时间与那一版的构建/安装时间逐一对得上。
-     *
-     * <h3>正确做法：只让 {@code updateItemList} 里那一次调用拿到 {@code 1.0f}</h3>
-     *
-     * <p>"默认一排"的出处只有一个 —— {@code updateItemList(gbt)} 的最后一行：
-     * <pre>
-     * a(gay.a == 3 ? 1.0f : 0.0f);      // gay.a = 宫格档位；冷启动 != 3 → 传 0.0f = 一排
-     * </pre>
-     * 所以这里改成在 [installHomeDataFilter] 那个 {@code updateItemList} 钩子的
-     * {@code chain.proceed()} <b>之后</b>补一次 {@code a(1.0f)}（见 [expandGridOnce]）。
-     * 一次数据更新 = 一次调用 = <b>一次</b> {@code requestLayout}，与面板动画/拖动完全无关；
-     * 面板怎么滑，宫格还怎么动，不存在"每帧 relayout"。
-     *
-     * <p>{@code f2} 同时决定两件事，缺一不可，所以补这一次调用是必要的（只把容器撑高不够）：
-     * <ol>
-     *   <li><b>容器高度</b> —— {@code a(h, z)} 写 {@code LayoutParams.height}；
-     *       {@code f2=0} 时取 {@code getViewMidHeight()}（一排）。</li>
-     *   <li><b>每格透明度</b> —— {@code c(f2)} / {@code b(f2)} 都落到 {@code gaa#a(F)}，
-     *       它把值存进适配器字段 {@code s}，再由 {@code gaa#a(ViewHolder,int,int)} 逐格
-     *       {@code gbm.a(s)} 设 alpha。真机上第二排那些格子"存在但几乎看不见"
-     *       （实测 alpha≈0.027）就是这条链的结果。</li>
-     * </ol>
-     *
-     * <h3>为什么这同时消掉了重影</h3>
-     * 钉成 {@code 1.0f} 之后所有调用点都收敛到"已完全展开"，{@code 0→1} 的中间态
-     * 不再存在；{@code TmapHomeFav#installDragLimit()} 那套
-     * {@code postDelayed(400/900ms)} 在过渡途中采样、{@code if (limit > dragTopLimit)}
-     * 单调取最大永不下调的锁，因此采不到中间态 —— 这正是重影的成因。
-     *
-     * <h3>失效安全</h3>
-     * 开关关 / 方法 miss / 调用抛异常，一律什么都不做：腾讯本来怎么显示就怎么显示，
-     * 模块顶多少做一件事，绝不会把宫格弄没。
-     */
+    /** Initialize the native grid once per data update and cache its expanded layout. Middle/high drag frames retain this cached height and alpha; the native low level remains available. */
     private fun expandGridOnce(grid: View?) {
         if (grid == null || !expandOn()) return
+        // A second (remote) tool list can arrive after the one-row cached list.
+        // Do not let our own a(F) guard reuse the previous list's expanded height.
+        gridForced = false
+        ratioPinned = false
         val r: Any?
         try {
             r = H.call1(grid, "a", java.lang.Float.valueOf(1.0f))
@@ -358,6 +359,8 @@ object TmapTools {
             return
         }
         gridForced = true
+        roomFullLp = grid.layoutParams?.height ?: -1
+        ratioPinned = true
         if (!expandLogged) {
             expandLogged = true
             Diag.note("tools_grid_expand", "updateItemList -> a(1.0f) one-shot")
@@ -386,32 +389,7 @@ object TmapTools {
     @Volatile
     private var gridForced = false
 
-    /**
-     * 挡掉腾讯自己"过一会儿把宫格收回一排"的那条路。
-     *
-     * <h3>真机实测（构建 17322951，{@code /data/anr} 干净的那一版）</h3>
-     * 一次性 {@code a(1.0f)} 明明生效了（{@code TPE ... gridH=372}），0.9 秒后
-     * {@code gridH=264} —— 宫格又被收回一排。出处是腾讯自己的"两行显示"回退：
-     * <pre>
-     * HomeFeatureGroupView#m()   this.z==false 时 l(); ThreadUtil.postOnUiThread(..., this.y, 5000L)
-     * HomeFeatureGroupView#y  →  #w()   ValueAnimator.ofFloat(1.0f, 0.0f), 500ms
-     * #w() 的 updateListener  →  #f(float)   a(getSingleLineHeight(), f2==0)   ← 写回"一排"
-     * </pre>
-     * {@code m()} 由 {@code updateItemList}（{@code gay.a == 2}）与
-     * {@code onVisibilityChanged} 调用，都是"每个事件一次"，不是每帧。
-     *
-     * <h3>两个钩子都只做一次判断</h3>
-     * <ul>
-     *   <li>{@code m()} —— 直接不让"收回一排"的定时器启动；</li>
-     *   <li>{@code f(F)} —— 万一它已经在跑（或别处调了它），把目标钉在 {@code 1.0f}
-     *       （"完全展开"）。{@code f(1.0f)} 落到的 {@code a(h,z)} 会因为高度没变而
-     *       <b>提前 return</b>，所以即便它每帧都来也不会产生每帧 {@code requestLayout}。</li>
-     * </ul>
-     *
-     * <p>诊断（仅 {@code debug_log} 打开时）：把 {@code m()} / {@code f(F)} /
-     * {@code a(F)} 的前几次调用连同调用栈打到 logcat，用来核对"到底是谁在动高度"。
-     * 关掉 debug 时连钩子都不装。
-     */
+    /** Keep expanded geometry and adapter alpha consistent at every native progress value. Never alternate a partial native frame with a forced full frame. The native low-level path remains unchanged. */
     private fun installGridGuard(cl: ClassLoader) {
         val home = H.cls(cl, HOME_GROUP_VIEW)
         if (home == null) {
@@ -446,7 +424,7 @@ object TmapTools {
                 return chain.proceed(arrayOf<Any?>(java.lang.Float.valueOf(1.0f)))
             }
         }, java.lang.Float.TYPE)
-        // ③ 面板把宫格算成"一排"（f2 == 0）时，直接按"满行"落位。
+        // Keep every middle/high progress frame at the same expanded grid geometry.
         val pin = H.hookSig(home, "a", "tmap_tools_pin", object : XposedInterface.Hooker {
             private var seen = 0
             override fun intercept(chain: XposedInterface.Chain): Any? {
@@ -459,11 +437,6 @@ object TmapTools {
                     )
                 }
                 if (!gridForced || a0 !is Float) return chain.proceed()
-                val f2 = a0
-                if (f2 != 0.0f) {
-                    ratioPinned = false           // 中间态：让腾讯自己驱动，手感保持原样
-                    return chain.proceed()
-                }
                 if (!panelAtMidOrHigher()) {       // 最低档：保持腾讯原本的一排
                     ratioPinned = false
                     return chain.proceed()
@@ -479,6 +452,27 @@ object TmapTools {
         }, java.lang.Float.TYPE)
         Diag.note("tools_grid_guard", "m=" + m + " f=" + f + " pin=" + pin)
     }
+
+    /** Native a(F) is the middle-to-high transition. With the feed hidden the
+     * middle level is the upper endpoint, so its header margin, address translation
+     * and Litho progress must also stay at middle, alongside the pinned grid.
+     */
+    private fun installCompactProgress(cl: ClassLoader) {
+        for (name in arrayOf(PANEL_CONTROLLERS[0], "com.tencent.map.navisdk.a.ewt")) {
+            H.hookSig(H.cls(cl, name), "a", "tmap_tools_compact_progress#${name.substringAfterLast('.')}",
+                object : XposedInterface.Hooker {
+                    override fun intercept(chain: XposedInterface.Chain): Any? {
+                        val progress = chain.getArg(0) as? Float ?: return chain.proceed()
+                        val target = compactProgress(progress, expandOn(), Cfg.visible(Spec.K_HOME_FEED))
+                        return if (target == progress) chain.proceed()
+                            else chain.proceed(arrayOf<Any?>(target))
+                    }
+                }, java.lang.Float.TYPE)
+        }
+    }
+
+    @JvmStatic fun compactProgress(progress: Float, expanded: Boolean, feedVisible: Boolean): Float =
+        if (expanded && !feedVisible && progress > 0f) 0f else progress
 
     /**
      * 把宫格就地按"满行"落位，<b>不走腾讯那套会打日志的算术</b>。
@@ -507,7 +501,7 @@ object TmapTools {
         return true
     }
 
-    /** 适配器比值 s 当前是不是由本模块钉在 1.0（腾讯一旦用非零 f2 驱动就清掉）。 */
+    /** Cleared by native level callbacks and low-level progress; pinned once on return to middle. */
     @Volatile
     private var ratioPinned = false
 
@@ -563,7 +557,7 @@ object TmapTools {
      * 挂 {@code HomeFeatureGroupView} 的三个档位回调，拿到"面板现在在哪一档"。
      *
      * <p>三个都是无参方法（同名重载里只有它们是无参），且都是<b>换档时各调一次</b>，
-     * 不是每帧；所以这里既便宜又准。中档/高档回调之后立刻排一串补钉，
+     * 不是每帧；中档/高档落稳之后合并补钉一次，
      * 低档（看地图）则把宫格交回腾讯原本的一排 —— 免得三排从底栏下面漏出来。
      */
     private fun installPanelLevel(cl: ClassLoader) {
@@ -584,8 +578,8 @@ object TmapTools {
                 val result = chain.proceed()
                 try {
                     panelLevel = level
+                    ratioPinned = false
                     Cfg.log("TPE level hook level=" + level + " gridForced=" + gridForced)
-                    if (level >= 2) onPanelWillChange(null)
                 } catch (t: Throwable) {
                     Diag.note("tools_grid_level", "failed_" + t.javaClass.simpleName)
                 }
@@ -635,20 +629,28 @@ object TmapTools {
                     return result
                 }
             }, java.lang.Integer.TYPE, java.lang.Boolean.TYPE)
+        H.hookSig(slide, "notifyLevelStable", "tmap_tools_stable",
+            object : XposedInterface.Hooker {
+                override fun intercept(chain: XposedInterface.Chain): Any? {
+                    val result = chain.proceed()
+                    val grid = lastGrid ?: return result
+                    val generation = ++settleGeneration
+                    grid.postOnAnimation {
+                        if (generation == settleGeneration && grid.isAttachedToWindow) {
+                            reassertGrid(0L)
+                            TmapPanelFit.request(grid)
+                        }
+                    }
+                    return result
+                }
+            }, Integer.TYPE)
         Diag.note(
             "tools_grid_settle",
             if (ok) "notifyWillChange hooked" else "no_notifyWillChange"
         )
     }
 
-    /**
-     * 面板要换档了：先记下"这次要落到哪个高度"，再排一串"落定后补钉"。
-     *
-     * <p>为什么是一串而不是一两次：{@code notifyWillChange} 是在落位动画<b>开始</b>时调的，
-     * 而宫格是在动画过程中被逐帧改高度的 —— 太早补钉会被动画立刻盖回去。这里按
-     * [REASSERT_MS] 的阶梯查几次，每次都是"已经是满行就直接返回"的零成本检查，
-     * 多查几次没有代价，却能把落位早晚的抖动全覆盖。
-     */
+    /** Cache the native target level and cancel obsolete settled-layout work. Native animations own the transition; a single coalesced task runs after notifyLevelStable. */
     private fun onPanelWillChange(topArg: Any?) {
         val panel = findPanelView()
         if (panel != null && topArg is Int) {
@@ -661,23 +663,12 @@ object TmapTools {
                 if (o is Int) settleMid = o
             }
         }
-        val grid = lastGrid
-        if (grid == null || !expandOn()) return
-        for (i in REASSERT_MS.indices) {
-            val at = REASSERT_MS[i]
-            grid.postDelayed(object : Runnable {
-                override fun run() {
-                    try {
-                        reassertGrid(at)
-                    } catch (ignored: Throwable) {
-                    }
-                }
-            }, at)
-        }
+        // A new gesture invalidates the previous settled-layout task. Never race the native
+        // animator with delayed 400/900/1500/2200/3000ms height/alpha corrections.
+        settleGeneration++
     }
 
-    /** 落位动画开始后补钉的时间点（ms）。 */
-    private val REASSERT_MS = longArrayOf(400L, 900L, 1500L, 2200L, 3000L)
+    private var settleGeneration = 0
 
     /**
      * 面板落定后，只要它停在中档及以上，就把宫格重新钉到"完全展开"。
@@ -901,12 +892,11 @@ object TmapTools {
             roomBase1 = o1
         }
         val extra = roomExtra
-        if (extra <= 0) return levels              // 还没标定出来：原样返回
 
         val level1 = o1
         val level2 = o2
-        val target = Math.min(roomBase1 + extra, level2)
-        if (target <= roomBase1 || level1 == target) return levels   // 稳态：到此为止
+        val target = (roomBase1 + extra).coerceIn(o0, level2)
+        if (level1 == target) return levels   // 稳态：到此为止
 
         if (!roomOn()) return levels
         try {
@@ -1034,7 +1024,7 @@ object TmapTools {
         // 会把已经收敛的 roomExtra 误判成"抬多了"再减回去（上一版就是这样来回抖的）。
         val maxObj = H.call(grid, "getViewMaxHeight")
         val gridMax = if (maxObj is Int) maxObj else -1
-        if (gridMax > 0 && grid.height < gridMax - 4) {
+        if (gridMax > 0 && grid.height < (grid.layoutParams?.height ?: grid.height) - 4) {
             Diag.note(
                 "tools_grid_room", "calib r" + round + " grid_not_full h="
                         + grid.height + " max=" + gridMax
@@ -1052,7 +1042,11 @@ object TmapTools {
         val glp = grid.layoutParams
         if (glp != null && glp.height > 0) roomFullLp = glp.height
         val bar = findBottomBar(grid)
-        val gridBottom = screenBottom(grid)
+        val panel = findPanelView()
+        val content = H.call(panel, "getContentContainer") as? View
+        val measured = if (content == null || panel == null) -1 else visibleContentBottom(content, panel)
+        val gridBottom = if (content != null && measured > 0) screenTop(content) + measured
+            else screenBottom(grid)
         val barTop = if (bar == null) -1 else screenTop(bar)
         if (bar == null) {
             // 找不到底栏：退回"按宫格长高的那一截加高"，一轮定死，不做闭环。
@@ -1087,7 +1081,9 @@ object TmapTools {
         }
         val cap = levelCap(controller)
         var next = roomExtra + overlap
-        if (next < 0) next = 0
+        val lowestExtra = ((H.call(controller, "getLevelHeights") as? List<*>)?.firstOrNull() as? Int
+            ?: roomBase1) - roomBase1
+        if (next < lowestExtra) next = lowestExtra
         if (cap > 0 && next > cap) next = cap
         if (next == roomExtra) {
             Diag.note("tools_grid_room", "clamped extra=" + roomExtra + " cap=" + cap)
@@ -1095,6 +1091,7 @@ object TmapTools {
         }
         roomExtra = next
         reapplyPanel(controller, gridBottom, barTop, "r" + round)
+        TmapPanelFit.request(grid)
         grid.postDelayed(object : Runnable {
             override fun run() {
                 calibrate(round + 1)
@@ -1231,10 +1228,15 @@ object TmapTools {
     }
 
     private fun isPanel(v: View): Boolean {
-        val n = v.javaClass.name
-        if (n.contains("slideview.SlideCardView") || n.contains("HomePageCardView")) return true
         val slide = slideClass
-        return slide != null && slide.isInstance(v)
+        if (slide != null && slide.isInstance(v)) return true
+        var cls: Class<*>? = v.javaClass
+        while (cls != null) {
+            if (cls.name == SLIDE_VIEW ||
+                cls.name == "com.tencent.map.ama.newhome.widget.HomePageCardView") return true
+            cls = cls.superclass
+        }
+        return false
     }
 
     private fun findSlide(v: View?, depth: Int): View? {
@@ -1422,7 +1424,6 @@ object TmapTools {
 
     @JvmStatic
     fun refresh() {
-        gridForced = false      // 配置变了：让下一次 updateItemList 重新判断要不要钉住
         synchronized(HOMES) {
             for (entry in HOMES.entries) {
                 val view = entry.key
@@ -1431,6 +1432,7 @@ object TmapTools {
                 if (state.pending) continue
                 val signature = configSignature(data)
                 if (signature == state.signature) continue
+                gridForced = false
                 state.pending = true
                 if (!view.post(object : Runnable {
                         override fun run() {

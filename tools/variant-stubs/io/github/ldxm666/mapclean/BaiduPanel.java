@@ -15,6 +15,7 @@ final class BaiduPanel {
     static FloatingPanel.Group[] groups() { return new FloatingPanel.Group[0]; }
 
     static boolean writable() { return false; }
+    static boolean hasStored(String key) { return false; }
 
     static boolean read(String key) { return true; }
 

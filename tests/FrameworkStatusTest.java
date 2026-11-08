@@ -12,6 +12,12 @@ import java.util.concurrent.RejectedExecutionException;
 public final class FrameworkStatusTest {
     private static int assertions;
 
+    private static FrameworkStatus.Snapshot readStatus(FrameworkStatus.Source source) {
+        FrameworkStatus.Monitor monitor = new FrameworkStatus.Monitor(Runnable::run, () -> 0L, 0L);
+        monitor.bind(source);
+        return monitor.snapshot();
+    }
+
     private static void check(boolean condition, String message) {
         assertions++;
         if (!condition) throw new AssertionError(message);
@@ -138,10 +144,10 @@ public final class FrameworkStatusTest {
         uncertain.badApi = uncertain.badName = uncertain.badVersion = false;
         uncertain.name = "  ";
         uncertain.version = null;
-        state = FrameworkStatus.read(uncertain);
+        state = readStatus(uncertain);
         check("Xposed 兼容框架".equals(state.frameworkLabel()), "null and blank metadata remain safe");
         uncertain.api = 101;
-        state = FrameworkStatus.read(uncertain);
+        state = readStatus(uncertain);
         check(state.apiVersion == 101 && state.scopeKnown, "older API is reported, allowing a specific compatibility warning");
 
         Service slow = new Service();

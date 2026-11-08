@@ -101,7 +101,7 @@ class HyperDesign private constructor(dark: Boolean) {
     @JvmField
     val dividerLine: Int = if (dark) 0xFF393939.toInt() else 0xFFE0E0E0.toInt()
     @JvmField
-    val windowDimming: Int = if (dark) 0x4D000000 else 0x4D000000
+    val windowDimming: Int = if (dark) 0x99000000.toInt() else 0x4D000000
 
     @JvmField
     val sliderKeyPoint: Int = if (dark) 0x4D7A8AA6 else 0x4DA3B3CD
@@ -140,7 +140,8 @@ class HyperDesign private constructor(dark: Boolean) {
 
         const val R_CARD = 16f
         const val R_CARD_LARGE = 24f
-        const val R_DIALOG = 28f
+        const val R_DIALOG = 32f
+        const val R_SHEET = 28f
         const val R_CONTROL = 12f
         const val R_PILL = 999f
 
@@ -166,11 +167,14 @@ class HyperDesign private constructor(dark: Boolean) {
         /** 顶部栏。 */
         const val TOPBAR_H = 56
         /** 弹层最大宽度（源码里 600.dp 出现 49 次）。 */
-        const val DIALOG_MAX_W = 600
+        const val DIALOG_MAX_W = 420
+        const val SHEET_MAX_W = 640
+        const val TAB_H = 40
+        const val NAV_H = 64
 
         /** 按压缩放量 —— 开关 0.94，按钮 0.92，行 0.98。 */
         const val PRESS_SWITCH = 0.94f
-        const val PRESS_BUTTON = 0.92f
+        const val PRESS_BUTTON = 0.97f
         const val PRESS_ROW = 0.98f
 
         @Volatile

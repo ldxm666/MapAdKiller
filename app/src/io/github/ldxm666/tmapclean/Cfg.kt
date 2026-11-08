@@ -338,6 +338,7 @@ class Cfg private constructor() {
                 }
             } catch (ignored: Throwable) {
             }
+            if (ok) MainHook.onConfigChanged(key)
             return ok
         }
 

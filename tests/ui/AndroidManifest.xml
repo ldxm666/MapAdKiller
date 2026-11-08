@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.ldxm666.mapclean.tests">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <application android:label="MapClean UI regression" android:testOnly="true" />
+    <instrumentation android:name="io.github.ldxm666.mapclean.tests.UiRegression" android:targetPackage="io.github.ldxm666.mapadkiller" />
+</manifest>

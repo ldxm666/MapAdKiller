@@ -113,6 +113,27 @@ class AmapPanel private constructor() {
                             )
                         ),
                         arrayOf<Any?>(
+                            "打车页", arrayOf(
+                                PanelTypes.Item(Config.K_TAXI_ACTIVITY, "活动专区",
+                                    "打车页的活动推广区；关闭后整块收起。"),
+                                PanelTypes.Item(Config.K_TAXI_COUPON, "出行优惠套餐"),
+                                PanelTypes.Item(Config.K_TAXI_AD, "轮播广告"),
+                                PanelTypes.Item(Config.K_TAXI_OPERATION, "横滑推广"),
+                                PanelTypes.Item(Config.K_TAXI_TASK, "任务 / 新人推广"),
+                                PanelTypes.Item(Config.K_TAXI_VIP, "优享会员卡片"),
+                                PanelTypes.Item(Config.K_TAXI_MILEAGE, "会员里程活动",
+                                    "这些开关只影响打车首页的推广区，不影响地址、叫车、订单和支付。" +
+                                        "更改后重启高德生效；开启只恢复高德当前实际下发的内容。"),
+                            )
+                        ),
+                        arrayOf<Any?>(
+                            "语音", arrayOf(
+                                PanelTypes.Item(Config.K_VOICE_CLASSIC, "原生语音兼容模式",
+                                    "使用高德保留的经典语音卡片，排查登录后只显示空胶囊的问题。" +
+                                        "仅适配 17.02；变更后退出并重开高德。关闭可恢复新版 AI 语音。"),
+                            )
+                        ),
+                        arrayOf<Any?>(
                             "我的页", arrayOf(
                                 PanelTypes.Item(Config.K_MY_ORDER_ROW, "订单 / 收藏 / 待评价"),
                                 PanelTypes.Item(Config.K_MY_SERVICE_ROW, "车辆服务 / 高德运动"),
@@ -176,6 +197,12 @@ class AmapPanel private constructor() {
                         ),
                     ), arrayOf(
                         PanelTypes.Metric(
+                            Config.K_NAVI_INFO_PERCENT, "导航信息栏大小（横屏）",
+                            "车机横屏时，等比例放大顶部转向图标、距离和路名。100% 为原生大小；" +
+                                "受屏幕可用范围限制时自动收敛，避免超出屏幕。竖屏与路口放大图显示期间保持原生布局。松手即生效。",
+                            "%", steps(100, 200, 10), null, 100
+                        ),
+                        PanelTypes.Metric(
                             Config.K_CRUISE_KMH, "触发速度下限",
                             "速度持续超过这个值才认为在开车。调低更容易进巡航，代价是骑车、坐车也可能被算进来。",
                             "km/h", steps(Config.CRUISE_KMH_MIN, Config.CRUISE_KMH_MAX, 1), null,
@@ -187,8 +214,8 @@ class AmapPanel private constructor() {
                             "秒", steps(Config.CRUISE_SEC_MIN, Config.CRUISE_SEC_MAX, 1), null,
                             Config.CRUISE_SEC_DEFAULT
                         ),
-                    ), "只影响高德。巡航两项松手即生效，不用重启；改完开车走一段即可验证，" +
-                            "可在 logcat 搜 event=cruise_tick 看实时判据。"
+                    ), "只影响高德。导航栏大小与模块巡航触发值松手即保存，无需重启。" +
+                            "速度和时间两项仅作用于「模块接管」，不改变高德原生巡航的 20 km/h、10 秒判据。"
                 ),
 
                 // ── 6 首页工具（逐项） ────────────────────────────────────────
@@ -327,6 +354,13 @@ class AmapPanel private constructor() {
         fun powerSections(): Array<Array<Any?>> {
             return arrayOf(
                 arrayOf<Any?>(
+                    "轻量运行", arrayOf(
+                        PanelTypes.Item(Config.K_LIGHT_RUNTIME, "减少取证与诊断开销",
+                            "默认开启：不安装全量网络与存储取证探针，保留搜索和页面过滤。" +
+                                "变更后重开高德；调试日志开启时恢复取证。此项不代表已测得耗电降幅。"),
+                    )
+                ),
+                arrayOf<Any?>(
                     "推送", arrayOf(
                         PanelTypes.Item(
                             Config.K_PUSH_HARD_OFF,
@@ -361,7 +395,7 @@ class AmapPanel private constructor() {
                         PanelTypes.Item(
                             Config.K_SUBPROC_WIDGET_OFF,
                             "关闭桌面小组件刷新",
-                            "关掉后桌面小组件会恢复刷新（更耗电）。"
+                            "只拦标准小组件周期广播；保留导航通知服务与 OPPO 卡片初始化。关闭后恢复全部组件刷新。"
                         ),
                         PanelTypes.Item(
                             Config.K_SUBPROC_LOTUSPOOL_OFF,
@@ -414,7 +448,7 @@ class AmapPanel private constructor() {
             } catch (ignored: Throwable) {
                 null
             }
-            if (service != null) {
+            if (service != null && !FloatingConfig.isEmbedded()) {
                 try {
                     val editor: SharedPreferences.Editor =
                         service.getRemotePreferences(Config.PREF_GROUP).edit()
@@ -749,7 +783,7 @@ class AmapPanel private constructor() {
             } catch (ignored: Throwable) {
                 null
             }
-            if (service != null) {
+            if (service != null && !io.github.ldxm666.mapadkiller.CfgStore.embedded()) {
                 try {
                     if (service.getRemotePreferences(Config.PREF_GROUP)
                             .edit().putBoolean(key, value).commit()
@@ -876,9 +910,8 @@ class AmapPanel private constructor() {
          * the embedded service first (writable in the integrated build), then the hook-side
          * preferences.
          *
-         * <p>Deliberately does <b>not</b> call [apply]: no hook reads these keys,
-         * so `AmapNativeHome.onConfigChanged` + `NativeLabelAssets.refresh` would be
-         * pure waste on every slider release.
+         * <p>Refresh only the navigation header for its own key. Other numeric keys
+         * are read by their consumers; none requires a home-page or map-label refresh.
          */
         @JvmStatic
         fun writeInt(key: String, value: Int): Boolean {
@@ -887,7 +920,7 @@ class AmapPanel private constructor() {
             } catch (ignored: Throwable) {
                 null
             }
-            if (service != null) {
+            if (service != null && !io.github.ldxm666.mapadkiller.CfgStore.embedded()) {
                 try {
                     // commit 返回 true 不代表值留得住：内置版里 remote 是只读代理，commit 说成功、
                     // 下次读还是旧值。必须回读校验，对不上就落到下面的 Config.put
@@ -899,6 +932,7 @@ class AmapPanel private constructor() {
                         markWrite(true, null)
                         Log.i(TAG_WRITE, "event=cfg_write_ok key=" + key + " via=svc")
                         invalidate()
+                        if (key == Config.K_NAVI_INFO_PERCENT) io.github.ldxm666.mapadkiller.AmapNaviScale.refresh()
                         return true
                     }
                     Log.w(
@@ -923,6 +957,7 @@ class AmapPanel private constructor() {
                     markWrite(true, null)
                     Log.i(TAG_WRITE, "event=cfg_write_ok key=" + key + " via=prefs")
                     invalidate()
+                    if (key == Config.K_NAVI_INFO_PERCENT) io.github.ldxm666.mapadkiller.AmapNaviScale.refresh()
                     return true
                 }
                 val reason = if (configBackend() == BACKEND_NONE) R_NO_BACKEND else R_COMMIT_FALSE

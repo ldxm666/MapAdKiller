@@ -29,12 +29,25 @@ public final class HookGuardTest {
     public static void main(String[] ignored) throws Throwable {
         final int[] reports = {0}, hooks = {0};
         HookGuard.Reporter report = (id, error) -> reports[0]++;
-        HookGuard before = new HookGuard("before", chain -> { hooks[0]++; throw new IllegalStateException("module-before"); }, report);
+        HookGuard before = new HookGuard("before", chain -> { hooks[0]++; throw new NoSuchMethodError("module-before"); }, report);
         Original original = new Original();
         check("native-result".equals(before.intercept(original)), "pre-hook failure uses original");
         check(original.calls == 1 && reports[0] == 1, "pre-hook fallback executes once");
         check("native-result".equals(before.intercept(original)) && original.calls == 2, "disabled hook passes through on next call");
         check(hooks[0] == 1 && reports[0] == 1, "incompatible hook is disabled once");
+        final int[] transientCalls = {0};
+        HookGuard transientHook = new HookGuard("transient", chain -> {
+            if (++transientCalls[0] < 3) throw new IllegalStateException("temporary-state");
+            return chain.proceed();
+        }, report);
+        Original transientOriginal = new Original();
+        transientHook.intercept(transientOriginal); transientHook.intercept(transientOriginal); transientHook.intercept(transientOriginal);
+        check(transientCalls[0] == 3 && transientOriginal.calls == 3, "transient failures preserve hook recovery without double invocation");
+        final int[] recurringCalls = {0};
+        HookGuard recurring = new HookGuard("recurring", chain -> { recurringCalls[0]++; throw new IllegalStateException("repeat"); }, report);
+        Original recurringOriginal = new Original();
+        for (int i=0;i<4;i++) recurring.intercept(recurringOriginal);
+        check(recurringCalls[0] == 3 && recurringOriginal.calls == 4, "three consecutive nonstructural failures disable hook and pass subsequent calls through");
         HookGuard after = new HookGuard("after", chain -> { chain.proceed(); throw new IllegalStateException("module-after"); }, report);
         original = new Original();
         check("native-result".equals(after.intercept(original)), "post-hook failure keeps original result");

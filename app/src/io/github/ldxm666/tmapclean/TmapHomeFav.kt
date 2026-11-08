@@ -1,9 +1,9 @@
 package io.github.ldxm666.tmapclean
 
-import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 
 import java.util.WeakHashMap
@@ -155,10 +155,8 @@ object TmapHomeFav {
         H.hookSig(card, REFRESH, "tmap_homefav_refresh", object : XposedInterface.Hooker {
             override fun intercept(chain: XposedInterface.Chain): Any? {
                 val result = chain.proceed()
-                if (!Cfg.visible(Spec.K_HOME_FAV, true)) {
-                    applyHomeFav(chain.getThisObject())
-                    scheduleFavHide(chain.getThisObject())
-                }
+                applyHomeFav(chain.getThisObject())
+                scheduleFavHide(chain.getThisObject())
                 return result
             }
         }, java.lang.String::class.java)
@@ -205,9 +203,6 @@ object TmapHomeFav {
         "com.facebook.litho.widget.LithoHorizontalScrollView",
     )
 
-    /** 「收藏与关注」区块里必有 VL 图片（收藏 / 设置家的图标） */
-    private const val VL_IMAGE = "com.tencent.vectorlayout.vlcomponent.image.VLImageView"
-
     /**
      * 只要子树里有这些，就<b>不</b>当作「收藏与关注」区块处理。
      *
@@ -238,6 +233,7 @@ object TmapHomeFav {
     /** 区块视图 → 归属（只在结构变化时重建，避免每次回调都遍历树）。 */
     private val SECTIONS: MutableMap<View, String> =
         java.util.Collections.synchronizedMap(WeakHashMap<View, String>())
+    private var sectionChildren = emptyList<java.lang.ref.WeakReference<View>>()
 
     /** 缓存的 Litho 根与卡片载体（结构变化时重建）。 */
     @Volatile
@@ -352,7 +348,9 @@ object TmapHomeFav {
             applySections(card, true)
             return
         }
-        if (sectionsNeedFix()) applySections(card, true)
+        val root = cachedRoot.get()
+        if ((root != null && sectionsStale(root)) || !contentResolved() || sectionsNeedFix())
+            applySections(card, true)
     }
 
     /** 已缓存的区块里有没有"该藏却没藏 / 该显却没显"的（O(区块数)）。 */
@@ -413,7 +411,7 @@ object TmapHomeFav {
         // ① 没什么要藏的：只做"恢复"，而且只在真的藏过东西时才做。
         if (favOn && feedOn) {
             if (!HIDDEN.isEmpty()) restoreSections()
-            dragTopLimit = Integer.MIN_VALUE      // 全部显示：不限制拖动
+            TmapPanelFit.request(anyInside)      // 全部显示：不限制拖动
             return
         }
 
@@ -457,7 +455,7 @@ object TmapHomeFav {
             } catch (ignored: Throwable) {
             }
             HIDDEN.remove(header)
-            dragTopLimit = Integer.MIN_VALUE
+            TmapPanelFit.request(anyInside)
             val again = header
             again.postDelayed(object : Runnable {
                 override fun run() {
@@ -469,7 +467,7 @@ object TmapHomeFav {
         }
 
         // ③ 区块表：只在结构变了（子节点换了 / 数量变了）才重建
-        if (sectionsStale(lithoRoot)) rebuildSections(lithoRoot)
+        if (sectionsStale(lithoRoot) || !contentResolved()) rebuildSections(lithoRoot)
 
         // ④ 可见性：O(区块数)，不遍历树
         var changed = 0
@@ -486,7 +484,7 @@ object TmapHomeFav {
         // ⑤ 隐藏区不许滑到：区块可见性变了就重新量一次上界。
         //    ⚠ 必须重置：开关从"设置家开/信息流关"切到"两个都关"时内容会变矮，
         //    不重置的话上界还停在旧的大值，卡片又能滑到空白区（LO 实测）。
-        if (changed > 0) dragTopLimit = Integer.MIN_VALUE
+        if (changed > 0) TmapPanelFit.request(anyInside)
         captureDragLimit(header)
 
         noteState(
@@ -507,10 +505,9 @@ object TmapHomeFav {
     /** 区块表是否需要重建：根的子节点换了、或数量变了。 */
     private fun sectionsStale(root: ViewGroup): Boolean {
         synchronized(SECTIONS) {
-            if (SECTIONS.size != root.childCount) return true
-            for (v in SECTIONS.keys) {
-                if (v == null || v.parent !== root) return true
-            }
+            if (sectionChildren.size != root.childCount) return true
+            for (i in sectionChildren.indices)
+                if (sectionChildren[i].get() !== root.getChildAt(i)) return true
         }
         return false
     }
@@ -518,15 +515,28 @@ object TmapHomeFav {
     /** 重建区块表（一次树遍历，只在结构变化时发生）。 */
     private fun rebuildSections(root: ViewGroup) {
         val fresh = java.util.HashMap<View, String>()
+        var seenFeed = false
         for (i in 0 until root.childCount) {
             val child = root.getChildAt(i)
             if (child == null) continue
-            val kind = sectionOf(child)
+            var kind = sectionOf(child)
+            // This native layout places its compact address block before the list. A trailing
+            // image/loading footer is after that list and must never be mistaken for addresses.
+            if (kind == null && !seenFeed && i + 1 < root.childCount &&
+                hasAny(root.getChildAt(i + 1), FEED_MARKS) && hasAddressIcon(child, 0))
+                kind = SEC_FAV
+            if (kind == SEC_FEED) seenFeed = true
+            if (Cfg.debug()) Cfg.log("TMSections child=$i top=${child.top} height=${child.height}" +
+                " kind=$kind clickable=${child.isClickable} icon=${hasAddressIcon(child, 0)}" +
+                " pair=${hasAddressActions(child, 0, intArrayOf(180))} root=${root.height}")
             if (kind != null) fresh.put(child, kind)
         }
         synchronized(SECTIONS) {
             SECTIONS.clear()
             SECTIONS.putAll(fresh)
+            sectionChildren = (0 until root.childCount).map {
+                java.lang.ref.WeakReference(root.getChildAt(it))
+            }
         }
     }
 
@@ -596,260 +606,70 @@ object TmapHomeFav {
     @Volatile
     private var probeBudget = 10
 
-    /** 可上拉的底部卡片（首页卡片就是它）。 */
-    private const val SLIDE_CARD =
-        "com.tencent.map.hippy.extend.view.slideview.SlideCardView"
+    private fun installDragLimit(cl: ClassLoader) = TmapPanelFit.install(cl)
 
-    /** 拖动上界：卡片"只展示已显示内容"时静止的顶边（y）。{@code MIN_VALUE} = 还没测到。 */
-    @Volatile
-    private var dragTopLimit = Integer.MIN_VALUE
+    private fun captureDragLimit(header: View?) = TmapPanelFit.request(header)
 
-    @Volatile
-    private var dragTopLogged = Integer.MIN_VALUE
+    @JvmStatic fun contentResolved(): Boolean = !Cfg.visible(Spec.K_HOME_FAV) ||
+        SECTIONS.values.any { it == SEC_FAV }
 
-    @Volatile
-    private var collapsedDragTop = Integer.MIN_VALUE
-
-    /**
-     * 拖动/回弹窗口的截止时刻（{@code uptimeMillis}）。
-     *
-     * <p>这是高德配方里 {@code if ("DRAGGING".equals(state)) return;} 的等价物：
-     * 腾讯的 {@code SlideCardView} 没有公开的 state 串，但它的拖动与回弹必然经过
-     * {@code getValidTopHeight(int)}（每帧钳位）与 {@code DragCallBack.getTop(View,float)}
-     * （松手定档）—— 在这两处盖章，就等于拿到了"正在过渡"的真信号。
-     * 盖章窗口内一律不做几何干预，避免把中间态冻死。
-     */
-    @Volatile
-    private var draggingUntil = 0L
-
-    /** 首页工具宫格：量"剩余内容底部"用。 */
-    private const val GRID = "com.tencent.map.ama.newhome.widget.HomeFeatureGroupView"
-
-    /** 稳定判定最多重试的帧数（连续两帧量到同一组几何值才算稳定）。60 帧 ≈ 1s，覆盖腾讯的收放动画。 */
-    private const val SETTLE_TRIES = 60
-
-    /**
-     * 「隐藏的部分不要让人滑到」——把卡片可上拉的上界压到"已显示内容"的高度。
-     *
-     * <h3>为什么挂 {@code getValidTopHeight(int)}</h3>
-     * <pre>
-     *   SlideCardView$DragCallBack.clampViewPositionVertical(View,int,int)I
-     *     [0] this$0
-     *     [2] invoke-virtual SlideCardView-&gt;getValidTopHeight(I)I   ← 唯一的钳位函数
-     *     [5] return
-     * </pre>
-     * 它用 {@code getHeight()} 与 adapter 的 levels 算出"合法顶边"。levels 是应用按
-     * <b>原始内容</b>算的，区块被我们收掉之后内容变短、levels 却没变，于是上拉会拉出
-     * 一整屏空白。这里在它返回之后再夹一道上界：顶边不许高于"内容正好铺满"时的顶边。
-     *
-     * <h3>为什么不去改 levels（踩过的坑，别再试）</h3>
-     * 试过裁 {@code SlideCardView$Adapter.access$100} 返回的档位表：
-     * <ul>
-     *   <li>换一张短表 → 应用按原 size 算下标越界 → <b>整机卡死</b>；</li>
-     *   <li>就地压小 → 不可逆，上界改回去时压小的档位回不来；</li>
-     *   <li>真机结果：<b>地图直接消失 + 非常卡顿</b>（LO 实测）。</li>
-     * </ul>
-     * 结论：levels 是应用自己的核心状态，<b>只读不改</b>。
-     */
-    private fun installDragLimit(cl: ClassLoader) {
-        val sc = H.cls(cl, SLIDE_CARD)
-        if (sc == null) {
-            Diag.note("drag_limit", "miss_class")
-            return
+    /** Litho can draw a section with drawables and zero Android child views. */
+    @JvmStatic fun visibleSectionBottom(ancestor: View): Int {
+        var end = -1
+        for (view in ArrayList(SECTIONS.keys)) {
+            end = maxOf(end, TmapPanelContent.boxBottom(view, ancestor))
         }
-        val ok = H.hookSig(sc, "getValidTopHeight", "tmap_card_top",
-            object : XposedInterface.Hooker {
-                override fun intercept(chain: XposedInterface.Chain): Any? {
-                    // 这个函数每拖动帧都会被调用 = 应用自己在告诉我们"正在过渡"。
-                    draggingUntil = SystemClock.uptimeMillis() + 250L
-                    val result = chain.proceed()
-                    if (result !is Int) return result
-                    if (Cfg.visible(Spec.K_HOME_FAV, true)
-                        && Cfg.visible(Spec.K_HOME_FEED)
-                    ) {
-                        return result                       // 两个都显示：原样
-                    }
-                    val limit = dragTopLimit
-                    if (limit == Integer.MIN_VALUE) return result
-                    val orig = result
-                    val clamped = Math.max(orig, limit)
-                    if (clamped != orig) Diag.hit("drag_limit")
-                    return Integer.valueOf(clamped)
-                }
-            }, java.lang.Integer.TYPE)
-        Diag.note("drag_limit", if (ok) "getValidTopHeight" else "miss_sig")
-        // onViewReleased calls getTop(View,float) to choose the settling target.
-        // Clamp that target too, or release can snap to a hidden adapter level.
-        val callback = H.cls(cl, SLIDE_CARD + "\$DragCallBack")
-        H.hookSig(callback, "getTop", "tmap_card_release_top",
-            object : XposedInterface.Hooker {
-                override fun intercept(chain: XposedInterface.Chain): Any? {
-                    // 松手 → 应用马上要跑回弹动画。整个回弹窗口内不干预几何。
-                    draggingUntil = SystemClock.uptimeMillis() + 450L
-                    val result = chain.proceed()
-                    if (result !is Int ||
-                        (Cfg.visible(Spec.K_HOME_FAV, true) &&
-                            Cfg.visible(Spec.K_HOME_FEED))
-                    ) return result
-                    val limit = dragTopLimit
-                    if (limit == Integer.MIN_VALUE) return result
-                    val moving = chain.getArg(0)
-                    val velocity = chain.getArg(1)
-                    val collapsed = collapsedDragTop
-                    if (moving is View && velocity is Float &&
-                        collapsed > limit &&
-                        (velocity < -50f ||
-                            (velocity <= 50f &&
-                                moving.top < (collapsed + limit) / 2))
-                    ) {
-                        return Integer.valueOf(limit)
-                    }
-                    return Integer.valueOf(Math.max(result, limit))
-                }
-            }, android.view.View::class.java, java.lang.Float.TYPE)
-    }
-
-    /** 向上找到承载首页卡片的那张 SlideCardView（真机实例是子类 HomePageCardView）。 */
-    private fun slideCardOf(header: View?): View? {
-        var cur = header
-        var i = 0
-        while (i < 16 && cur != null) {
-            if (classIs(cur, SLIDE_CARD)) return cur
-            val p = cur.parent
-            cur = if (p is View) p else null
-            i++
-        }
-        return null
-    }
-
-    /**
-     * 量出"剩余内容正好铺满"时卡片静止的顶边，作为拖动上界。
-     *
-     * <h3>为什么要重写（旧版就是"锁到中间态"的元凶）</h3>
-     * 旧版用 {@code postDelayed(400/900ms)} 盲等两个时间点去采样 {@code cv.getTop()} 与
-     * 宫格底边。可是开关变化之后腾讯自己会跑一段卡片收放 / 宫格重排的过渡动画 ——
-     * 400ms 那个采样点经常正好落在过渡中，于是：
-     * <ul>
-     *   <li>{@code cv.getTop()} 取到的是<b>动画中间位置</b>，不是收起位；</li>
-     *   <li>宫格此时正处在"1 排 → 3 排"的重排中间，宫格底边也是中间值；</li>
-     *   <li>旧版 {@code if (limit > dragTopLimit)} 只增不减 —— 一旦采到过渡态的大值
-     *       就<b>永久锁死</b>，而且再也不会被后续正确采样纠正。</li>
-     * </ul>
-     * 结果：卡片被夹在过渡中间态，内容区被压住而宫格没有重排 → <b>空白 + 重影</b>。
-     *
-     * <h3>现在的做法（对齐高德已跑通的配方）</h3>
-     * <ol>
-     *   <li><b>等布局稳定再量</b>：逐帧采样，连续两帧量到同一组几何值才算稳定，
-     *       稳定之前绝不写 {@code dragTopLimit}（= 高德的"先量内容高度，再设锚点"）。</li>
-     *   <li><b>过渡中不打断</b>：[draggingUntil] 盖章窗口内直接跳过
-     *       （= 高德的 {@code if ("DRAGGING".equals(state)) return;}）。</li>
-     *   <li><b>稳定后覆盖而不是棘轮</b>：内容变矮时上界要跟着收紧，
-     *       否则开关切到"两个都关"之后又能滑到空白里。</li>
-     *   <li><b>落锁后强制宫格重新 measure+layout</b>，让它按最终行数重排一次
-     *       —— 这一步专门消掉"锁到中间态"留下的重影。</li>
-     * </ol>
-     */
-    private fun captureDragLimit(header: View?) {
-        if (header == null) return
-        settleProbe(header, 0, Integer.MIN_VALUE, Integer.MIN_VALUE)
-    }
-
-    /**
-     * 逐帧采样直到布局稳定，然后才落锁。
-     *
-     * @param prevTop    上一帧量到的 {@code cv.getTop()}（{@code MIN_VALUE} = 还没有上一帧）
-     * @param prevBottom 上一帧量到的宫格底边
-     */
-    private fun settleProbe(header: View?, attempt: Int, prevTop: Int, prevBottom: Int) {
-        if (attempt > SETTLE_TRIES || header == null) return
-        val anchor: View = header
-        anchor.postOnAnimation(object : Runnable {
-            override fun run() {
-                if (!anchor.isAttachedToWindow) return
-                val card = slideCardOf(anchor) ?: return
-                val c = H.call(card, "getContentContainer")
-                if (c !is View) return
-                val cv = c
-                // ① 正在拖动 / 回弹：不采样、不落锁，等它自己停下来（高德的 DRAGGING 判断）。
-                if (SystemClock.uptimeMillis() < draggingUntil) {
-                    settleProbe(anchor, attempt + 1, Integer.MIN_VALUE, Integer.MIN_VALUE)
-                    return
-                }
-                val top = cv.top
-                val bottom = gridBottomIn(cv)
-                if (top <= 0 || bottom <= 0) {           // 还没量出来：下一帧再看
-                    settleProbe(anchor, attempt + 1, Integer.MIN_VALUE, Integer.MIN_VALUE)
-                    return
-                }
-                // ② 与上一帧一致 = 布局稳定了，此刻的几何值才可信。
-                if (prevTop != Integer.MIN_VALUE && top == prevTop && bottom == prevBottom) {
-                    applyDragLimit(cv, top, bottom)
-                    return
-                }
-                settleProbe(anchor, attempt + 1, top, bottom)
-            }
-        })
-    }
-
-    /** 宫格底边在 {@code cv} 坐标系里的 y（真机：宫格是 cv 的深层后代）。 */
-    private fun gridBottomIn(cv: View): Int {
-        val tools = findByClass(cv, GRID, 0) ?: return 0
-        if (tools.height <= 0) return 0
-        var bottom = tools.bottom
-        var node = tools
-        var guard = 0
-        while (node.parent is View && node.parent !== cv && guard++ < 16) {
-            node = node.parent as View
-            bottom += node.top
-        }
-        return bottom
-    }
-
-    /** 布局稳定之后落锁，并强制宫格按最终高度重排一次。 */
-    private fun applyDragLimit(cv: View, stableTop: Int, contentBottom: Int) {
-        val density = cv.resources.displayMetrics.density
-        val padding = Math.round(12 * density)
-        // 内容正好铺满时的顶边：再往上就会露出空白。
-        // 这一项只由「内容自身几何」决定，与"采样时卡片停在哪一档"无关 ——
-        // 旧版把当帧的 cv.getTop() 混进来取 min，才会锁到过渡中间态。
-        val contentLimit = cv.height - contentBottom - padding
-        // 收起位 = 见过的最大 top（y 越大越收起）。用 running max 而不是当帧值，
-        // 免得恰好在展开档位采样时把上界算歪；它只让 travel 项更宽松，
-        // 最终由 contentLimit 说话。
-        if (stableTop > collapsedDragTop) collapsedDragTop = stableTop
-        val collapsed = collapsedDragTop
-        // 收起位之上至少留 96dp 行程，避免"锁死"—— 要能上滑，但止步于剩余内容底部。
-        val travel = Math.round(96 * density)
-        val capped = Math.min(collapsed - travel, contentLimit)
-        if (capped <= 0 || capped > collapsed) return
-        val moved = capped != dragTopLimit
-        dragTopLimit = capped                          // 稳定量到就覆盖，不再只增不减地棘轮
-        if (moved || dragTopLogged != capped) {
-            dragTopLogged = capped
-            H.log(
-                Log.INFO, MainHook.TAG, "homecard dragLimit=" + capped
-                        + " contentLimit=" + contentLimit + " toolsBottom=" + contentBottom
-                        + " collapsedTop=" + collapsed + " sampledTop=" + stableTop
-                        + " cvH=" + cv.height + " density=" + density
-            )
-        }
-        if (!moved) return
-        // 关键一步：锁完之后让宫格重新 measure + layout。
-        // 否则宫格还停在"锁到中间态"那一版的行坐标上，几排格子互相重叠 → 重影。
-        try {
-            val tools = findByClass(cv, GRID, 0)
-            if (tools != null) tools.requestLayout()
-            cv.requestLayout()
-        } catch (ignored: Throwable) {
-        }
+        return end
     }
 
     /** 判定一个根 ComponentHost 的直接子节点属于哪个区块（认不出返回 null = 不碰）。 */
     private fun sectionOf(v: View?): String? {
         if (hasAny(v, FEED_MARKS)) return SEC_FEED
         if (hasAny(v, NOT_FAV_MARKS)) return null   // 带列表/横向滚动 → 不是「收藏与关注」
-        if (findByClass(v, VL_IMAGE, 0) != null) return SEC_FAV
+        // Litho draws these labels as drawables, not Android TextViews. Image-only detection
+        // also matches the feed's loading/footer host, whose height can fill the viewport.
+        if (hasFavText(v, 0, intArrayOf(180)) || hasAddressActions(v, 0, intArrayOf(180)))
+            return SEC_FAV
         return null
+    }
+
+    /** Native Home/Company are two sibling clickable icon rows; feed footers have one action. */
+    private fun hasAddressActions(v: View?, depth: Int, budget: IntArray): Boolean {
+        if (v !is ViewGroup || depth > 14 || budget[0]-- <= 0) return false
+        if (v.childCount == 2) {
+            val home = v.getChildAt(0)
+            val company = v.getChildAt(1)
+            if (home.isClickable && company.isClickable &&
+                hasAddressIcon(home, 0) && hasAddressIcon(company, 0)) return true
+        }
+        for (i in 0 until v.childCount) {
+            if (hasAddressActions(v.getChildAt(i), depth + 1, budget)) return true
+        }
+        return false
+    }
+
+    private fun hasAddressIcon(v: View, depth: Int): Boolean {
+        if (depth > 14) return false
+        if (v is ImageView || v.javaClass.name ==
+            "com.tencent.vectorlayout.vlcomponent.image.VLImageView") return true
+        if (v is ViewGroup) for (i in 0 until v.childCount) {
+            if (hasAddressIcon(v.getChildAt(i), depth + 1)) return true
+        }
+        return false
+    }
+
+    private fun hasFavText(v: View?, depth: Int, budget: IntArray): Boolean {
+        if (v == null || depth > 14 || budget[0]-- <= 0) return false
+        val items = H.call(H.call(v, "getTextContent"), "getTextItems") as? List<*>
+        if (items != null && items.any {
+            val text = it?.toString() ?: ""
+            text.contains("收藏与关注") || text.contains("设置家") || text.contains("设置公司")
+        }) return true
+        if (v is TextView && isFavText(v.text)) return true
+        if (v is ViewGroup) for (i in 0 until v.childCount) {
+            if (hasFavText(v.getChildAt(i), depth + 1, budget)) return true
+        }
+        return false
     }
 
     private fun hasAny(v: View?, classes: Array<String>): Boolean {
@@ -973,7 +793,12 @@ object TmapHomeFav {
      * 所以必须配合 [scheduleFavHide] 的 LCA 法才真正生效。
      */
     private fun applyHomeFav(self: Any?) {
-        if (self == null || Cfg.visible(Spec.K_HOME_FAV, true)) return
+        if (self == null) return
+        CONTROLLERS[self] = true
+        if (Cfg.visible(Spec.K_HOME_FAV, true)) {
+            restoreLegacy()
+            return
+        }
         // ① 主收口：VL 卡片里的「收藏与关注」区块（标题 + 设置家/设置公司一行）
         applySections(headerOf(self))
         var hid = 0
@@ -996,6 +821,17 @@ object TmapHomeFav {
     }
 
     /** dex 实证：aH=家行 LinearLayout，aB=公司行 LinearLayout（ewt 字段表） */
+    private val CONTROLLERS = WeakHashMap<Any, Boolean>()
+
+    private fun restoreLegacy() {
+        for (view in ArrayList(HIDDEN.keys)) {
+            if (HIDDEN[view] == "legacy") {
+                if (view.visibility == View.GONE) view.visibility = View.VISIBLE
+                HIDDEN.remove(view)
+            }
+        }
+    }
+
     private val FAV_ROW_FIELDS = arrayOf("aH", "aB")
 
     /**
@@ -1014,9 +850,7 @@ object TmapHomeFav {
             root.postDelayed(object : Runnable {
                 override fun run() {
                     applySections(headerOf(self))
-                    if (Cfg.visible(Spec.K_HOME_FAV, true)
-                        && Cfg.visible(Spec.K_HOME_FEED)
-                    ) return
+                    if (Cfg.visible(Spec.K_HOME_FAV, true)) return
                     val hits = IntArray(1)
                     hideByLca(root, hits)
                     if (hits[0] > 0) {
@@ -1050,7 +884,7 @@ object TmapHomeFav {
      * 若只有一个子节点且含全部锚点，就藏这个子节点。
      */
     private fun hideByLca(root: View, hits: IntArray) {
-        if (root !is ViewGroup) return
+        if (root !is ViewGroup || Cfg.visible(Spec.K_HOME_FAV, true)) return
         val anchors = ArrayList<View>(4)
         collectFavText(root, 0, anchors)
         if (anchors.isEmpty()) return
@@ -1343,8 +1177,11 @@ object TmapHomeFav {
         val feedOn = Cfg.visible(Spec.K_HOME_FEED)
         // 两个都开 → 先恢复，再按区块收口；只要有一个关着就走 applySections 的收口分支。
         if (favOn && feedOn) restoreSections()
+        if (favOn) restoreLegacy()
+        for (controller in ArrayList(CONTROLLERS.keys)) applyHomeFav(controller)
         val header = lastHeader.get()
         if (header != null) applySections(header)
+        TmapTools.homeContentChanged()
         Diag.note("homefav_switch", if (favOn) "on" else "off")
         Diag.note("homefeed_switch", if (feedOn) "on" else "off")
     }

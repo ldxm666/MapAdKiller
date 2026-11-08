@@ -103,6 +103,12 @@ object Config {
      */
     const val K_SEARCH_GRID = "search_grid"
     const val K_DEBUG_LOG = "debug_log"
+    /** Uniform enlargement of the driving guidance card on landscape car displays. 100 = native. */
+    const val K_NAVI_INFO_PERCENT = "navi_info_percent"
+
+    @JvmStatic
+    fun naviInfoPercent(): Int = AmapNaviScale.clampPercent(getInt(K_NAVI_INFO_PERCENT, 100))
+
     const val K_TOOL_SORT = "tool_sort"
     /** 「工具图标统一彩绘（实验）」：true = 首页工具栏全部用高德自己的彩绘圆底图（默认 false=原生设计）。 */
     const val K_TOOL_COLOR_ICON = "tool_color_icon"
@@ -125,6 +131,14 @@ object Config {
      * 内容流/出行节一起"炸开"。新键只控制这一种 card type。
      */
     const val K_TAXI_CARD = "taxi_card"
+    // 打车首页原生运营区块，与地图首页的「去哪里打车」卡片独立。true = 显示。
+    const val K_TAXI_ACTIVITY = "taxi_home_activity"
+    const val K_TAXI_COUPON = "taxi_home_coupon"
+    const val K_TAXI_AD = "taxi_home_ad"
+    const val K_TAXI_OPERATION = "taxi_home_operation"
+    const val K_TAXI_TASK = "taxi_home_task"
+    const val K_TAXI_VIP = "taxi_home_vip"
+    const val K_TAXI_MILEAGE = "taxi_home_mileage"
     const val K_MY_ORDER_ROW = "my_order_row"
     const val K_MY_SERVICE_ROW = "my_service_row"
     const val K_MY_TASK = "my_task"
@@ -262,6 +276,8 @@ object Config {
     const val K_AMAP_FPS_ON = "amap_fps_on"
     const val K_AMAP_FPS_TARGET = "amap_fps_target"
     const val K_AMAP_BUILDING_ON = "amap_building_on"
+    const val K_VOICE_CLASSIC = "voice_classic"
+    const val K_LIGHT_RUNTIME = "light_runtime"
     // The map's default page is kept; removing it invalidates navigation return targets.
     @JvmField
     val TABS: Array<String> = arrayOf("探索", "长按说话", "打车", "我的")
@@ -296,6 +312,7 @@ object Config {
                 override fun onSharedPreferenceChanged(prefs: SharedPreferences?, key: String?) {
                     expiresAt = 0
                     refreshFlags()
+                    if (key == K_NAVI_INFO_PERCENT || key == null) AmapNaviScale.refresh()
                 }
             }
 
@@ -428,12 +445,18 @@ object Config {
     }
     @JvmStatic
     fun defaultVisible(key: String?): Boolean {
+        // These consumers use explicit/selected true: absence must paint OFF in
+        // both settings surfaces, exactly like the hook-side gate.
+        if (K_SPLASH_SKIP == key || K_LABELS_ON == key || K_ALIMAMA_SPLASH_OFF == key) return false
         if (K_CRUISE_AUTO == key) return false
         // 实验特性默认关。放在这里而不是只在读取点判断，是因为面板画开关走的也是
         // visible() —— 少了这一行，开关会显示"开"而实现其实一条 hook 都没装。
-        if (K_AMAP_FPS_ON == key || K_AMAP_BUILDING_ON == key) return false
+        if (K_AMAP_FPS_ON == key || K_AMAP_BUILDING_ON == key || K_VOICE_CLASSIC == key) return false
         if (K_DEBUG_LOG == key || K_TOOLS_ALLOWLIST == key || K_MAP_POI == key
                 || K_TOOL_COLOR_ICON == key || K_PLACE_RECOMMEND == key) return false
+        if (key == K_TAXI_ACTIVITY || key == K_TAXI_COUPON || key == K_TAXI_AD
+                || key == K_TAXI_OPERATION || key == K_TAXI_TASK
+                || key == K_TAXI_VIP || key == K_TAXI_MILEAGE) return false
         if (key != null && key.startsWith("tool_id_")) return false
         if (key != null && key.startsWith(K_TOOL_PREFIX))
             return !TOOLS_DEFAULT_OFF.contains(key.substring(K_TOOL_PREFIX.length))
@@ -452,13 +475,14 @@ object Config {
     @JvmStatic
     fun prefs(): SharedPreferences? {
         val hit = cached
-        if (hit != null) return hit
+        if (hit != null && backend >= 0) return hit
         return synchronized(Config::class.java) {
             val again = cached
-            if (again != null) return@synchronized again
+            if (again != null && backend >= 0) return@synchronized again
             val p = resolveBackend()
-            cached = p
-            if (p != null) {
+            if (p != null && p !== again) {
+                try { again?.unregisterOnSharedPreferenceChangeListener(listener) } catch (ignored: Throwable) { }
+                cached = p
                 try { p.registerOnSharedPreferenceChangeListener(listener) } catch (ignored: Throwable) { }
             }
             if (backend >= 0) {
@@ -473,7 +497,7 @@ object Config {
                 pendingLogged = true
                 H.log("event=cfg_backend pending reason=no_context")
             }
-            return p
+            return p ?: cached
         }
     }
 
@@ -542,7 +566,7 @@ object Config {
      */
     private fun resolveBackend(): SharedPreferences? {
         val now = android.os.SystemClock.uptimeMillis()
-        if (backend < 0 && lastResolveAt != 0L && now - lastResolveAt < 500) return null
+        if (backend < 0 && lastResolveAt != 0L && now - lastResolveAt < 500) return cached
         lastResolveAt = now
 
         val remote = remotePrefs()
@@ -570,11 +594,16 @@ object Config {
         // 因此内置版一律以宿主自己的 mapclean_cfg 为准；remote 只做镜像（见 CfgStore）。
         if (CfgStore.embedded()) {
             if (local != null) {
+                // Older embedded builds persisted only to the remote DB. Import once
+                // before selecting the new local backend, preserving any local edits.
+                seedLocal(remote, local, true)
                 backend = BACKEND_LOCAL
                 H.log("event=cfg_backend kind=local embedded=true")
                 return local
             }
-            H.log("event=cfg_backend kind=none embedded=true reason=no_local_ctx")
+            // 启动早期可暂读 remote，但不能将它缓存为最终后端；Application attach 后重试迁移。
+            backend = -1
+            return remote
         }
         if (remote != null) {
             backend = BACKEND_REMOTE
@@ -736,7 +765,7 @@ object Config {
      * 真正会丢配置的场景是「现在远程好用 → 换设备/换框架后远程不可用」，
      * 所以必须在远程**还能读**的时候先落一份到本地。
      */
-    private fun seedLocal(remote: SharedPreferences?, local: SharedPreferences?) {
+    private fun seedLocal(remote: SharedPreferences?, local: SharedPreferences?, preserveLocal: Boolean = false) {
         if (remote == null || local == null) return
         try {
             if (local.getBoolean(K_LOCAL_MIGRATED, false)) return
@@ -746,6 +775,7 @@ object Config {
             var n = 0
             for ((k, v) in all) {
                 if (k == null || v == null) continue
+                if (preserveLocal && local.contains(k)) continue
                 if (v is Boolean) e.putBoolean(k, v)
                 else if (v is String) e.putString(k, v)
                 else if (v is Int) e.putInt(k, v)

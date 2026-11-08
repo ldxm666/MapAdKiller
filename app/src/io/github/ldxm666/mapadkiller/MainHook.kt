@@ -114,6 +114,12 @@ class MainHook private constructor() {
             // 打了 3 次就是它拦下的）。⇒ 放开子进程**不需要改 H**，也不该改。
             val secondary = process != null && process.contains(":")
             if (secondary) {
+                if (PKG_BMAP == pkg) {
+                    // The cashier/WX callback uses :SandBoxProcess. The Baidu entry
+                    // installs only its debug payment observer before its own UI gate.
+                    // Keep the same dispatch as the Baidu-only forwarding stub.
+                    io.github.ldxm666.bmapclean.MainHook.onPackageReady(mod, param)
+                }
                 if (PKG_AMAP == pkg && AmapSubprocess.handles(process)) {
                     if (!H.markInstalled(pkg)) {
                         H.log(Log.INFO, TAG, "event=install_skipped reason=already pkg=" + pkg

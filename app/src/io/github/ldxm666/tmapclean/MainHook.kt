@@ -32,6 +32,8 @@ object MainHook {
     private var sProcess: String? = null
 
     private val INSTALLED = java.util.concurrent.atomic.AtomicBoolean()
+    private const val EMBEDDED_PROCESS = "io.github.ldxm666.mapadkiller.tmap.embedded"
+    private const val UI_OWNER = "io.github.ldxm666.mapadkiller.tmap.ui.owner"
 
     /** {@code Instrumentation#callApplicationOnCreate} 只挂一次（早挂 + 兜底两条路共用）。 */
     private val CONTEXT_HOOKED = java.util.concurrent.atomic.AtomicBoolean()
@@ -54,6 +56,7 @@ object MainHook {
             TmapHomeFav.refresh()
             TmapLookAndLook.refresh()
             TmapMapIcons.refresh()
+            TmapPoi.refresh()
             TmapSeekChips.refresh()
         }
     }
@@ -62,6 +65,11 @@ object MainHook {
     fun onModuleLoaded(mod: XposedModule, param: XposedModuleInterface.ModuleLoadedParam) {
         sProcess = param.getProcessName()
         H.module = mod
+        // Java system properties belong to the process, unlike this object's statics
+        // which are duplicated by LSPosed and LSPatch's separate module class loaders.
+        if (mod.getFrameworkName().contains("lspatch", true)) {
+            System.setProperty(EMBEDDED_PROCESS, "1")
+        }
         H.log(
             Log.INFO, TAG, "event=module_loaded process=" + sProcess
                     + " api=" + mod.getApiVersion() + " framework=" + mod.getFrameworkName()
@@ -119,7 +127,7 @@ object MainHook {
         }
         if (pkg != PKG_TMAP) return
         // 只做主进程：界面全在主进程
-        if (proc != null && proc.contains(":")) {
+        if (proc != null && proc != PKG_TMAP) {
             H.log(Log.INFO, TAG, "event=skip_subprocess process=" + proc)
             return
         }
@@ -176,7 +184,7 @@ object MainHook {
         }
         if (pkg != PKG_TMAP) return
         val proc = sProcess
-        if (proc != null && proc.contains(":")) return
+        if (proc != null && proc != PKG_TMAP) return
         val cl = host.classLoader ?: return
         // 早挂路径（onModuleLoaded → callApplicationOnCreate）比原来的悬浮球路径早了
         // 1.2 秒左右，代价是「宿主 ClassLoader 还没长齐」这件事第一次变得可能。
@@ -194,7 +202,7 @@ object MainHook {
         Report.attach(host)
         // 宿主 Application 的 ClassLoader 就是腾讯自己的 PathClassLoader，
         // 钩子必须挂在它上面才能解析 com.tencent.map.* 的类。
-        installSelf(cl, pkg, "self")
+        installSelf(cl, pkg, "self", host)
     }
 
     /** 宿主 ClassLoader 是否已经能解析腾讯自己的类（决定这次安装能不能算数）。 */
@@ -209,8 +217,40 @@ object MainHook {
         return H.cls(cl, "com.tencent.map.ama.mainpage.frame.TabFrameInfo") != null
     }
 
-    private fun installSelf(cl: ClassLoader?, pkg: String, via: String) {
+    private fun installSelf(cl: ClassLoader?, pkg: String, via: String,
+                            suppliedHost: android.content.Context? = null) {
         if (cl == null) return
+        // LSPatch initially exposes a loader with only the stub Application. Never latch
+        // INSTALLED until real native UI classes exist; the application callback retries.
+        if (H.cls(cl, "com.tencent.map.ama.newhome.widget.HomeFeatureGroupView") == null ||
+            H.cls(cl, "com.tencent.map.api.view.MapBaseView") == null) {
+            H.log(Log.INFO, TAG, "event=install_deferred reason=native_ui_not_ready via=$via")
+            return
+        }
+        // A patched host can also be in LSPosed's scope. Only its embedded copy owns
+        // these masks; two independently cached native requests cannot restore safely.
+        val framework = try { H.module?.getFrameworkName() } catch (_: Throwable) { null }
+        if (framework?.contains("lspatch", true) != true) {
+            val host = suppliedHost ?: io.github.ldxm666.mapclean.HostPrefs.hostContext()
+            if (host == null) {
+                installContextHook()
+                H.log(Log.INFO, TAG, "event=install_deferred reason=host_mode_unknown via=$via")
+                return
+            }
+            // LSPatch may replace the host AssetManager with the original APK's assets.
+            // The embedded module's early runtime marker still identifies that process.
+            val patched = System.getProperty(EMBEDDED_PROCESS) == "1" ||
+                io.github.ldxm666.mapclean.EmbeddedSettingsPolicy.integrated(null, host)
+            if (!canOwnUi(framework, patched)) {
+                H.log(Log.INFO, TAG, "event=skip_ui reason=embedded_owner framework=$framework")
+                return
+            }
+        }
+        if (INSTALLED.get()) return
+        if (!claimUi(System.getProperties(), framework ?: "unknown")) {
+            H.log(Log.INFO, TAG, "event=skip_ui reason=process_owner_exists framework=$framework")
+            return
+        }
         if (!INSTALLED.compareAndSet(false, true)) return
         try {
             H.log(Log.INFO, TAG, "event=install_begin pkg=" + pkg + " via=" + via)
@@ -223,6 +263,15 @@ object MainHook {
             H.done(pkg)
         }
     }
+
+    private fun canOwnUi(framework: String?, patched: Boolean): Boolean =
+        framework?.contains("lspatch", true) == true || !patched
+
+    private fun claimUi(properties: java.util.Properties, framework: String): Boolean =
+        synchronized(properties) {
+            if (properties.containsKey(UI_OWNER)) false
+            else { properties.setProperty(UI_OWNER, framework); true }
+        }
 
     /**
      * Preference callbacks may arrive on Binder threads; all view work runs on main.
@@ -269,6 +318,7 @@ object MainHook {
         TmapLookAndLook.install(cl)
         TmapMine.install(cl)
         TmapMapIcons.install(cl)
+        TmapPoi.install(cl)
         TmapSeekChips.install(cl)
     }
 
@@ -306,12 +356,14 @@ object MainHook {
                             // 先把界面钩子装上：此刻宿主 ClassLoader 已就绪，而底栏
                             // 还没开始装配 —— 这正是修复「隐藏失效」的那一步。
                             installFromHost(a)
-                            App.ensureBound(a)
+                            if (INSTALLED.get()) App.ensureBound(a)
                         }
-                        Report.send(
-                            ctx, "hook", "钩子已注入腾讯地图主进程 · ok="
-                                    + H.ok.get() + " miss=" + H.miss.get(), true
-                        )
+                        if (INSTALLED.get()) {
+                            Report.send(
+                                ctx, "hook", "钩子已注入腾讯地图主进程 · ok="
+                                        + H.ok.get() + " miss=" + H.miss.get(), true
+                            )
+                        }
                     }
                     return chain.proceed()
                 }

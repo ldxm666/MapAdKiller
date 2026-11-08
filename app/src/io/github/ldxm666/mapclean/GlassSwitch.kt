@@ -113,6 +113,7 @@ class GlassSwitch @JvmOverloads constructor(c: Context, a: AttributeSet? = null)
         if (!animate) {
             cancelAnim()
             progress = target
+            driver?.snapTo(target)
             if (was != value) refreshDescription()
             invalidate()
             return
@@ -129,7 +130,6 @@ class GlassSwitch @JvmOverloads constructor(c: Context, a: AttributeSet? = null)
      * 弹簧把当前速度带进下一段，中途打断是连续的。
      */
     private fun animateTo(target: Float) {
-        cancelAnim()
         if (driver == null) {
             driver = HyperMotion.Driver(
                 HyperMotion.Spring.ofStiffness(
@@ -140,7 +140,7 @@ class GlassSwitch @JvmOverloads constructor(c: Context, a: AttributeSet? = null)
                         progress = value
                         invalidate()
                     }
-                })
+                }).bindTo(this)
         }
         driver?.to(target)
     }
@@ -167,13 +167,16 @@ class GlassSwitch @JvmOverloads constructor(c: Context, a: AttributeSet? = null)
     override fun setEnabled(value: Boolean) {
         if (enabledState == value) return
         enabledState = value
+        super.setEnabled(value)
+        if (!value) { pressed = false; releasePress() }
         invalidate()
     }
 
     override fun isEnabled(): Boolean = enabledState
 
     override fun onMeasure(wSpec: Int, hSpec: Int) {
-        setMeasuredDimension(Math.ceil(trackW.toDouble()).toInt(), Math.ceil(viewH.toDouble()).toInt())
+        setMeasuredDimension(resolveSize(Math.ceil(trackW.toDouble()).toInt(), wSpec),
+            resolveSize(Math.ceil(viewH.toDouble()).toInt(), hSpec))
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -189,6 +192,7 @@ class GlassSwitch @JvmOverloads constructor(c: Context, a: AttributeSet? = null)
                 val inside = e.x >= 0 && e.x <= width && e.y >= 0 && e.y <= height
                 if (pressed != inside) {
                     pressed = inside
+                    HyperMotion.press(this, inside, HyperDesign.PRESS_SWITCH)
                     invalidate()
                 }
                 return true
@@ -229,6 +233,14 @@ class GlassSwitch @JvmOverloads constructor(c: Context, a: AttributeSet? = null)
 
     private fun refreshDescription() {
         contentDescription = (label ?: "开关") + (if (checkedState) "，已开启" else "，已关闭")
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Switch"
+        info.isCheckable = true
+        info.isChecked = checkedState
+        info.isEnabled = enabledState
     }
 
     /**

@@ -44,8 +44,7 @@ class TmapPanel private constructor() {
                 "悬浮窗", arrayOf(
                     PanelTypes.Item(
                         FloatingConfig.K_FLOAT_ENABLED, "显示悬浮球",
-                        "关掉后悬浮球和这个面板都会消失，且腾讯内置版没有其它入口可以再打开 ——" +
-                            "需要重装内置版才会恢复。正常使用请保持开启。"
+                        "关闭后可长按腾讯底部「首页」或「我的」重新打开设置。"
                     )
                 ), "只影响悬浮球本身，不动其它任何开关。"
             )

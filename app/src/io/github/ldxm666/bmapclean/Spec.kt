@@ -408,15 +408,14 @@ class Spec private constructor() {
                 bar[0] = Row(K_BAR, "显示底部入口栏", "开关勾选表示显示；关闭表示隐藏。", true)
                 for (i in TABS.indices) bar[i + 1] = Row(K_TAB + TABS[i], TABS[i], if (i == 0) "整栏显示时保留首页，确保可以返回地图。" else null, false)
                 val toolList = allToolLabels()
-                val tools = arrayOfNulls<Row>(2 + toolList.size)
+                val tools = arrayOfNulls<Row>(1 + toolList.size)
                 tools[0] = Row(K_TOOLS, "显示首页工具宫格", "关闭整块时，所有工具入口一起隐藏。", true)
-                tools[1] = Row(K_HOME_TOOLS_COMPACT, "紧凑排列（一行放下）", "把「驾车 / 公共交通 / 更多…」收进同一行并压掉第二行空白；入口个数变化时自动适配。", false)
-                for (i in toolList.indices) tools[i + 2] = Row(K_TOOL + toolList[i], toolList[i], null, false)
+                for (i in toolList.indices) tools[i + 1] = Row(K_TOOL + toolList[i], toolList[i], null, false)
                 val built = arrayOf<Cat>(
                         Cat(CAT_BAR, "底部入口栏", "勾选为显示；隐藏后剩余入口均分。", bar.requireNoNulls()),
                         Cat(CAT_TOOLS, "首页工具宫格", "单独控制工具；保留原有点击功能。", tools.requireNoNulls()),
-                        Cat(CAT_HC, "回家 / 去公司", "单独控制通勤地址入口。", arrayOf<Row>(
-                                Row(K_HC, "显示通勤地址栏", null, true), Row(K_HC_HOME, "回家", null, false), Row(K_HC_COMPANY, "去公司", null, false), Row(K_HC_SETTING, "去设置", null, false))),
+                        Cat(CAT_HC, "回家 / 去公司", "开启任一入口时，自动开启通勤地址栏。", arrayOf<Row>(
+                                Row(K_HC, "显示通勤地址栏", null, true), Row(K_HC_HOME, "回家 / 设置家", null, false), Row(K_HC_COMPANY, "去公司 / 设置公司", null, false), Row(K_HC_SETTING, "地址管理入口", "百度原生的通勤地址管理按钮。", false))),
                         Cat(CAT_WX, "天气 / 行程栏", "地图天气和首页卡片分别控制。", arrayOf<Row>(
                                 Row(K_WEATHER, "显示天气 / 行程栏", null, true), Row(K_WX_MAP, "地图天气条", null, false), Row(K_WX_CARD, "底部行程 / 天气卡", null, false),
                                 Row(K_AI_NOW, "AI此刻 / 首页主提示卡", "包含 AI 天气和行程主提示；默认关闭，重开百度生效。", false))),
@@ -467,6 +466,10 @@ class Spec private constructor() {
         @JvmField
         val APP_READ: Read = Read { key -> App.read(key, defaultVisible(key)) }
 
+        @JvmStatic
+        fun isCommuteChild(key: String?): Boolean =
+            key == K_HC_HOME || key == K_HC_COMPANY || key == K_HC_SETTING
+
         /**
          * 「实际上会不会被隐藏」——天气总开关关掉时，两个子项一并视为隐藏，
          * 这样设置页显示的计数与 Hook 侧真实行为一致。
@@ -476,7 +479,7 @@ class Spec private constructor() {
             if (key == null) return true
             if (key.startsWith(K_TAB) && !r.visible(K_BAR)) return false
             if (key.startsWith(K_TOOL) && !r.visible(K_TOOLS)) return false
-            if ((K_HC_HOME == key || K_HC_COMPANY == key || K_HC_SETTING == key) && !r.visible(K_HC)) return false
+            if (isCommuteChild(key) && !r.visible(K_HC)) return false
             if ((K_WX_MAP == key || K_WX_CARD == key || K_AI_NOW == key) && !r.visible(K_WEATHER)) return false
             if ((K_FEED_CHIPS == key || K_FEED_QUALITY == key) && !r.visible(K_FEED)) return false
             if (key.startsWith("mine_") && K_MINE_APPLY != key && !r.visible(K_MINE_APPLY)) return true

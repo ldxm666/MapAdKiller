@@ -146,8 +146,6 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         // lineHeight = 1.2.em）。之前用的是默认行距（约 1.0~1.15），多行说明文字会挤成
         // 一坨，这是"文字很突兀"的两个主因之一。
         v.setLineSpacing(0f, 1.2f)
-        // 大字号加一点负字距：中文字形本身已是全宽，20sp 以上不收一点会显得松散。
-        if (sp >= 20f) v.letterSpacing = -0.015f
         return v
     }
 
@@ -164,7 +162,7 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
     fun listCard(): LinearLayout {
         val card = LinearLayout(context)
         card.orientation = LinearLayout.VERTICAL
-        card.setPadding(dp(S1.toFloat()), dp(S2.toFloat()), dp(S1.toFloat()), dp(S2.toFloat()))
+        card.setPadding(0, dp(S1.toFloat()), 0, dp(S1.toFloat()))
         card.background = glassFor(card, R_CARD.toFloat())
         UiKit.clipRounded(card, dp(R_CARD.toFloat()).toFloat())
         shadow(card, 1f)
@@ -275,7 +273,7 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
     fun section(value: String): TextView {
         val t = text(value, 14f, BOLD, design.onBackgroundVariant)
         t.letterSpacing = 0f
-        t.setPadding(dp(28f), dp(8f), dp(28f), dp(8f))
+        t.setPadding(dp(HyperDesign.ROW_PAD.toFloat()), dp(8f), dp(HyperDesign.ROW_PAD.toFloat()), dp(8f))
         return t
     }
 
@@ -292,7 +290,7 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
         val b = text(label, T_ROW, MEDIUM, onAccent)
         b.gravity = Gravity.CENTER
         b.setPadding(dp(S4.toFloat()), dp(13f), dp(S4.toFloat()), dp(13f))
-        b.background = UiKit.ripple(0x33FFFFFF, accentPlate(), dp(R_INNER.toFloat()).toFloat())
+        b.background = UiKit.ripple(HyperDesign.alpha(onAccent, 0.18f), solid(accent, R_INNER.toFloat()), dp(R_INNER.toFloat()).toFloat())
         b.isClickable = true
         UiKit.pressable(b, 0.98f)
         return b
@@ -325,6 +323,9 @@ class Skin(private val context: Context, @JvmField val dark: Boolean) {
             if (dark) 0x22FFFFFF else 0x12000000, dp(R_PILL.toFloat()).toFloat()
         )
         b.isClickable = true
+        b.isFocusable = true
+        b.minimumHeight = dp(40f)
+        UiKit.pressable(b, HyperDesign.PRESS_BUTTON)
         return b
     }
 

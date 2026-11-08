@@ -250,13 +250,20 @@ class FloatingConfig private constructor() {
          */
         @JvmStatic
         fun floatEnabled(): Boolean {
+            // The overlay is host-local UI, not a vendor hook flag. Prefer the last
+            // committed user choice even while a vendor backend is still warming up.
+            mirrorGet()?.let { return it }
             // ① 远程/面板通道（正常情况）
             try {
                 if (hasStored(K_FLOAT_ENABLED)) {
                     // 只有存储里**真的存在**这个键才采信并回写镜像。
                     // 以前这里无条件 mirrorPut，一旦 read 因后端未就绪而回落默认值，
                     // 镜像就被写成 true —— 用户的选择被自己的兜底机制覆盖掉。
-                    val v = read(K_FLOAT_ENABLED, floatDefault())
+                    val v = when {
+                        Vendor.tmap() -> TmapPanel.read(K_FLOAT_ENABLED)
+                        Vendor.baidu() -> BaiduPanel.read(K_FLOAT_ENABLED)
+                        else -> AmapPanel.read(K_FLOAT_ENABLED)
+                    }
                     mirrorPut(v)
                     return v
                 }
@@ -278,7 +285,9 @@ class FloatingConfig private constructor() {
 
         private fun mirror(): SharedPreferences? {
             try {
-                val c = App.ctx() ?: return null
+                val c = HostPrefs.hostContext() ?: App.ctx() ?: return null
+                if (!EmbeddedSettingsPolicy.isHostPackage(c.packageName) &&
+                    c.packageName != "io.github.ldxm666.mapadkiller") return null
                 return c.getSharedPreferences(MIRROR_PREFS, Context.MODE_PRIVATE)
             } catch (t: Throwable) {
                 return null
@@ -295,11 +304,12 @@ class FloatingConfig private constructor() {
             }
         }
 
-        private fun mirrorPut(value: Boolean) {
-            try {
+        private fun mirrorPut(value: Boolean): Boolean {
+            return try {
                 val p = mirror()
-                if (p != null) p.edit().putBoolean(MIRROR_KEY, value).apply()
+                p != null && p.edit().putBoolean(MIRROR_KEY, value).commit()
             } catch (ignored: Throwable) {
+                false
             }
         }
 
@@ -515,13 +525,14 @@ class FloatingConfig private constructor() {
          */
         @JvmStatic
         fun read(key: String): Boolean {
-            if (K_FLOAT_ENABLED == key && !hasStored(key)) return floatDefault()
+            if (K_FLOAT_ENABLED == key) return floatEnabled()
             if (Vendor.tmap()) return TmapPanel.read(key)
             return if (Vendor.baidu()) BaiduPanel.read(key) else AmapPanel.read(key)
         }
 
         @JvmStatic
         fun read(key: String, fallback: Boolean): Boolean {
+            if (K_FLOAT_ENABLED == key) return floatEnabled()
             try {
                 if (Vendor.tmap()) return TmapPanel.read(key)
                 return if (Vendor.baidu()) BaiduPanel.read(key) else AmapPanel.read(key)
@@ -555,6 +566,24 @@ class FloatingConfig private constructor() {
          */
         @JvmStatic
         fun write(key: String, value: Boolean): Boolean {
+            if (key == K_FLOAT_ENABLED && isEmbedded()) {
+                // A successful write must survive a cold start. Vendor read-only
+                // Binder snapshots must never overwrite this host-local switch.
+                val saved = mirrorPut(value)
+                if (!saved) return false
+                try {
+                    when {
+                        Vendor.tmap() -> TmapPanel.write(key, value)
+                        Vendor.baidu() -> BaiduPanel.write(key, value)
+                        else -> AmapPanel.write(key, value)
+                    }
+                } catch (ignored: Throwable) { }
+                invalidate()
+                vLastWrite = W_OK
+                FloatingController.setEnabled(value)
+                Log.i(TAG, "event=float_saved value=$value source=host_local")
+                return true
+            }
             val ok: Boolean
             if (Vendor.tmap()) ok = TmapPanel.write(key, value)
             else ok = if (Vendor.baidu()) BaiduPanel.write(key, value) else AmapPanel.write(key, value)

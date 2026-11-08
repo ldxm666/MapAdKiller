@@ -509,7 +509,10 @@ class Cfg private constructor() {
         private fun commitBool(p: SharedPreferences?, key: String, value: Boolean): Boolean {
             if (p == null) return false
             return try {
-                p.edit().putBoolean(key, value).commit()
+                val editor = p.edit().putBoolean(key, value)
+                // An enabled child must not remain silently gated by a disabled parent.
+                if (value && Spec.isCommuteChild(key)) editor.putBoolean(Spec.K_HC, true)
+                editor.commit()
             } catch (t: Throwable) {
                 false
             }

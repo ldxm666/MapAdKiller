@@ -145,6 +145,12 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
     private var selected = 0
     private var panelOpen = false
+    private var sheetAnimator: ValueAnimator? = null
+    private var sheetProgress = 0f
+    private var sheetGeneration = 0
+    private var bodyGeneration = 0
+    private var bodyScroll: ScrollView? = null
+    private val categoryScroll = HashMap<Int, Int>()
     private var onClose: Runnable? = null
 
     private var captureFinished = false
@@ -166,7 +172,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
         // ---- scrim -------------------------------------------------------
         scrim = View(c)
-        scrim.setBackgroundColor(0x00000000)
+        scrim.setBackgroundColor(hd().windowDimming)
+        scrim.alpha = 0f
         scrim.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View) {
                 // Grace window: the long press that opens this sheet fires at ~750ms and its
@@ -190,7 +197,7 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         // 卡片底取 surfaceContainer，**不描边**：miuix 的层级靠页面底色差 + 页边距切分，
         // 不靠 outline —— 那圈 specular rim 是 Liquid Glass 的残留。圆角走连续曲率
         // squircle，28dp = 底部弹层 token（HyperDesign.R_DIALOG）。
-        card.background = SquircleDrawable(cGlass(), UiKit.dpf(c, HyperDesign.R_DIALOG))
+        card.background = SquircleDrawable(cGlass(), UiKit.dpf(c, HyperDesign.R_SHEET))
         card.elevation = 0f
         val cardLp = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
@@ -210,6 +217,7 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         body.orientation = LinearLayout.VERTICAL
         body.setPadding(UiKit.dp(c, 6f), UiKit.dp(c, 2f), UiKit.dp(c, 6f), UiKit.dp(c, 8f))
         val scroll = ScrollView(c)
+        bodyScroll = scroll
         scroll.isVerticalScrollBarEnabled = false
         scroll.addView(body, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
@@ -218,14 +226,14 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         val bodyHeight = Math.min(UiKit.dp(c, 396f),
                 (c.resources.displayMetrics.heightPixels * 0.46f).toInt())
         card.addView(scroll, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, bodyHeight))
+                LinearLayout.LayoutParams.MATCH_PARENT, bodyHeight, 1f))
 
         val foot = TextView(c)
-        foot.text = "修改即时写入；地图内页面可能需要重新进入才会刷新。"
-        foot.setTextSize(HyperDesign.T_BODY3)
+        foot.text = "修改即时保存，部分页面需重新进入。"
+        foot.setTextSize(HyperDesign.T_CAPTION)
         foot.setLineSpacing(0f, 1.2f)
         foot.setTextColor(cTxS())
-        foot.setPadding(UiKit.dp(c, 20f), 0, UiKit.dp(c, 20f), UiKit.dp(c, 14f))
+        foot.setPadding(UiKit.dp(c, 20f), UiKit.dp(c, 8f), UiKit.dp(c, 20f), 0)
         card.addView(foot)
 
         // Persistent write-failure line. Hidden while writes work; a toast is gone in two
@@ -254,8 +262,7 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         writeWarnRow = warn
         card.addView(warn)
 
-        card.addView(buildDonateRow())
-        card.addView(buildDefaultsRow())
+        card.addView(buildFooterActions())
 
         // Restore the persisted appearance before the first frame: the card is GONE at this
         // point, so this only sets the layout params and the plate alpha -- no visible jump.
@@ -366,24 +373,15 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
 
     /** 覆盖前给一次确认；确认后在后台线程写入，避免 commit() 卡住界面。 */
     private fun confirmDefaults(anchor: TextView) {
-        // NONE 态下这个按钮只会静默失败，用户会以为"恢复了其实没有" —— 直接说清楚原因，
-        // 连确认框都不弹（弹了也没意义：确认完同样写不进去）。
         if (FloatingConfig.backend() == FloatingConfig.BACKEND_NONE) {
-            toast("配置通道不可用：请在框架里确认本模块已对目标 App 启用，或重装模块")
+            toast("配置通道不可用，请检查模块连接。")
             return
         }
         try {
-            android.app.AlertDialog.Builder(ctx)
-                    .setTitle("恢复默认配置？")
-                    .setMessage("将把模块内置的默认配置重新写入当前地图，"
-                            + "会覆盖你已经改过的开关。\n\n"
-                            + "没有值的项（null）保持原样；写入后需要重新进入地图页面才会刷新。")
-                    .setNegativeButton("取消", null)
-                    .setPositiveButton("恢复") { d, which -> runDefaults(anchor) }
-                    .show()
-        } catch (t: Throwable) {
-            // 宿主主题异常时退化成直接执行，至少不让入口变成死键。
-            runDefaults(anchor)
+            MotionDialog.confirm(ctx, "恢复默认配置？", "将覆盖当前地图中已修改的开关，未设置的项保持原样。", "恢复", Runnable { runDefaults(anchor) })
+        } catch (error: Throwable) {
+            toast("无法打开确认窗口，请重试。")
+            Log.w(TAG, "event=defaults_dialog_fail", error)
         }
     }
 
@@ -432,118 +430,56 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     /* ------------------------------------------------------------------ 头部 */
 
     private fun buildHeader(): View {
+        val skin = Skin(ctx, dark)
         val head = LinearLayout(ctx)
-        head.orientation = LinearLayout.HORIZONTAL
         head.gravity = Gravity.CENTER_VERTICAL
-        head.setPadding(UiKit.dp(ctx, 20f), UiKit.dp(ctx, 14f),
-                UiKit.dp(ctx, 12f), UiKit.dp(ctx, 10f))
-
-        // Author avatar: the picture shipped in res/drawable, cropped to a disc. Falls
-        // back to the module icon, then to a monogram, so the header never shows a hole.
-        val avatar = AvatarBadge(ctx, "M", 0)
-        avatar.setRingColor(if (dark) 0x33FFFFFF else 0x1A000000)
-        val avatarSize = UiKit.dp(ctx, 38f)
-        val avatarLp = LinearLayout.LayoutParams(avatarSize, avatarSize)
-        avatarLp.setMarginEnd(UiKit.dp(ctx, 12f))
-        head.addView(avatar, avatarLp)
-
+        head.setPadding(skin.dp(20f), skin.dp(12f), skin.dp(12f), skin.dp(8f))
         val titles = LinearLayout(ctx)
         titles.orientation = LinearLayout.VERTICAL
-
-        // Line 1: product name + version chip + (optional) 「新版本」 badge.
-        //
-        // Width budget at the default full-width card on a 1080px/3x screen:
-        //   titles ≈ 226dp  (360 - 10 - 10 card margins - 18 - 12 head padding - 44 - 12 avatar - 28 close)
-        //   「MapAdKiller」 19sp ≈ 110dp, 「v2.2.2」 chip ≈ 54dp, 「新版本」 badge ≈ 42dp, gaps 8dp
-        //   ⇒ 214dp: fits, and the title ellipsizes if the badge pushes it over.
-        // Three-in-one-row (pill + chip + GitHub) would need 262-329dp and CANNOT fit at any
-        // panel width, which is why the credit moved to line 2 and the pill owns line 2 alone.
-        val titleRow = LinearLayout(ctx)
-        titleRow.orientation = LinearLayout.HORIZONTAL
-        titleRow.gravity = Gravity.CENTER_VERTICAL
-
-        val title = TextView(ctx)
-        title.text = "MapAdKiller"
-        // 面板标题 = miuix title2：24sp / Medium(500)。原来 17sp + DEFAULT_BOLD(700)，
-        // 比正文字号还小、字重还重 —— 读起来像一段加粗的正文而不是标题。
-        title.setTextSize(HyperDesign.T_TITLE)
-        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
-                android.graphics.Typeface.NORMAL))
-        title.setTextColor(cTxP())
-        // 24sp 收一点负字距：中文字形本身已是全宽，大字号的默认间距会显得松散
-        // （与模块版 Skin.text 的 sp >= 20f 分支一致）。
-        title.setLetterSpacing(-0.015f)
+        val top = LinearLayout(ctx)
+        top.gravity = Gravity.CENTER_VERTICAL
+        val title = skin.text("MapAdKiller", HyperDesign.T_SUBTITLE, Skin.MEDIUM, cTxP())
         title.isSingleLine = true
         title.ellipsize = android.text.TextUtils.TruncateAt.END
-        // The title absorbs any shortfall: the version chip and its 「新版本」 badge must never
-        // be clipped, so they keep WRAP_CONTENT while this line gives up width first.
-        titleRow.addView(title, LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        titleRow.addView(versionChip(), chipLp(0))
-        titleRow.addView(versionBadge(), chipLp(UiKit.dp(ctx, 4f)))
-        titles.addView(titleRow)
-
-        // Row 2: live connection state, then the author credit as a quiet text link.
-        //
-        // The author entry is deliberately understated -- a filled button here competed
-        // with the switches, which are what the sheet is actually for. A muted label that
-        // only picks up the accent colour under the finger reads as a link without
-        // shouting, and the avatar above already identifies the author visually.
+        top.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(versionBadge())
+        titles.addView(top, skin.matchWrap())
         val meta = LinearLayout(ctx)
-        meta.orientation = LinearLayout.HORIZONTAL
         meta.gravity = Gravity.CENTER_VERTICAL
-        val metaLp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        metaLp.topMargin = UiKit.dp(ctx, 5f)
-        titles.addView(meta, metaLp)
-
-        val pill = TextView(ctx)
-        pill.setTextSize(HyperDesign.T_BODY3)
-        pill.setLineSpacing(0f, 1.2f)
-        pill.setPadding(UiKit.dp(ctx, 8f), UiKit.dp(ctx, 3f),
-                UiKit.dp(ctx, 8f), UiKit.dp(ctx, 3f))
-        // The pill can only hold a short phrase; the actionable explanation lives on long-press
-        // (a NONE pill that just says 「只读」 leaves the user with nothing to do).
-        pill.setOnLongClickListener(object : View.OnLongClickListener {
-            override fun onLongClick(v: View): Boolean {
-                if (FloatingConfig.backend() == FloatingConfig.BACKEND_NONE) {
-                    toast("配置通道不可用：请在框架里确认本模块已对目标 App 启用，或重装模块")
-                } else if (FloatingConfig.lastWriteState() == FloatingConfig.W_REFUSED) {
-                    toast("配置无法保存：请检查存储空间或重装模块")
-                } else {
-                    toast("配置后端：" + (if (FloatingConfig.backend()
-                                    == FloatingConfig.BACKEND_REMOTE) "远程（框架服务）" else "本地")
-                            + "；当前版本 v" + Version.NAME)
-                }
-                return true
-            }
-        })
+        val pill = skin.caption("")
         statusPill = pill
         meta.addView(pill)
+        meta.addView(versionChip(), chipLp(skin.dp(4f)))
+        titles.addView(meta, skin.matchWrap().apply { topMargin = skin.dp(2f) })
+        head.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         refreshStatus()
-
-        meta.addView(authorLink(), LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(titles, LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-        val close = TextView(ctx)
-        close.text = "✕"
-        close.setTextSize(HyperDesign.T_BODY1)
-        close.setLineSpacing(0f, 1.2f)
-        close.setTextColor(cTxS())
+        val close = skin.text("×", 24f, Skin.REGULAR, cTxS())
         close.gravity = Gravity.CENTER
-        close.contentDescription = "关闭"
-        close.background = UiKit.rippleBare(cRipple(), UiKit.dpf(ctx, 20f))
-        close.setOnClickListener(object : View.OnClickListener {
-            override fun onClick(v: View) {
-                closeFrom("close_button")
-            }
-        })
-        val cs = UiKit.dp(ctx, 40f)
-        head.addView(close, LinearLayout.LayoutParams(cs, cs))
-        UiKit.pressable(close, 0.9f)
+        close.contentDescription = "关闭面板"
+        close.isFocusable = true
+        close.setPadding(skin.dp(14f), skin.dp(14f), skin.dp(14f), skin.dp(14f))
+        close.background = UiKit.rippleBare(cRipple(), skin.dp(24f).toFloat())
+        close.setOnClickListener { closeFrom("close_button") }
+        UiKit.pressable(close, HyperDesign.PRESS_BUTTON)
+        head.addView(close, LinearLayout.LayoutParams(skin.dp(48f), skin.dp(48f)))
         return head
+    }
+
+    private fun buildFooterActions(): View {
+        val skin = Skin(ctx, dark)
+        val row = LinearLayout(ctx)
+        row.setPadding(skin.dp(12f), skin.dp(2f), skin.dp(12f), skin.dp(6f))
+        val restore = skin.textButton("恢复默认")
+        restore.setOnClickListener { confirmDefaults(restore) }
+        val github = skin.textButton("GitHub")
+        github.setOnClickListener { openUrl(Version.REPO) }
+        val donate = skin.textButton("赞赏支持")
+        donate.setOnClickListener { showDonate() }
+        for (button in listOf(restore, github, donate)) {
+            button.setTextColor(cTxS())
+            row.addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        return row
     }
 
     /**
@@ -1078,67 +1014,26 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     /* ------------------------------------------------------------------ 分类栏 */
 
     private fun buildRail(): View {
-        val hs = HorizontalScrollView(ctx)
-        hs.isHorizontalScrollBarEnabled = false
-        hs.setClipToPadding(false)
-        hs.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), 0,
-                UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()))
-        railScroll = hs      // kept so select() can scroll the chosen chip into view
-        // No OnTouchListener here (r12 regression). A listener on the scroller -- or any
-        // requestDisallowInterceptTouchEvent() issued from a view *inside* it -- propagates
-        // upwards and clears the HorizontalScrollView's own interception flag, so the scroller
-        // can never take the gesture over and scrollX stays 0. The panel now simply declines to
-        // intercept while the DOWN was in the rail, and the scroller does the rest natively.
-        val railView = LinearLayout(ctx)
-        railView.orientation = LinearLayout.HORIZONTAL
-        hs.addView(railView, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
-        rail = railView
+        val scroll = HorizontalScrollView(ctx)
+        scroll.isHorizontalScrollBarEnabled = false
+        scroll.clipToPadding = false
+        scroll.setPadding(UiKit.dp(ctx, 12f), 0, UiKit.dp(ctx, 12f), UiKit.dp(ctx, 8f))
+        railScroll = scroll
+        val tabs = MiuixTabs(ctx, dark)
+        rail = tabs
+        scroll.addView(tabs, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         rebuildRail()
-        return hs
+        return scroll
     }
 
     /** (Re)populate the category chips from the current [groups]. */
     private fun rebuildRail() {
-        val railView = rail ?: return
-        railView.removeAllViews()
-        for (i in groups.indices) {
-            val index = i
-            val chip = TextView(ctx)
-            chip.text = groups[i].label
-            chip.setTextSize(HyperDesign.T_CAPTION)
-            chip.setLineSpacing(0f, 1.2f)
-            chip.gravity = Gravity.CENTER
-            chip.setPadding(UiKit.dp(ctx, HyperDesign.S3.toFloat()), UiKit.dp(ctx, 7f),
-                    UiKit.dp(ctx, HyperDesign.S3.toFloat()), UiKit.dp(ctx, 7f))
-            val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            if (i > 0) lp.setMarginStart(UiKit.dp(ctx, 7f))
-            chip.layoutParams = lp
-            chip.setOnClickListener(object : View.OnClickListener {
-                override fun onClick(v: View) {
-                    // Tapping a category leaves search mode; otherwise the rail would be
-                    // hidden while the chip that was just tapped stays selected.
-                    val field = searchField
-                    if (field != null && field.text.length > 0) {
-                        field.setText("")
-                        return
-                    }
-                    select(index, true)
-                }
-            })
-            // Press feedback only -- deliberately an OnClickListener, not an OnTouchListener.
-            //
-            // r12 installed an OnTouchListener here that called requestDisallowInterceptTouchEvent
-            // on the ancestors. That call propagates UPWARDS, and since the walk starts at the
-            // rail's LinearLayout (a child of the scroller) it cleared the
-            // HorizontalScrollView's own interception flag: the scroller could no longer take
-            // the gesture over, scrollX stayed 0 and the last chips became unreachable.
-            // Gesture ownership is now decided in onInterceptTouchEvent (isInRail ⇒ return
-            // false), which needs no flag at all.
-            UiKit.pressable(chip, 0.95f)
-            railView.addView(chip)
-        }
+        val tabs = rail as? MiuixTabs ?: return
+        tabs.setItems(groups.map { it.label }, false, MiuixTabs.OnSelect { index ->
+            if (query.isNotEmpty()) clearSearch()
+            select(index, true)
+        })
+        tabs.select(selected.coerceIn(0, groups.size - 1), false)
     }
 
     /**
@@ -1164,26 +1059,32 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     }
 
     private fun select(index: Int, animate: Boolean) {
-        selected = index
-        val railView = rail
-        if (railView != null) {
-            for (i in 0 until railView.childCount) {
-                val chip = railView.getChildAt(i) as TextView
-                val on = i == index
-                chip.setTextColor(if (on) 0xFFFFFFFF.toInt() else cTxS())
-                chip.setTypeface(if (on) android.graphics.Typeface.DEFAULT_BOLD
-                        else android.graphics.Typeface.DEFAULT)
-                // 选中 / 未选中用同一套几何：squircle 胶囊（R_PILL 在短边上自动退化成全圆角）。
-                // 原来是「选中 = 渐变、未选中 = 圆角矩形」，两种曲线拼在一排上；miuix 的
-                // Tab 指示器是纯色块，没有渐变，所以选中态取 primary 实色。
-                chip.background = if (on)
-                    SquircleDrawable(cAccent(), UiKit.dpf(ctx, HyperDesign.R_PILL))
-                else
-                    SquircleDrawable(if (dark) 0x1AFFFFFF else 0x0F000000,
-                            UiKit.dpf(ctx, HyperDesign.R_PILL))
-            }
+        if (index < -1 || index >= groups.size) return
+        if (animate && index == selected) return
+        val previous = selected
+        val generation = ++bodyGeneration
+        body.animate().cancel()
+        if (previous >= 0 && previous != index) categoryScroll[previous] = bodyScroll?.scrollY ?: 0
+        if (index >= 0) {
+            (rail as? MiuixTabs)?.select(index, animate)
+            scrollRailToSelected(index)
         }
-        scrollRailToSelected(index)
+        selected = index
+        if (animate && HyperMotion.enabled(body)) {
+            val direction = if (index > previous) 1 else -1
+            body.animate().alpha(0f).translationX(-direction * UiKit.dpf(ctx, HyperMotion.DISTANCE_SMALL))
+                .setStartDelay(0L).setDuration(HyperMotion.DUR_PRESS).setInterpolator(HyperMotion.ACCELERATE)
+                .withEndAction {
+                    if (generation == bodyGeneration) {
+                        select(index, false)
+                        UiKit.contentIn(body, direction)
+                    }
+                }.start()
+            return
+        }
+        body.alpha = 1f
+        body.translationX = 0f
+        body.translationY = 0f
         // The about row is rebuilt with every page switch; drop the stale reference so a late
         // update result cannot paint into a detached view.
         aboutUpdateRow = null
@@ -1258,11 +1159,10 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
                 body.addView(buildAboutRows())
             }
         }
-        if (animate) {
-            body.alpha = 0f
-            body.translationY = UiKit.dp(ctx, 10f).toFloat()
-            UiKit.enter(body, UiKit.dp(ctx, 10f).toFloat(), 0L)
+        bodyScroll?.post {
+            if (selected == index) bodyScroll?.scrollTo(0, if (index < 0) 0 else categoryScroll[index] ?: 0)
         }
+
     }
 
     private fun sectionHeader(title: String, count: Int): TextView {
@@ -1352,6 +1252,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         row.setPadding(UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()),
                 UiKit.dp(ctx, HyperDesign.ROW_PAD.toFloat()), UiKit.dp(ctx, HyperDesign.S2.toFloat()))
         row.background = UiKit.rippleBare(cRipple(), UiKit.dpf(ctx, HyperDesign.R_CONTROL))
+        row.isFocusable = true
+        UiKit.pressable(row, HyperDesign.PRESS_ROW)
 
         val texts = LinearLayout(ctx)
         texts.orientation = LinearLayout.VERTICAL
@@ -1361,11 +1263,15 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         title.setTextSize(HyperDesign.T_BODY1)
         title.setLineSpacing(0f, 1.2f)
         title.setTextColor(cTxP())
+        title.typeface = Skin.MEDIUM
         texts.addView(title)
 
         if (!item.note.isNullOrEmpty()) {
             val note = TextView(ctx)
             note.text = item.note
+            note.maxLines = 2
+            note.ellipsize = android.text.TextUtils.TruncateAt.END
+            row.contentDescription = item.title + "，" + item.note
             note.setTextSize(HyperDesign.T_BODY3)
             note.setLineSpacing(0f, 1.2f)
             note.setTextColor(cTxS())
@@ -1398,6 +1304,9 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
                 if (ok) {
                     // Same-process readers cache for 2s; drop it so the next read agrees.
                     FloatingConfig.invalidate()
+                    if (Vendor.baidu() && next && key in arrayOf("hc_home", "hc_company", "hc_setting")) {
+                        switches["ui_home_company"]?.setChecked(true, true)
+                    }
                 } else {
                     view.setChecked(!next, true)
                     Log.w(TAG, "event=float_toggle_fail key=" + key
@@ -1599,6 +1508,7 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         title.setTextSize(HyperDesign.T_BODY1)
         title.setLineSpacing(0f, 1.2f)
         title.setTextColor(cTxP())
+        title.typeface = Skin.MEDIUM
         texts.addView(title)
 
         val note = TextView(ctx)
@@ -2448,8 +2358,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     private fun applyPanelWidth(widthDp: Int) {
         val lp = card.layoutParams
         if (lp !is FrameLayout.LayoutParams) return
-        val margin = UiKit.dp(ctx, 10f)
-        val available = resources.displayMetrics.widthPixels - margin * 2
+        val margin = UiKit.dp(ctx, HyperDesign.PAGE_PAD.toFloat())
+        val available = (if (width > 0) width else resources.displayMetrics.widthPixels) - margin * 2
         // Re-seating identical LayoutParams still schedules a layout pass; skip it so the
         // once-per-open re-read in applyAppearance() cannot churn the tree. 窗口宽度也是键的一
         // 部分：旋屏 / 分屏 / 折叠屏换了宽度之后，同一个 dp 值算出的像素宽度已经不同，
@@ -2458,10 +2368,10 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
         appliedPanelWidth = widthDp
         appliedPanelAvailable = available
         if (widthDp <= FloatingConfig.PANEL_WIDTH_AUTO) {
-            lp.width = FrameLayout.LayoutParams.MATCH_PARENT
-            lp.gravity = Gravity.BOTTOM
-            lp.leftMargin = margin
-            lp.rightMargin = margin
+            lp.width = minOf(available.coerceAtLeast(1), UiKit.dp(ctx, HyperDesign.SHEET_MAX_W.toFloat()))
+            lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            lp.leftMargin = 0
+            lp.rightMargin = 0
         } else {
             val avail = Math.max(1, available)
             // 原版是 `max(240dp, px)`：窗口窄于 240dp（分屏 / 小屏 / 折叠内屏）时面板比窗口
@@ -2604,19 +2514,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
             }
         } catch (ignored: Throwable) {
         }
-        // Dim behind the sheet and slide the card up.
-        UiKit.animateFloat(0f, 0.42f, UiKit.DECELERATE, UiKit.DUR_BASE,
-                ValueAnimator.AnimatorUpdateListener { a ->
-                    val t = a.animatedValue as Float
-                    scrim.setBackgroundColor(UiKit.blend(0x00000000,
-                            if (dark) 0xB3000000.toInt() else 0x8C000000.toInt(), t / 0.42f))
-                })
-        card.translationY = UiKit.dp(ctx, 420f).toFloat()
-        // Fade in to the *persisted* plate opacity, not to 1: a 70% sheet that flashes fully
-        // opaque and then dims reads as a glitch.
-        card.alpha = panelAlpha * 0.6f
-        card.animate().translationY(0f).alpha(panelAlpha)
-                .setDuration(UiKit.DUR_SLOW).setInterpolator(UiKit.DECELERATE).start()
+        animateSheet(1f)
+
     }
 
     /**
@@ -2635,32 +2534,74 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
     fun close() {
         if (!panelOpen) return
         panelOpen = false
+        bodyGeneration++
+        body.animate().cancel()
         clearSearch()
-        // Drop the keyboard, otherwise it stays up over the map after the sheet is gone.
         try {
-            val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE)
-                    as android.view.inputmethod.InputMethodManager?
+            val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
             imm?.hideSoftInputFromWindow(windowToken, 0)
             searchField?.clearFocus()
-        } catch (ignored: Throwable) {
+        } catch (_: Throwable) { }
+        animateSheet(0f)
+    }
+
+    private fun animateSheet(target: Float) {
+        val generation = ++sheetGeneration
+        sheetAnimator?.cancel()
+        card.animate().cancel()
+        if (target == 1f && sheetProgress == 0f) {
+            card.alpha = 0f
+            card.translationY = height.toFloat()
         }
-        card.animate().translationY(UiKit.dp(ctx, 420f).toFloat()).alpha(0f)
-                .setDuration(UiKit.DUR_BASE).setInterpolator(UiKit.ACCELERATE)
-                .withEndAction(Runnable {
-                    // 打开动画会取消这条收尾动画（endAction 随之作废）；这里再挡一次，
-                    // 免得「关 → 立刻开」的竞态把刚打开的面板又设成 GONE。
-                    if (!panelOpen) {
-                        visibility = View.GONE
-                        ball?.visibility = View.VISIBLE
-                    }
-                }).start()
-        UiKit.animateFloat(0.42f, 0f, UiKit.ACCELERATE, UiKit.DUR_BASE,
-                ValueAnimator.AnimatorUpdateListener { a ->
-                    val t = a.animatedValue as Float
-                    scrim.setBackgroundColor(UiKit.blend(0x00000000,
-                            if (dark) 0xB3000000.toInt() else 0x8C000000.toInt(), t / 0.42f))
+        val start = Runnable {
+            if (generation != sheetGeneration) return@Runnable
+            fun apply(value: Float) {
+                sheetProgress = value.coerceIn(0f, 1f)
+                val lp = card.layoutParams as? FrameLayout.LayoutParams
+                val travel = card.height + (lp?.bottomMargin ?: 0)
+                card.translationY = travel * (1f - sheetProgress)
+                card.alpha = panelAlpha * sheetProgress
+                scrim.alpha = sheetProgress
+            }
+            fun complete() {
+                if (generation != sheetGeneration) return
+                apply(target)
+                sheetAnimator = null
+                if (target == 0f && !panelOpen) {
+                    visibility = View.GONE
+                    ball?.visibility = View.VISIBLE
+                    onClose?.run()
+                }
+            }
+            if (!HyperMotion.enabled(this)) { complete(); return@Runnable }
+            sheetAnimator = ValueAnimator.ofFloat(sheetProgress, target).apply {
+                duration = if (target == 1f) HyperMotion.DUR_PAGE else HyperMotion.DUR_EXIT
+                interpolator = if (target == 1f) HyperMotion.DECELERATE else HyperMotion.ACCELERATE
+                addUpdateListener { apply(it.animatedValue as Float) }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    private var cancelled = false
+                    override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
+                    override fun onAnimationEnd(animation: android.animation.Animator) { if (!cancelled) complete() }
                 })
-        onClose?.run()
+                start()
+            }
+        }
+        if (card.height > 0) start.run() else post(start)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w > 0 && w != oldw) applyPanelWidth(FloatingConfig.panelWidthDp())
+    }
+
+    override fun onDetachedFromWindow() {
+        sheetGeneration++
+        bodyGeneration++
+        sheetAnimator?.cancel()
+        sheetAnimator = null
+        body.animate().cancel()
+        card.animate().cancel()
+        super.onDetachedFromWindow()
     }
 
     override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
@@ -2750,19 +2691,8 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
      * and a closed ring is the natural model for a horizontal chip rail.
      */
     private fun step(direction: Int) {
-        val count = groups.size
-        if (count < 2) return
-        val target = ((selected + direction) % count + count) % count
-        val travel = UiKit.dp(ctx, 64f)
-        body.animate().translationX((-direction * travel).toFloat()).alpha(0f)
-                .setDuration(UiKit.DUR_QUICK).setInterpolator(UiKit.ACCELERATE)
-                .withEndAction(Runnable {
-                    select(target, false)
-                    body.translationX = (direction * travel).toFloat()
-                    body.animate().translationX(0f).alpha(1f)
-                            .setDuration(UiKit.DUR_BASE)
-                            .setInterpolator(UiKit.DECELERATE).start()
-                }).start()
+        if (groups.size < 2) return
+        select(((selected + direction) % groups.size + groups.size) % groups.size, true)
     }
 
     /** True when the point falls inside the category rail (in this panel's coordinates). */

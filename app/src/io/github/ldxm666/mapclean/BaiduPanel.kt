@@ -45,9 +45,9 @@ class BaiduPanel private constructor() {
 
                 PanelTypes.Group(
                     "内容", sections(
-                        BmapSpec.CAT_WX, BmapSpec.CAT_FEED, BmapSpec.CAT_SEARCH
+                        BmapSpec.CAT_WX, BmapSpec.CAT_FEED, BmapSpec.CAT_SEARCH, BmapSpec.CAT_POI
                     ),
-                    "天气与行程栏、推荐信息流、搜索框下方快捷入口。"
+                    "天气与行程栏、推荐信息流、搜索区与地点详情页推广位。"
                 ),
 
                 // 地图标注的行是 BaiduLabelSettings 动态生成的（按 POI 类型），几十条，
@@ -83,7 +83,7 @@ class BaiduPanel private constructor() {
                     "其他", arrayOf(
                         PanelTypes.Item(
                             io.github.ldxm666.bmapclean.Cfg.K_DEBUG, "调试日志",
-                            "把协议适配错误输出到 logcat，排障用。"
+                            "记录适配错误及收银台→微信/支付宝的调用阶段；不记录订单和支付参数。开启后重启百度再复现。"
                         )
                     ), "百度 22.1.0 (1660) 适配；改动后重启百度生效。", true
                 )
@@ -156,7 +156,7 @@ class BaiduPanel private constructor() {
                         PanelTypes.Item(
                             io.github.ldxm666.bmapclean.Cfg.K_BG_SERVICE_OFF,
                             "关闭后台常驻服务",
-                            "定位/云控/统计等自启动服务不再常驻。"
+                            "拦截后台更新等服务；保留导航、行程所需的通知服务。"
                         ),
                         PanelTypes.Item(
                             io.github.ldxm666.bmapclean.Cfg.K_TIMER_OFF,
@@ -166,7 +166,7 @@ class BaiduPanel private constructor() {
                         PanelTypes.Item(
                             io.github.ldxm666.bmapclean.Cfg.K_WIDGET_OFF,
                             "关闭桌面小组件刷新",
-                            "只拦 APPWIDGET_UPDATE，添加/删除组件仍正常。"
+                            "只拦标准 APPWIDGET_UPDATE；保留厂商卡片广播和组件生命周期。"
                         ),
                         PanelTypes.Item(
                             io.github.ldxm666.bmapclean.Cfg.K_TRACK_OFF,
@@ -277,7 +277,17 @@ class BaiduPanel private constructor() {
         @JvmStatic
         fun write(key: String, value: Boolean): Boolean {
             return try {
-                BmapApp.write(key, value)
+                val saved = BmapApp.write(key, value)
+                if (saved && (key == BmapSpec.K_TOOLS || key.startsWith(BmapSpec.K_TOOL))) {
+                    io.github.ldxm666.bmapclean.Cfg.invalidate()
+                    io.github.ldxm666.bmapclean.BaiduToolGrid.refresh()
+                }
+                if (saved && (key == BmapSpec.K_HC || key == BmapSpec.K_HC_HOME ||
+                        key == BmapSpec.K_HC_COMPANY || key == BmapSpec.K_HC_SETTING)) {
+                    io.github.ldxm666.bmapclean.Cfg.invalidate()
+                    io.github.ldxm666.bmapclean.BaiduCommute.refresh()
+                }
+                saved
             } catch (ignored: Throwable) {
                 false
             }

@@ -101,9 +101,6 @@ class BaiduPanelHeight private constructor() {
         /** 顶部投影，同理不是内容。 */
         private const val ID_SHADOW = "aihome_panel_top_shadow"
 
-        /** 内容底边小于这个值就当作没量到（避免把自己越夹越小）。 */
-        private const val MIN_CONTENT_PX = 120
-
         /**
          * 取证期临时强制开日志（只影响本类，不牵连 {@link Cfg#FORCE_DEBUG} 的全模块开关）。
          * <b>交付版必须为 false</b>；此时诊断输出由 {@code debug_log} 开关控制，默认关。
@@ -141,6 +138,12 @@ class BaiduPanelHeight private constructor() {
         /** 全 APK 只有一个 {@code DrawerBehavior} 实例，单槽缓存即可（零分配）。 */
         @Volatile
         private var CTX: Ctx? = null
+
+        @JvmStatic
+        fun pinned(): Boolean {
+            val c = CTX ?: return false
+            return c.wrote && c.wContent > 0 && c.wMin == c.wMax
+        }
 
         @JvmStatic
         fun install(cl: ClassLoader) {
@@ -205,6 +208,22 @@ class BaiduPanelHeight private constructor() {
                         applyIfSettled(self, coord, child)
                     }
                     return result
+                }
+            })
+
+            // Direct drawer drags need the same fresh bounds as nested scrolling.
+            H.hook(H.method(behavior, "onInterceptTouchEvent", 3), "baidu_panel_limit_touch", object : XposedInterface.Hooker {
+                override fun intercept(chain: XposedInterface.Chain): Any? {
+                    val event = chain.getArg(2) as? android.view.MotionEvent
+                    if (event?.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                        val coord = chain.getArg(0) as? View
+                        val drawer = chain.getArg(1) as? View
+                        if (coord != null && drawer != null) {
+                            measure(chain.getThisObject(), coord, drawer)
+                            applyIfSettled(chain.getThisObject(), coord, drawer)
+                        }
+                    }
+                    return chain.proceed()
                 }
             })
 
@@ -295,12 +314,13 @@ class BaiduPanelHeight private constructor() {
                 if (drawer.id != c.idFront && c.idFront != 0) return
 
                 val content = contentBottom(c, drawer)
-                if (content < MIN_CONTENT_PX) return
+                if (content <= 0) return
 
                 if (content != c.lastContent) {
                     c.lastContent = content
                     c.hits = 0
                     c.settled = false
+                    sampleAgain(c, sheet, coord, drawer)
                     return
                 }
                 if (c.hits < 1) {
@@ -310,15 +330,24 @@ class BaiduPanelHeight private constructor() {
                     // 而"写字段"要发生在第 3 次布局的 proceed 之前。没有第 3 次布局的话，
                     // 面板会一直停在未夹紧的位置（用户看到的就是那片空白），直到第一次手势。
                     // 这里补一次有界的 requestLayout（每个抽屉最多一次），把第 3 次布局催出来。
-                    if (!c.wrote && !c.nudged) {
-                        c.nudged = true
-                        drawer.requestLayout()
-                    }
+                    c.samplePasses = 0
+                    drawer.requestLayout()
                     return
                 }
                 c.settled = true
             } catch (t: Throwable) {
                 if (dbg()) H.log(Log.WARN, MainHook.TAG, "baidu_panel measure " + t)
+            }
+        }
+
+        /** Two stable frames after each content change, not only on the first launch. */
+        private fun sampleAgain(c: Ctx, sheet: Any, coord: View, drawer: View) {
+            if (c.samplePosted || c.samplePasses >= 4) return
+            c.samplePosted = true
+            c.samplePasses++
+            drawer.postOnAnimation {
+                c.samplePosted = false
+                if (CTX === c && drawer.isAttachedToWindow) measure(sheet, coord, drawer)
             }
         }
 
@@ -362,7 +391,9 @@ class BaiduPanelHeight private constructor() {
                 val extend = targetMin - base
 
                 if (c.wrote && c.wExtend == extend && c.wMin == targetMin && c.wMax == targetMax
-                        && c.wPeek == peek && c.wParent == parent && c.wContent == content) {
+                        && c.wPeek == peek && c.wParent == parent && c.wContent == content
+                        && c.fExtend!!.getInt(sheet) == extend && c.fMin!!.getInt(sheet) == targetMin
+                        && c.fMax!!.getInt(sheet) == targetMax && c.fPeek!!.getInt(sheet) == peek) {
                     return                                                // 幂等：稳态零写入
                 }
                 c.wrote = true
@@ -383,6 +414,8 @@ class BaiduPanelHeight private constructor() {
                 c.fMin!!.setInt(sheet, targetMin)
                 c.fPeek!!.setInt(sheet, peek)
                 c.fMax!!.setInt(sheet, targetMax)
+                BaiduToolGrid.syncMotion()
+                BaiduCommute.syncMotion()
 
                 if (dbg()) {
                     H.log(Log.INFO, MainHook.TAG, "baidu_panel_fit state=" + state
@@ -509,62 +542,8 @@ class BaiduPanelHeight private constructor() {
 
         @JvmStatic
         private fun contentBottom(c: Ctx, drawer: View): Int {
-            var root: View = if (c.idPanel != 0) (drawer.findViewById<View>(c.idPanel) ?: drawer) else drawer
-            var offset = topRelativeTo(root, drawer)
-            if (offset < 0) {
-                root = drawer
-                offset = 0
-            }
-            return scan(c, root, offset, 0)
-        }
-
-        @JvmStatic
-        private fun scan(c: Ctx, node: View?, offset: Int, depth: Int): Int {
-            if (node == null || depth > 16) return 0
-            if (node.visibility != View.VISIBLE) return 0
-            if (isBackground(c, node.id)) return 0          // 背景填充层整棵跳过
-            val base = offset + node.top
-            var best = 0
-            var anyChild = false
-            if (node is ViewGroup) {
-                val count = node.childCount
-                for (i in 0 until count) {
-                    val child = node.getChildAt(i)
-                    if (child == null || child.visibility != View.VISIBLE) continue
-                    anyChild = true
-                    val bottom = scan(c, child, base, depth + 1)
-                    if (bottom > best) best = bottom
-                }
-            }
-            if (!anyChild && node.width > 0 && node.height > 0) {
-                val bottom = base + node.height
-                if (bottom > best) best = bottom
-            }
-            return best
-        }
-
-        @JvmStatic
-        private fun isBackground(c: Ctx, id: Int): Boolean {
-            val ids = c.bgIds ?: return false
-            for (i in ids.indices) if (ids[i] == id) return true
-            return false
-        }
-
-        /** {@code v} 顶边相对祖先 {@code ancestor} 顶边的偏移；不是后代返回 -1。 */
-        @JvmStatic
-        private fun topRelativeTo(v: View, ancestor: View): Int {
-            var sum = 0
-            var cur: View? = v
-            var guard = 0
-            while (guard < 64) {
-                val node = cur ?: break
-                if (node === ancestor) return sum
-                sum += node.top
-                val parent = node.parent
-                cur = if (parent is View) parent else null
-                guard++
-            }
-            return -1
+            val root = if (c.idPanel != 0) drawer.findViewById<View>(c.idPanel) ?: return -1 else drawer
+            return BaiduPanelContent.bottom(root, drawer, c.bgIds ?: return -1)
         }
 
         /* ── 反射 / 资源小工具（只在建缓存与装机时调用） ───────────────────── */
@@ -645,8 +624,8 @@ class BaiduPanelHeight private constructor() {
         var hits = 0
         var settled = false
 
-        /** 是否已经催过一次布局（有界，每抽屉最多一次）。 */
-        var nudged = false
+        var samplePosted = false
+        var samplePasses = 0
 
         /* 上次真正写进去的值（幂等判断，避免每次布局都写字段） */
         var wrote = false

@@ -52,6 +52,13 @@ class Spec private constructor() {
         /** 主页地图图标 */
         const val K_MAP_ICONS = "ui_map_icons"
 
+        const val K_MAP_ANNOTATIONS = "ui_map_annotations"
+        const val K_POI_RICH = "ui_poi_rich"
+        const val K_POI_APP_RICH = "ui_poi_app_rich"
+        const val K_POI_BUILDING = "ui_poi_building"
+        const val K_POI_3D = "ui_poi_3d"
+        const val K_POI_LANDMARK = "ui_poi_landmark"
+
         /** 搜索框上方横向快捷入口 */
         const val K_SEEK_CHIPS = "ui_seek_chips"
 
@@ -477,12 +484,17 @@ class Spec private constructor() {
                     )
                 ),
                 Cat(
-                    CAT_MAP, "主页地图图标",
-                    "关闭的是应用层叠在地图上的那一条图标控件：图层 / 消息 / 上报 / 路况 / 2D-3D / " +
-                        "指南针 / 加减号 / 定位 / 截图 / 分享 / 昼夜 / 版权 / 比例尺。" +
-                        "（地图引擎画出来的兴趣点图标与店名由样式资源决定，Java 层没有开关，不在本项范围内。）",
+                    CAT_MAP, "地图控件与 POI",
+                    "基础标注与富信息分别控制。腾讯原生基础层同时包含 POI 和路名，" +
+                        "不能把富信息开关当作普通店名开关；分类过滤尚未提供。",
                     arrayOf(
-                        Row(K_MAP_ICONS, "显示主页地图图标控件", null, true),
+                        Row(K_MAP_ICONS, "显示主页地图图标控件", "图层、路况、缩放、定位等原生控件。", true),
+                        Row(K_MAP_ANNOTATIONS, "显示主页底图标注（POI 与路名）", "关闭会同时隐藏普通店名、地名与路名；仅主页生效，搜索和导航保留原生显示。", true),
+                        Row(K_POI_RICH, "POI 富信息气泡", "实验项：兴趣点附加信息，不影响搜索结果。", false),
+                        Row(K_POI_APP_RICH, "应用 POI 富信息", "实验项：应用层兴趣点气泡。", false),
+                        Row(K_POI_BUILDING, "建筑 POI 富信息", "控制建筑附加信息，不控制普通立体楼块。", false),
+                        Row(K_POI_3D, "3D POI", "控制原生立体兴趣点效果；普通店名与楼块仍由底图显示。", false),
+                        Row(K_POI_LANDMARK, "3D 地标", "控制原生地标模型；普通立体建筑不属于地标。", false),
                         Row(
                             K_SEEK_CHIPS, "显示搜索框上方快捷入口",
                             "问一问、厕所、超市、美食等横向入口。", true

@@ -254,6 +254,9 @@ class FloatingHooks private constructor() {
                         //   「配置写得进、面板显示只读」的根因。统一到这一条。
                         HostPrefs.remember(activity.application)
                         FloatingConfig.ensureService(application)
+                        // The install-time read can precede Application.attachBaseContext.
+                        // Rehydrate with this first usable host Context before any orb attaches.
+                        FloatingController.refreshEnabled()
                     }
 
                     override fun onActivityStarted(activity: Activity) {
@@ -381,6 +384,7 @@ class FloatingHooks private constructor() {
         private fun accept(activity: Activity?, hostPackage: String): Boolean {
             if (activity == null) return false
             val name = activity.javaClass.name
+            if (PaymentUiPolicy.protectedActivity(name)) return false
             // Match on the package the Activity *belongs to*, not on its class name.
             // 高德 declares its screens under com.autonavi.map.* (SplashActivity,
             // NewMapActivity, ...), so a class-name prefix test against the app id

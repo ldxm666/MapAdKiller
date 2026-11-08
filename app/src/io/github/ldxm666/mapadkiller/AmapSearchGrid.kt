@@ -108,14 +108,20 @@ class AmapSearchGrid private constructor() {
 
         @JvmStatic
         fun install(cl: ClassLoader) {
-            hookResponseBody(cl)
-            hookAjxCallback(cl)
+            // The response/storage probes only collect evidence. They used to run on every
+            // request even with the grid switch ON, retaining response identities indefinitely.
+            // Keep the actual page filters below; omit passive global probes in normal use.
+            val trace = Config.debugLog() || !Config.visible(Config.K_LIGHT_RUNTIME)
+            if (trace || STRIP_ENABLED || RESPONSE_STRIP) hookResponseBody(cl)
+            if (trace) {
+                hookAjxCallback(cl)
+                hookRequestProbe(cl)
+                hookLsProbe(cl)
+                hookSharedPrefs(cl)
+            }
             hookAjxLoad(cl)
-            hookRequestProbe(cl)
-            H.log(Log.INFO, MainHook.TAG, "event=search_grid_install off=" + off() + " v=6")
-            hookLsProbe(cl)
-            hookSharedPrefs(cl)
             hookLoadData(cl)
+            H.log(Log.INFO, MainHook.TAG, "event=search_grid_install off=" + off() + " trace=" + trace + " v=7")
         }
 
         private fun off(): Boolean {

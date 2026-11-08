@@ -5,19 +5,8 @@ object AmapHooks {
 
     @JvmStatic
     fun install(cl: ClassLoader) {
-        // 「安装包异常」修复 #2：覆盖安装后首次冷启动的 linker namespace 库目录错位。
-        //
-        // ⚠ 2.3.0：这里曾经也挂了一份 `feature("libdir_fix", ...)`，已删除。理由两层：
-        //   1) **它要修的那一次根本走不到这儿** —— 覆盖安装后第一次冷启动会命中
-        //      `Baseline.maybeCapture()` 的透传分支，`mapadkiller/MainHook` 在那条分支里
-        //      **直接 return**，整个 `AmapHooks.install` 一次都不执行。也就是说挂在这里
-        //      对要修的场景是死代码，却要在其余每次启动上照价付钱。
-        //      真正有效的那一次在 `mapadkiller/MainHook` 的透传分支（onPackageReady 最早处），
-        //      那里也留了注释说明为什么必须在那儿。
-        //   2) **代价太大** —— 它是 10 次 `loadLibrary` **串行** invoke，压在宿主首帧之前的主线程上，
-        //      冷启动多 100–400ms，那段时间窗口只有主题白底（用户看到的就是白屏）。
-        //      `AmapSoPreload` 已经把同类工作放到 daemon 线程，作者显然也知道它不该在主线程。
-        // ⇒ 只保留 MainHook 那唯一一次调用。
+        // 同版本覆盖安装也会更换原生库目录，不能仅依赖首次升级的基线分支。
+        feature("libdir_fix") { AmapLibDirFix.install(cl) }
         // 跳过开屏页：官方 `BootBizDataPreloaderImpl.canShowSplash()` 返回 `Boolean.FALSE`
         // 即走 `SplashFinishReason.NO_SPLASH`，直接进地图。
         // ★ 2.3.0 真机结论：去掉它之后高德反而**卡在 SplashActivity 30 秒不动**
@@ -56,6 +45,8 @@ object AmapHooks {
         // ⇒ 除非同时解决首帧承载，不要把这两行加回来；它和 AmapAlimama 的「拦截必放锁」是一对：
         //   开屏页回来了，就真的有一个容器在等那条被拦掉的广告请求的回调。
         feature("search") { HotWordGuard.install(cl) }
+        feature("voice_compat") { AmapVoiceCompat.install(cl) }
+        feature("navi_scale") { AmapNaviScale.install(cl) }
         defer("search_grid") { AmapSearchGrid.install(cl) }
         feature("home") { AmapNativeHome.install(cl) }
         feature("tabs") { AmapTabLayout.install(cl) }

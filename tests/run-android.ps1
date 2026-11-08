@@ -9,16 +9,26 @@ $adbBin = 'D:\Tools\platform-tools\adb.exe'
 New-Item -ItemType Directory -Force -Path (Join-Path $taskBuild 'classes'),(Join-Path $taskBuild 'dex') | Out-Null
 $moduleJar = Join-Path $BuildDirectory 'build\classes.jar'
 $apiClasses = Join-Path $BuildDirectory 'build\stubs'
-& "$jdkBin\javac.exe" -encoding UTF-8 --release 8 -classpath "$androidJar;$moduleJar;$apiClasses" -d "$taskBuild\classes" (Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.java' | ForEach-Object FullName)
+$serviceJar = Join-Path $projectRoot 'app\libs\service-classes.jar'
+$interfaceJar = Join-Path $projectRoot 'app\libs\interface-102.0.0.jar'
+& "$jdkBin\javac.exe" -encoding UTF-8 --release 8 -classpath "$androidJar;$moduleJar;$apiClasses;$serviceJar;$interfaceJar" -d "$taskBuild\classes" (Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.java' | ForEach-Object FullName)
 if ($LASTEXITCODE -ne 0) { throw 'Test compile failed' }
 & "$jdkBin\jar.exe" -cf "$taskBuild\tests.jar" -C "$taskBuild\classes" .
 # API stubs belong only in the separate test dex, never in the release APK.
 & "$jdkBin\jar.exe" -cf "$taskBuild\api-test.jar" -C $apiClasses .
-& "$sdkRoot\build-tools\35.0.0\d8.bat" --min-api 26 --lib $androidJar --output "$taskBuild\dex" "$taskBuild\tests.jar" "$taskBuild\api-test.jar" $moduleJar
+& "$sdkRoot\build-tools\35.0.0\d8.bat" --min-api 26 --lib $androidJar --output "$taskBuild\dex" "$taskBuild\tests.jar" "$taskBuild\api-test.jar" $moduleJar $serviceJar $interfaceJar "$projectRoot\app\libs\kotlin-stdlib-1.9.23.jar"
 if ($LASTEXITCODE -ne 0) { throw 'Test dex failed' }
 & $adbBin push "$taskBuild\dex\classes.dex" /data/local/tmp/mapclean-hotfix-tests.dex
 if ($LASTEXITCODE -ne 0) { throw 'Test dex upload failed' }
-foreach ($testClass in @('io.github.ldxm666.mapadkiller.AmapDataTest','io.github.ldxm666.mapadkiller.AmapPlaceDataTest','io.github.ldxm666.mapclean.ConfigBackupTest','io.github.ldxm666.mapclean.HookGuardTest','io.github.ldxm666.mapclean.CompatibilityTest')) {
-    & $adbBin shell 'CLASSPATH=/data/local/tmp/mapclean-hotfix-tests.dex' app_process / $testClass
-    if ($LASTEXITCODE -ne 0) { throw "Test failed: $testClass" }
+$failedTests = @()
+foreach ($compatTest in @('io.github.ldxm666.tmapclean.TmapAnnotationsTest','io.github.ldxm666.mapclean.SystemCardCompatTest')) {
+    Write-Output "TEST $compatTest"
+    & $adbBin shell 'CLASSPATH=/data/local/tmp/mapclean-hotfix-tests.dex' app_process / $compatTest
+    if ($LASTEXITCODE -ne 0) { $failedTests += $compatTest }
 }
+foreach ($testClass in @('io.github.ldxm666.mapadkiller.AmapDataTest','io.github.ldxm666.mapadkiller.AmapTaxiDataTest','io.github.ldxm666.mapadkiller.AmapTaxiSkinTest','io.github.ldxm666.mapadkiller.AmapNaviScaleTest','io.github.ldxm666.mapadkiller.AmapCruiseTest','io.github.ldxm666.mapadkiller.CfgStoreTest','io.github.ldxm666.mapadkiller.AmapPlaceDataTest','io.github.ldxm666.bmapclean.BaiduLabelStyleTest','io.github.ldxm666.bmapclean.BaiduTabRoutingTest','io.github.ldxm666.bmapclean.BaiduPanelLayoutTest','io.github.ldxm666.bmapclean.BaiduCommuteTest','io.github.ldxm666.bmapclean.BaiduPaymentTest','io.github.ldxm666.tmapclean.TmapPanelLayoutTest','io.github.ldxm666.mapclean.ConfigBackupTest','io.github.ldxm666.mapclean.HookGuardTest','io.github.ldxm666.mapclean.CompatibilityTest','io.github.ldxm666.mapclean.EmbeddedSettingsPolicyTest','io.github.ldxm666.mapclean.FrameworkStatusTest')) {
+    Write-Output "TEST $testClass"
+    & $adbBin shell 'CLASSPATH=/data/local/tmp/mapclean-hotfix-tests.dex' app_process / $testClass
+    if ($LASTEXITCODE -ne 0) { $failedTests += $testClass }
+}
+if ($failedTests.Count) { throw "Tests failed: $($failedTests -join ', ')" }

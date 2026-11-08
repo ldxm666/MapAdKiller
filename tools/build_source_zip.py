@@ -13,7 +13,10 @@ from verify_module import verify_dependency_jars
 ROOT = Path(__file__).resolve().parent.parent
 ROOT_FILES = {".gitignore", "README.md", "LICENSE", "CHANGELOG.md", "BUILD.md"}
 APP_FILES = {"app/AndroidManifest.xml", "app/build.ps1"}
-SOURCE_TREES = {"app/src", "app/stub-src", "app/res", "app/META-INF", "app/native", "docs", "registry-pack"}
+SOURCE_TREES = {"app/src", "app/stub-src", "app/res", "app/META-INF", "app/native", "registry-pack",
+                "tools/variant-stubs", "tools/module-stubs", "tests/ui"}
+PUBLIC_DOCS = {"docs/RELEASE-2.3.3.md", "docs/VALIDATION-2.3.3.md", "docs/kotlin-migration-guide.md",
+               "docs/miuix-design-spec.md", "docs/AMAP-1702-ANCHORS.md"}
 EXCLUDED_PARTS = {".git", ".codex", ".agents", ".aws", "__pycache__", ".idea", ".vscode", "evidence", "shots"}
 EXCLUDED_SUFFIXES = {".apk", ".zip", ".keystore", ".jks", ".p12", ".log", ".db", ".sqlite", ".pyc", ".dex", ".o", ".obj"}
 NATIVE_ABIS = {"arm64-v8a", "armeabi-v7a", "x86", "x86_64"}
@@ -22,7 +25,7 @@ NATIVE_ABIS = {"arm64-v8a", "armeabi-v7a", "x86", "x86_64"}
 def source_files(source: Path):
     dependencies = verify_dependency_jars(source)
     jars = {"app/libs/" + item["localJar"] for item in dependencies["artifacts"]}
-    libs = jars | {"app/libs/README-aidl.md", "app/libs/dependencies.json"}
+    libs = jars | {"app/libs/README-aidl.md", "app/libs/dependencies.json", "app/libs/kotlin-stdlib-1.9.23.jar"}
     libs |= {f"app/libs/{abi}/libmapclean_labels.so" for abi in NATIVE_ABIS}
     # libamapbldpatch.so is this project's own single-translation-unit build of
     # app/native/amap_buildings.c. Shipping it keeps the package buildable without an NDK;
@@ -37,10 +40,10 @@ def source_files(source: Path):
         name = relative.as_posix()
         if any(part in EXCLUDED_PARTS for part in relative.parts) or path.suffix.lower() in EXCLUDED_SUFFIXES:
             continue
-        selected = (name in ROOT_FILES or name in APP_FILES or name in libs or
+        selected = (name in ROOT_FILES or name in APP_FILES or name in libs or name in PUBLIC_DOCS or
                     any(name.startswith(tree + "/") for tree in SOURCE_TREES) or
                     (len(relative.parts) == 2 and relative.parts[0] in {"tests", "tools"}
-                     and path.suffix.lower() in {".java", ".cpp", ".h", ".py", ".ps1", ".md"}))
+                     and path.suffix.lower() in {".java", ".cpp", ".h", ".py", ".ps1", ".md", ".json"}))
         if not selected:
             continue
         # Native dependencies are restricted to this project's single own library.
@@ -54,8 +57,8 @@ def source_files(source: Path):
             if name.endswith("/libmapclean_labels.so"):
                 inspect_elf(path.read_bytes())
         # Reject accidental GitHub credentials without echoing their contents.
-        if path.suffix.lower() in {".md", ".java", ".py", ".ps1", ".json", ".properties", ".txt", ".cpp", ".h", ".c", ".xml", ".prop"}:
-            if re.search(rb"\b(?:github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,})", path.read_bytes()):
+        if path.suffix.lower() in {".md", ".kt", ".java", ".py", ".ps1", ".json", ".properties", ".txt", ".cpp", ".h", ".c", ".xml", ".prop"}:
+            if re.search(rb"\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})", path.read_bytes()):
                 raise ValueError(f"Credential-shaped content detected in {name}; not packaged")
         yield path, name
 
@@ -73,6 +76,7 @@ def main():
                 "app/native/native_hook_dispatch.h", "app/native/baidu_file_assets.h",
                 "app/native/build.py", "app/META-INF/xposed/java_init.list", "app/META-INF/xposed/native_init.list",
                 "app/libs/api-102.0.0.jar", "app/libs/service-classes.jar", "app/libs/interface-102.0.0.jar",
+                "app/libs/kotlin-stdlib-1.9.23.jar", "tools/variant-stubs/io/github/ldxm666/mapclean/BaiduPanel.java",
                 "app/native/vendor/zstd/LICENSE", "app/native/vendor/zstd/COPYING"}
     required |= {f"app/libs/{abi}/libmapclean_labels.so" for abi in NATIVE_ABIS}
     if not required.issubset(names):

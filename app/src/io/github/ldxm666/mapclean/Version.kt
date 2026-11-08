@@ -23,8 +23,8 @@ object Version {
      */
     @JvmField
     val TARGETS: Array<Array<String>> = arrayOf(
-        arrayOf("com.baidu.BaiduMap", "百度地图", "22.1.0"),
-        arrayOf("com.autonavi.minimap", "高德地图", "17.02.0.1541"),
+        arrayOf("com.baidu.BaiduMap", "百度地图", "22.1.20"),
+        arrayOf("com.autonavi.minimap", "高德地图", "17.02.0.2010"),
         arrayOf("com.tencent.map", "腾讯地图", "11.7.0"),
     )
 
