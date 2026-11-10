@@ -453,7 +453,10 @@ object Config {
     fun defaultVisible(key: String?): Boolean {
         // These consumers use explicit/selected true: absence must paint OFF in
         // both settings surfaces, exactly like the hook-side gate.
-        if (K_SPLASH_SKIP == key || K_LABELS_ON == key || K_ALIMAMA_SPLASH_OFF == key) return false
+        if (K_SPLASH_SKIP == key || K_LABELS_ON == key) return false
+        // Only the advertising request/cache gate defaults on; the separate whole-page
+        // skip remains opt-in. Explicit user false is still honored by value().
+        if (K_ALIMAMA_SPLASH_OFF == key) return true
         if (K_CRUISE_AUTO == key) return false
         // 实验特性默认关。放在这里而不是只在读取点判断，是因为面板画开关走的也是
         // visible() —— 少了这一行，开关会显示"开"而实现其实一条 hook 都没装。

@@ -49,14 +49,48 @@ static bool decode(AAsset *asset,style::Bytes &out,bool &compressed){
     out.resize(length);auto actual=ZSTD_decompress(out.data(),out.size(),data,size);
     return !ZSTD_isError(actual) && actual==length;
 }
+static std::mutex catalogueMutex;
+static AAssetManager *catalogueManager=nullptr;
+static std::shared_ptr<const style::PoiCategories> poiCategories;
+static bool readOriginal(AAssetManager *manager,const char *name,style::Bytes &out){
+    auto *asset=orig_open(manager,name,AASSET_MODE_BUFFER);if(!asset)return false;
+    bool compressed=false;bool ok=decode(asset,out,compressed);orig_close(asset);return ok;
+}
+static std::shared_ptr<const style::PoiCategories> catalogue(AAssetManager *manager){
+    std::lock_guard<std::mutex> guard(catalogueMutex);
+    if(catalogueManager==manager)return poiCategories;
+    catalogueManager=manager;poiCategories.reset();
+    style::Bytes list;
+    if(!readOriginal(manager,"map_assets/styleiconslist.data",list) || list.size()>65536)return {};
+    std::string text(list.begin(),list.end()),name;size_t pos=0;
+    while(pos<text.size()){
+        auto end=text.find('\n',pos);if(end==std::string::npos)end=text.size();
+        auto line=text.substr(pos,end-pos);if(!line.empty() && line.back()=='\r')line.pop_back();pos=end+1;
+        if(line.compare(0,11,"style_rule_")!=0)continue;
+        if(!name.empty() || line.size()>128 || line.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.")!=std::string::npos || line.find("..")!=std::string::npos || line.size()<5 || line.substr(line.size()-5)!=".data")return {};
+        name=line;
+    }
+    if(name.empty())return {};
+    style::Bytes rules;auto parsed=std::make_shared<style::PoiCategories>();
+    if(!readOriginal(manager,("map_assets/"+name).c_str(),rules) || !style::poiCatalogue(rules.data(),rules.size(),*parsed))return {};
+    poiCategories=parsed;
+    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","poi_catalogue points=%zu asset=%s",parsed->size(),name.c_str());
+    return poiCategories;
+}
 static AAsset *asset_open(AAssetManager *manager,const char *name,int mode){
     AAsset *asset=orig_open(manager,name,mode);
-    if(!asset || !name || map!=1 || hidden==0 || std::strncmp(name,"map_assets/style_",17))return asset;
+    auto mask=uint32_t(hidden.load());
+    if(!asset || !name || map!=1 || mask==0 || std::strncmp(name,"map_assets/style_",17))return asset;
     std::string file(name);if(file.find("/style_X_Main")==std::string::npos)return asset;
+    auto categories=(mask&1)?std::shared_ptr<const style::PoiCategories>{}:catalogue(manager);
+    if(!(mask&1) && !categories){
+        __android_log_print(ANDROID_LOG_WARN,"MapCleanLabels","poi_categories native_kept reason=unsupported_catalogue");
+        return asset;
+    }
     style::Bytes decoded;bool compressed=false;
     if(!decode(asset,decoded,compressed))return asset;
     style::Bytes filtered;int changed=0;
-    if(!style::amap(decoded.data(),decoded.size(),filtered,changed) || !changed)return asset;
+    if(!style::amap(decoded.data(),decoded.size(),filtered,changed,nullptr,mask,categories.get()) || !changed)return asset;
     auto result=std::make_shared<style::Bytes>();
     if(compressed){
         result->resize(ZSTD_compressBound(filtered.size()));
@@ -64,7 +98,7 @@ static AAsset *asset_open(AAssetManager *manager,const char *name,int mode){
         if(ZSTD_isError(length))return asset;result->resize(length);
     }else *result=std::move(filtered);
     {std::lock_guard<std::mutex> guard(assetsMutex);assets[asset]={result,0};trackedCount=assets.size();}
-    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","style_filtered mask=%x rules=%d bytes=%zu asset=%s",hidden.load(),changed,result->size(),name);
+    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","style_filtered mask=%x rules=%d bytes=%zu asset=%s",mask,changed,result->size(),name);
     return asset;
 }
 static const void *asset_buffer(AAsset *asset){

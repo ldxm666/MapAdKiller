@@ -243,6 +243,24 @@ object AmapTabLayout {
         }
     }
 
+    /** Only our own hidden bar in this view tree releases the homepage's reserved space. */
+    @JvmStatic
+    fun hiddenFor(view: View): Boolean {
+        val root = view.rootView
+        var found = false
+        synchronized(states) {
+            for ((bar, st) in states) {
+                // Preloaded or detached bars belong to no screen yet. Unknown/new tabs and
+                // another activity's bar must never shrink this screen's content area.
+                if (bar.parent == null || bar.rootView !== root) continue
+                if (st.ids?.contains("Main") != true || !st.hidden || !shouldHide(st) ||
+                        bar.visibility != View.GONE) return false
+                found = true
+            }
+        }
+        return found
+    }
+
     private fun state(bar: View): BarState {
         synchronized(states) {
             var st = states.get(bar)
@@ -275,6 +293,8 @@ object AmapTabLayout {
             syncIds(bar)
             watch(bar)
             apply(bar)
+            // init can run before attachment; recheck the actual shared tree on attach too.
+            AmapNativeHome.onTabLayoutChanged(bar)
         } catch (t: Throwable) {
             // ⚠ 必须自己吞：HookGuard 只要看到 hooker 抛异常就会**永久禁用这个钩子**
             // （mapclean\HookGuard.intercept → disabled=true ⇒ 之后直通原方法），
@@ -390,6 +410,7 @@ object AmapTabLayout {
     }
 
     private fun hide(bar: View, st: BarState) {
+        val changed = !st.hidden
         val container = H.getObjectField(bar, "tabContainer")
         if (container is View) container.setPadding(0, 0, 0, 0)
         st.selfHeight = collapse(bar, st.selfHeight)
@@ -400,6 +421,7 @@ object AmapTabLayout {
         st.hidden = true
         st.logged = true
         H.log("event=tab_bar_hidden" + diag(st) + " note=只剩首页标签，整条底部栏隐藏")
+        if (changed) AmapNativeHome.onTabLayoutChanged(bar)
     }
 
     private fun show(bar: View, st: BarState) {
@@ -414,6 +436,7 @@ object AmapTabLayout {
         st.hidden = false
         st.logged = true
         H.log("event=tab_bar_restored" + diag(st) + " note=恢复原生标签与底栏高度")
+        AmapNativeHome.onTabLayoutChanged(bar)
     }
 
     /** 高度归零（GONE 之后父布局若仍按固定高度预留空间，地图底部就会留一条白条）。返回保存的原高度。 */

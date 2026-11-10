@@ -485,11 +485,14 @@ class Spec private constructor() {
                 ),
                 Cat(
                     CAT_MAP, "地图控件与 POI",
-                    "基础标注与富信息分别控制。腾讯原生基础层同时包含 POI 和路名，" +
-                        "不能把富信息开关当作普通店名开关；分类过滤尚未提供。",
+                    "按业务类别控制主页 POI，默认全部显示。分类只过滤原生点样式，保留路名与未知类别；" +
+                        "搜索、导航恢复原生样式。基础标注总开关关闭时，各类别也不会显示。",
                     arrayOf(
                         Row(K_MAP_ICONS, "显示主页地图图标控件", "图层、路况、缩放、定位等原生控件。", true),
                         Row(K_MAP_ANNOTATIONS, "显示主页底图标注（POI 与路名）", "关闭会同时隐藏普通店名、地名与路名；仅主页生效，搜索和导航保留原生显示。", true),
+                        *TmapPoiStyles.KEYS.mapIndexed { i, key ->
+                            Row(key, "显示${TmapPoiStyles.TITLES[i]} POI", "主页业务标注；保留搜索结果与导航。无法识别的图标保持原样。", false)
+                        }.toTypedArray(),
                         Row(K_POI_RICH, "POI 富信息气泡", "实验项：兴趣点附加信息，不影响搜索结果。", false),
                         Row(K_POI_APP_RICH, "应用 POI 富信息", "实验项：应用层兴趣点气泡。", false),
                         Row(K_POI_BUILDING, "建筑 POI 富信息", "控制建筑附加信息，不控制普通立体楼块。", false),

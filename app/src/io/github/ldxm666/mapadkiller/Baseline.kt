@@ -22,12 +22,12 @@ import java.util.Properties
  * `home_and_company_data` 挡掉，导致「设置家」一行消失。规则改成：
  * <b>先有官方基线，再谈改动</b>。
  *
- * <p><b>行为</b>：模块刚安装 / 刚升级（没有当前 versionCode 的基线标记）后的
- * <b>第一次宿主启动</b>，[maybeCapture] 返回 `true`，`MainHook`
- * 据此在本进程内 <b>一个 hook 都不装</b>（等价于模块没装，高德跑纯官方）。后台线程
+ * <p><b>行为</b>：只有用户明确点击「重新抓取」后，[maybeCapture] 才返回 `true`，
+ * `MainHook` 据此让该次会话运行官方页面，后台线程
  * `mak-baseline` 等首页稳定后，把宿主 `shared_prefs/` 原样复制到
  * `<宿主 filesDir>/baseline/<模块 versionName>/shared_prefs/`，写 `meta.json`
- * 与标记 `baseline_captured_v<versionCode>=true`。<b>下一次启动起 hook 才生效</b>。
+ * 与标记 `baseline_captured_v<versionCode>=true`。普通首次安装或升级直接安装功能钩子，
+ * 不再为了诊断抓取而跳过用户的第一次启动。
  *
  * <p><b>标记存哪</b>：LSPosed 的 RemotePreferences 在 hook 进程里是**只读实现**
  * （实测 `SharedPreferences.edit()` 抛 `UnsupportedOperationException:
@@ -162,15 +162,19 @@ object Baseline {
             val modeFile = captureModeFile()
             val userCapture = modeFile != null && modeFile.isFile
 
-            if (!userCapture && captured && requestSatisfied) {
-                H.log(Log.INFO, TAG, "event=baseline_skip reason=captured v=" + version
+            // Baselines are diagnostic exports, not an input to any feature hook. A missing
+            // per-module-version marker must never disable the first ordinary session (or
+            // every session after an upgrade). Only an explicit, unhandled capture request
+            // may enter the deliberately unmodified capture session.
+            if (!shouldCapture(userCapture, recaptureAt, handledAt, captured, capturedAt)) {
+                H.log(Log.INFO, TAG, "event=baseline_skip reason=no_explicit_request v=" + version
                         + " code=" + code + " files=" + state.getProperty(K_FILES, "0"))
                 sCapturing = false
                 return false
             }
             // 用户主动点了「开始抓取 / 重新抓取」：一直抓到成功为止，不受 attempt 次数限制，
             // 已抓过也要重抓一次（换城市 / 高德大版本更新后的标准入口）。
-            if (userCapture) {
+            if (userCapture || !requestSatisfied) {
                 if (isMainProcess()) {
                     state.setProperty(K_ATTEMPTS + code, "0")
                     state.remove(K_GAVE_UP + code)
@@ -184,54 +188,21 @@ object Baseline {
                 return true
             }
 
-            // 子进程一律跟随主进程：没基线就一起透传（否则主进程纯官方、子进程却挂了 hook）。
-            // 子进程不写 .attempt、也不做 force_release 判定，避免把主进程「本次启动刚写」的标记
-            // 误判成「上次已 passthrough」。
-            if (!captured && !isMainProcess()) {
-                sCapturing = true
-                H.log(Log.INFO, TAG, "event=baseline_passthrough process=" + processName() + " mode=subprocess")
-                return true
-            }
-            // v2.2.6：删掉「passthrough 只允许一次」的强制放行 —— 真机上第二次启动就带着空基线
-            // 把 hook 全装上，工具宫格图标整片不显示。现在**没抓到基线就一直跑纯官方**，
-            // 安全阀只剩 MAX_ATTEMPTS 次上限（抓不到才放行，绝不会把模块永久锁死）。
-            val attemptMark = attemptFile(code)
-            if (!captured && attemptMark != null && attemptMark.isFile) {
-                H.log(Log.INFO, TAG, "event=baseline_passthrough reason=retry v=" + version
-                        + " code=" + code)
-            }
-            if (!captured && "true" == state.getProperty(K_GAVE_UP + code)) {
-                H.log(Log.INFO, TAG, "event=baseline_skip reason=give_up v=" + version + " code=" + code)
-                sCapturing = false
-                return false
-            }
-            val attempts = parseLong(state.getProperty(K_ATTEMPTS + code), 0L).toInt()
-            if (attempts >= MAX_ATTEMPTS) {
-                state.setProperty(K_GAVE_UP + code, "true")
-                saveState(state)
-                H.log(Log.WARN, TAG, "event=baseline_skip reason=max_attempts attempts=" + attempts)
-                sCapturing = false
-                return false
-            }
-
-            if (isMainProcess()) markAttempt(code)
-            sCapturing = true
-            H.log(Log.INFO, TAG, "event=baseline_mode on version=" + version + " code=" + code
-                    + " attempt=" + (attempts + 1) + " recapture=" + (recaptureAt > handledAt)
-                    + " process=" + processName())
-            // 只有主进程负责真正抓取；子进程（:locationservice 等）只需要跟着 passthrough。
-            if (isMainProcess()) {
-                startWorker(version, code, recaptureAt)
-            } else {
-                H.log(Log.INFO, TAG, "event=baseline_worker_skipped reason=subprocess process=" + processName())
-            }
-            return true
+            return false
         } catch (t: Throwable) {
             // 任何异常都不能影响宿主启动
             sCapturing = false
             H.log(Log.WARN, TAG, "event=baseline_mode_failed", t)
             return false
         }
+    }
+
+    /** TEST-AMAP-STARTUP-235: an absent/old baseline alone cannot suppress hooks. */
+    @JvmStatic
+    fun shouldCapture(mode: Boolean, requestedAt: Long, handledAt: Long,
+                      captured: Boolean, capturedAt: Long): Boolean {
+        return mode || (requestedAt > 0L && requestedAt > handledAt &&
+                !(captured && capturedAt >= requestedAt))
     }
 
     // ══════════════════════════════════════════════════════════════════ 后台抓取

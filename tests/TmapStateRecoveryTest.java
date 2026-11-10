@@ -125,6 +125,35 @@ public final class TmapStateRecoveryTest {
         }
         View card=new View(c);section.invoke(TmapHomeFav.INSTANCE,card,false,"feed");card.setVisibility(View.INVISIBLE);
         section.invoke(TmapHomeFav.INSTANCE,card,true,"feed");check(card.getVisibility()==View.INVISIBLE,"native card visibility change wins over old snapshot");
+        // TEST-TMAP-LOADER-235: do not consume a resolvable pre-attach loader and
+        // permanently latch installation before Tencent's Tinker replacement.
+        Field contextHook=MainHook.class.getDeclaredField("CONTEXT_HOOKED");contextHook.setAccessible(true);
+        ((java.util.concurrent.atomic.AtomicBoolean)contextHook.get(null)).set(true);
+        final int[] loaderReads={0};
+        io.github.libxposed.api.XposedModuleInterface.PackageReadyParam ready=(io.github.libxposed.api.XposedModuleInterface.PackageReadyParam)Proxy.newProxyInstance(
+            io.github.libxposed.api.XposedModuleInterface.PackageReadyParam.class.getClassLoader(),
+            new Class[]{io.github.libxposed.api.XposedModuleInterface.PackageReadyParam.class},(p,m,a)->{
+                if(m.getName().equals("getPackageName"))return MainHook.PKG_TMAP;
+                if(m.getName().equals("getClassLoader")){loaderReads[0]++;return TmapStateRecoveryTest.class.getClassLoader();}
+                return null;
+            });
+        final int[] trustedLoaderReads={0};
+        ClassLoader trustedLoader=new ClassLoader(TmapStateRecoveryTest.class.getClassLoader()){
+            @Override public Class<?> loadClass(String name)throws ClassNotFoundException{
+                trustedLoaderReads[0]++;throw new ClassNotFoundException(name);
+            }
+        };
+        Context trusted=new android.content.ContextWrapper(c){
+            @Override public String getPackageName(){return MainHook.PKG_TMAP;}
+            @Override public ClassLoader getClassLoader(){return trustedLoader;}
+        };
+        io.github.ldxm666.mapclean.HostPrefs.remember(trusted);
+        check(io.github.ldxm666.mapclean.HostPrefs.hostContext()==trusted,"test uses explicit authoritative host Context");
+        MainHook.onPackageReady(new io.github.libxposed.api.XposedModule(){},ready);
+        check(loaderReads[0]==0,"dispatcher never hooks PackageReady's pre-Tinker loader");
+        check(trustedLoaderReads[0]>0,"dispatcher validates the host's own loader instead");
+        Field installed=MainHook.class.getDeclaredField("INSTALLED");installed.setAccessible(true);
+        check(!((java.util.concurrent.atomic.AtomicBoolean)installed.get(null)).get(),"pre-attach dispatch does not latch installation");
         System.out.println("TmapStateRecoveryTest: "+checks+" assertions passed");
     }
 }

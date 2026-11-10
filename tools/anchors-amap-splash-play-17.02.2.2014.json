@@ -1,0 +1,10 @@
+{
+  "_target": "com.autonavi.minimap 17.02.2.2014 (Google Play)",
+  "_comment": "TEST-AMAP-SPLASH-235. Play uses wm6, not the domestic y96 gate. Constructorless wm6$a requires no reflective allocation in production. Scope excludes preload and schema routing.",
+  "anchors": [
+    {"label": "Alimama request implementation", "class": "com.autonavi.minimap.alimama.AlimamaRequestHolder", "methods": ["sendSplashScreen"]},
+    {"label": "Request completion", "class": "com.autonavi.minimap.net.Callback", "methods": ["onFailure"]},
+    {"label": "Advertising presentation scope and native finish", "class": "com.autonavi.minimap.g", "methods": ["o", "e"]},
+    {"label": "Play cached advertisement readiness", "class": "wm6", "methods": ["g", "h", "a", "b", "f"]}
+  ]
+}

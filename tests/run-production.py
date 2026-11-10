@@ -24,12 +24,12 @@ PREFIX = "io.github.ldxm666."
 ENTRY = "assets/lspatch/modules/io.github.ldxm666.mapadkiller.apk"
 AMAP = ["mapadkiller." + name + "Test" for name in (
     "AmapData", "AmapTaxiData", "AmapTaxiSkin", "AmapNaviScale", "AmapCruise",
-    "CfgStore", "AmapPlaceData", "AmapTabLayout", "AmapConfigRefresh")]
+    "CfgStore", "AmapPlaceData", "AmapTabLayout", "AmapConfigRefresh", "AmapStartup", "AmapPoiCategory", "AmapSplash", "AmapHomeGeometry")]
 BAIDU = ["bmapclean." + name + "Test" for name in (
     "BaiduMineCards", "BaiduConfigRefresh", "BaiduCacheIdentity", "BaiduLabelStyle",
     "BaiduTabRouting", "BaiduPanelLayout", "BaiduCommute", "BaiduPayment")]
 TMAP = ["tmapclean." + name + "Test" for name in (
-    "TmapStateRecovery", "TmapAnnotations", "TmapPanelLayout")]
+    "TmapStateRecovery", "TmapAnnotations", "TmapPanelLayout", "TmapPoiCategory")]
 COMMON = ["mapclean.NativeLibraryCacheTest"]
 
 

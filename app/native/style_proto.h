@@ -41,6 +41,45 @@ inline void number(Bytes &out,uint32_t key,uint64_t n){varint(out,uint64_t(key)<
 inline void message(Bytes &out,uint32_t key,const Bytes &data){varint(out,(uint64_t(key)<<3)|2);varint(out,data.size());out.insert(out.end(),data.begin(),data.end());}
 inline void copy(Bytes &out,const Field &f){out.insert(out.end(),f.begin,f.end);}
 inline uint64_t get(const uint8_t *data,size_t size,uint32_t key,uint64_t fallback=0){Proto p(data,size);Field f;while(p.next(f))if(f.key==key && f.wire==0)return f.number;return fallback;}
+using PoiCategories=std::unordered_map<uint32_t,uint32_t>;
+// Verified against the host's rule table AND actual icon atlas, not ordinal
+// subkey ranges: 0x143 restaurant, 0x144 shop, 0x145 education, 0x14e hospital.
+// Other families remain visible unless their business meaning was established.
+inline uint32_t poiCategory(uint64_t code){
+    switch(code>>20){
+        case 0x143:return 1u<<1; // food
+        case 0x144:return 1u<<2; // shopping
+        case 0x14e:return 1u<<3; // medical
+        case 0x145:return 1u<<4; // education/culture
+        case 0x14b:case 0x14f:return 1u<<5; // transport
+        case 0x142:return 1u<<6; // hotel
+        case 0x141:case 0x14d:return 1u<<7; // scenic/leisure
+        case 0x146:return 1u<<8; // finance
+        case 0x147:return 1u<<9; // life services
+        default:return 0;
+    }
+}
+inline bool poiCatalogue(const uint8_t *data,size_t size,PoiCategories &out){
+    if(size<8 || size>8*1024*1024)return false;
+    PoiCategories parsed;Proto p(data,size);Field f;size_t count=0;
+    std::unordered_map<uint32_t,uint64_t> seen;
+    while(p.next(f))if(f.key==1 && f.wire==2){
+        if(++count>8192)return false;
+        Proto row(f.value,f.size);Field v;uint64_t main=0,sub=0,code=0;unsigned found=0;
+        while(row.next(v))if(v.wire==0){
+            if(v.key==1){main=v.number;found|=1;}
+            else if(v.key==2){sub=v.number;found|=2;}
+            else if(v.key==3){code=v.number;found|=4;}
+        }
+        if(!row.valid || found!=7 || main!=12024 || sub==0 || sub>1000000 || code>0xffffffffu)return false;
+        auto existing=seen.find(uint32_t(sub));
+        if(existing!=seen.end() && existing->second!=code)return false;
+        seen[uint32_t(sub)]=code;
+        auto category=poiCategory(code);if(category)parsed[uint32_t(sub)]=category;
+    }
+    if(!p.valid || !count)return false;
+    out=std::move(parsed);return true;
+}
 inline bool hideZoom(const uint8_t *data,size_t size,int depth,Bytes &out){
     static constexpr uint32_t path[]={3,1,2,1};
     Proto p(data,size);Field f;int found=0;
@@ -69,7 +108,7 @@ inline bool safePointDrawing(const Field &drawing){
     }
     return p.valid && found;
 }
-inline bool points(const uint8_t *data,size_t size,Bytes &out,int &changed,uint32_t &nextState,uint32_t &nextDraw,int *fallbackDrawings){
+inline bool points(const uint8_t *data,size_t size,Bytes &out,int &changed,uint32_t &nextState,uint32_t &nextDraw,int *fallbackDrawings,uint32_t mask,const PoiCategories *categories){
     std::unordered_map<uint32_t,Field> states,draws;
     std::unordered_map<uint32_t,uint32_t> stateCopies,drawCopies;
     Proto ids(data,size);Field def;
@@ -125,7 +164,14 @@ inline bool points(const uint8_t *data,size_t size,Bytes &out,int &changed,uint3
         // Complete normal/alternate base-map POI families, including unclassified
         // and newly introduced subkeys. Geographic labels and result/route markers
         // use separate families and remain untouched.
-        bool selected=main==12024 || main==12029;
+        bool selected=false;
+        if(main==12024 || main==12029){
+            if(mask&1)selected=true;
+            else if(categories){
+                uint64_t sub=get(f.value,f.size,2);
+                if(sub<=1000000){auto c=categories->find(uint32_t(sub));selected=c!=categories->end() && (c->second&mask);}
+            }
+        }
         if(!selected){copy(out,f);continue;}
         Bytes rule;Proto r(f.value,f.size);Field state;
         while(r.next(state)){
@@ -144,7 +190,7 @@ inline bool points(const uint8_t *data,size_t size,Bytes &out,int &changed,uint3
     out.insert(out.end(),clonedDraws.begin(),clonedDraws.end());
     return true;
 }
-inline bool amap(const uint8_t *data,size_t size,Bytes &out,int &changed,int *fallbackDrawings=nullptr){
+inline bool amap(const uint8_t *data,size_t size,Bytes &out,int &changed,int *fallbackDrawings=nullptr,uint32_t mask=1,const PoiCategories *categories=nullptr){
     // Definition IDs are shared by all geometry groups, not only the point group.
     // Reserve above every original ID so cloned point styles cannot replace roads,
     // buildings, or another point's drawing with an unrelated existing definition.
@@ -172,7 +218,7 @@ inline bool amap(const uint8_t *data,size_t size,Bytes &out,int &changed,int *fa
         while(p.next(f)){
             if(f.key!=3 || f.wire!=2){copy(g,f);continue;}
             Bytes filtered;int count=0;
-            if(!points(f.value,f.size,filtered,count,nextState,nextDraw,fallbackDrawings))return false;
+            if(!points(f.value,f.size,filtered,count,nextState,nextDraw,fallbackDrawings,mask,categories))return false;
             changed+=count;message(g,3,filtered);
         }
         if(!p.valid)return false;

@@ -1,0 +1,10 @@
+{
+  "_target": "com.autonavi.minimap 17.02.0.2010 (CN)",
+  "_comment": "TEST-AMAP-SPLASH-235. Method-name presence checks only; exact signatures, constructorless result and native NO_SPLASH branch are separately verified from DEX and Android host probes.",
+  "anchors": [
+    {"label": "Alimama request implementation", "class": "com.autonavi.minimap.alimama.AlimamaRequestHolder", "methods": ["sendSplashScreen"]},
+    {"label": "Request completion releases splash lock", "class": "com.autonavi.minimap.net.Callback", "methods": ["onFailure"]},
+    {"label": "Advertising presentation scope and native finish", "class": "com.autonavi.minimap.g", "methods": ["o", "e"]},
+    {"label": "Cached advertisement readiness", "class": "y96", "methods": ["g", "h", "a", "b", "f"]}
+  ]
+}

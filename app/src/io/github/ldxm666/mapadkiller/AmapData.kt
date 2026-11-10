@@ -40,10 +40,9 @@ object AmapData {
     /**
      * How many tool cells the home toolbar renders.
      *
-     * <p>Measured from the installed build: `com.autonavi...toolbox.b.a` walks
-     * `id0…id4` (its loop bound is 5) and lays the kept cells out in one row. Writing
-     * more slots than this is harmless but invisible, so the payload is written for exactly
-     * this many cells.
+     * <p>The 17.02 native factory walks successive id keys and starts a row every
+     * five cells. [renderToolbox] trims unused trailing keys at that boundary so
+     * a short selection creates only the required native rows.
      *
      * <p><b>必须是 10（2 行 × 5 列），不能是 11。</b>宿主 `ToolboxPanelV2` 的宫格容器
      * 固定只排两行；写第 11 个槽位会被挤成第三行，直接压到下面的「回家 / 去单位」行上
@@ -483,6 +482,26 @@ object AmapData {
         if (kept.isEmpty() && extra.isEmpty()) out.put("king_switch", "0")
         moveMoreToolsLast(out)
         applyColorIcons(out, null)
+        return out
+    }
+
+    /** Native 17.02 factory creates a row for every five id keys, even empty ones.
+     * Trim only its disposable render payload; stored slots and their actions stay intact.
+     * An empty payload still needs a valid id0/size0, otherwise the factory falls back to
+     * its default tools. Its resulting empty row is collapsed by the native-home hook.
+     */
+    @JvmStatic
+    fun renderToolbox(source: JSONObject): JSONObject {
+        val out = JSONObject(source.toString())
+        var last = -1
+        for (i in 0 until HOME_SLOTS) if (out.optString("id$i").isNotEmpty()) last = i
+        val end = Math.max(1, last + 1)
+        for (i in end until 32) for (field in SLOT_FIELDS) out.remove(field + i)
+        out.put("king_switch", "1")
+        if (last < 0) {
+            blankSlot(out, 0)
+            out.put("id0", "").put("size0", "90px")
+        }
         return out
     }
 

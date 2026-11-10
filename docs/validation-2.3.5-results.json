@@ -1,0 +1,569 @@
+{
+  "version": "2.3.5",
+  "versionCode": 2305,
+  "date": "2026-11-11",
+  "baselineCommit": "adfe2bda2066fa18e7c9ab758c87f7a44d9a4271",
+  "environment": {
+    "android": 16,
+    "api": 36,
+    "system": "HyperOS 3",
+    "android13FinalArtifactsRerun": false
+  },
+  "productionRegression": {
+    "allPassed": true,
+    "groups": {
+      "module": 32,
+      "amap-cn": 14,
+      "amap-play": 14,
+      "baidu": 9,
+      "tencent": 5
+    },
+    "totalExecutions": 74,
+    "moduleAssertions": 19415,
+    "amapCnPlayDexIdentical": true,
+    "variants": {
+      "module": {
+        "moduleSha256": "1ec64bd9abbaa43abc443be9e40179d99a14234646b504e7ec6dc0485d8d0a3f",
+        "dexSha256": {
+          "classes.dex": "45a5513512823076676ef2f8ee5be3ebf599c3ab4c4fc3b7dd825d293d99c0ae"
+        },
+        "tests": [
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapSplashTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapHomeGeometryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapStartupTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapPoiCategoryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.tmapclean.TmapStateRecoveryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduConfigRefreshTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduCacheIdentityTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduMineCardsTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.tmapclean.TmapAnnotationsTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.tmapclean.TmapPoiCategoryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.SystemCardCompatTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduLabelStyleTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduTabRoutingTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduPanelLayoutTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduCommuteTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduPaymentTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.tmapclean.TmapPanelLayoutTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.ConfigBackupTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.HookGuardTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.CompatibilityTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.EmbeddedSettingsPolicyTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.FrameworkStatusTest",
+            "exitCode": 0,
+            "passed": true
+          }
+        ]
+      },
+      "amap-cn": {
+        "moduleSha256": "f0962677a30f0e235db64f1ffcd624c50e7a28f8ab8c61dbd94caabe41f4b659",
+        "dexSha256": {
+          "classes.dex": "832391e4dedbdf593b7a4c668cf30c4cfd7442abf1eee20caa3e7e19ad986c41"
+        },
+        "tests": [
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapStartupTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapPoiCategoryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapSplashTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapHomeGeometryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+            "exitCode": 0,
+            "passed": true
+          }
+        ]
+      },
+      "amap-play": {
+        "moduleSha256": "dd6f0b4aaa56e96bcaba556c746fa02a46c3d3f40ff94ee3c8705ef14de1d5ac",
+        "dexSha256": {
+          "classes.dex": "832391e4dedbdf593b7a4c668cf30c4cfd7442abf1eee20caa3e7e19ad986c41"
+        },
+        "tests": [
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTaxiDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTaxiSkinTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapNaviScaleTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapCruiseTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.CfgStoreTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapPlaceDataTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapTabLayoutTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapConfigRefreshTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapStartupTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapPoiCategoryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapSplashTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapadkiller.AmapHomeGeometryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+            "exitCode": 0,
+            "passed": true
+          }
+        ]
+      },
+      "baidu": {
+        "moduleSha256": "81ec6d32e1492554844e1104e95ee98f9e17c464bcecb7221578286cc12d7650",
+        "dexSha256": {
+          "classes.dex": "3842d1d3c102f8edee51ab4cd09b75bd6eaf03c19fd97aaa7c057bb51bf84289"
+        },
+        "tests": [
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduMineCardsTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduConfigRefreshTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduCacheIdentityTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduLabelStyleTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduTabRoutingTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduPanelLayoutTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduCommuteTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.bmapclean.BaiduPaymentTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+            "exitCode": 0,
+            "passed": true
+          }
+        ]
+      },
+      "tencent": {
+        "moduleSha256": "4b562fee83e3987d098e40edbf65c4ecd882418060a747a95aa96385d3d6bf08",
+        "dexSha256": {
+          "classes.dex": "c00c4fde03f5406dbdc2f74b3a68ce720a6e4b1ab996265bdd99d56ff2267e0e"
+        },
+        "tests": [
+          {
+            "class": "io.github.ldxm666.tmapclean.TmapStateRecoveryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.tmapclean.TmapAnnotationsTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.tmapclean.TmapPanelLayoutTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.tmapclean.TmapPoiCategoryTest",
+            "exitCode": 0,
+            "passed": true
+          },
+          {
+            "class": "io.github.ldxm666.mapclean.NativeLibraryCacheTest",
+            "exitCode": 0,
+            "passed": true
+          }
+        ]
+      }
+    }
+  },
+  "nativeLabelAssertions": 12336,
+  "actualAmapStyles": {
+    "scenes": 8,
+    "cases": 80,
+    "passed": true,
+    "originalDefinitionsPreserved": true
+  },
+  "actualSplashAdapters": [
+    {
+      "target": "cn",
+      "passed": true,
+      "assertions": 9
+    },
+    {
+      "target": "play",
+      "passed": true,
+      "assertions": 9
+    }
+  ],
+  "deviceUi": {
+    "amap": {
+      "domesticEmbedded": {
+        "gridToggleFullscreenRounds": 3,
+        "separateFullscreenRounds": 3,
+        "collapseExpandRounds": 5,
+        "passed": true
+      },
+      "playEmbedded": {
+        "gridToggleFullscreenRounds": 3,
+        "separateFullscreenRounds": 3,
+        "collapseExpandRounds": 5,
+        "passed": true
+      },
+      "fullModuleViaLspatch487": {
+        "gridToggleFullscreenRounds": 3,
+        "separateFullscreenRounds": 3,
+        "collapseExpandRounds": 5,
+        "passed": true
+      }
+    },
+    "tencent": {
+      "embeddedPassed": true,
+      "fullModuleViaLspatch487Passed": true,
+      "originalCategoryChoicesPreserved": true
+    },
+    "baidu": {
+      "installedAndStarted": true,
+      "homeMineRoundTrips": 2,
+      "panelVersion": "2.3.5"
+    },
+    "standaloneModule": {
+      "installedVersion": "2.3.5",
+      "installedVersionCode": 2305,
+      "frameworkActivationChanged": false
+    }
+  },
+  "splashColdStarts": {
+    "runs": 3,
+    "cachedRulesBlocked": true,
+    "requestsBlocked": true,
+    "completionCallbackReleased": true,
+    "originalCacheFilesUnchanged": 16,
+    "dataCleared": false,
+    "cacheCleared": false,
+    "explicitOffPassed": true,
+    "temporarySettingRestored": true
+  },
+  "signature": {
+    "certificateSha256": [
+      "cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed"
+    ],
+    "v2": true,
+    "v3": true
+  },
+  "moduleTargetApi": 102,
+  "nativeAbis": [
+    "arm64-v8a",
+    "armeabi-v7a",
+    "x86",
+    "x86_64"
+  ],
+  "artifacts": [
+    {
+      "name": "MapClean-lsp-v2.3.5.apk",
+      "bytes": 5650136,
+      "sha256": "1ec64bd9abbaa43abc443be9e40179d99a14234646b504e7ec6dc0485d8d0a3f"
+    },
+    {
+      "name": "Amap-2.3.5-nonroot-embedded.apk",
+      "bytes": 333238033,
+      "sha256": "23131b89af0310344ab6ba983aa1c3091c29f9f0822dd4f77749bb6c5ddeb4ba"
+    },
+    {
+      "name": "Baidu-2.3.5-nonroot-embedded.apk",
+      "bytes": 231093091,
+      "sha256": "4dd7387a6ac05906f20f9d3b969133037250152813ea7e4125b1f6e1174e98e2"
+    },
+    {
+      "name": "Tencent-2.3.5-nonroot-embedded.apk",
+      "bytes": 180629421,
+      "sha256": "9f3d9a3f3c20838e0b9cb1f7174b60fd18f8ca046a00efe0e4c32189e3e65abf"
+    }
+  ],
+  "playSplits": [
+    {
+      "name": "base.apk",
+      "bytes": 267999217,
+      "sha256": "bd7f81db24189b8f482b230a3db9314556db5163b459b430709d6fb0b3642db4"
+    },
+    {
+      "name": "split_config.arm64_v8a.apk",
+      "bytes": 83398690,
+      "sha256": "5fae301517eef9d7434b26f3ab20ef6f98bd03e9181e3cf9215f55ba22ff80ea"
+    },
+    {
+      "name": "split_config.xxxhdpi.apk",
+      "bytes": 656643,
+      "sha256": "45e73e20967aa30e7a707053425674c963b2db80d032e068569eb7fd98782b3c"
+    },
+    {
+      "name": "split_config.zh.apk",
+      "bytes": 1077529,
+      "sha256": "58fdabaeb699fddc3cba894a9f86bf3b851fcc0ce912b1fd4d051c34d263c845"
+    }
+  ],
+  "limitations": [
+    "Full module tested through LSPatch 487 and production DEX; external LSPosed injection on official-signed hosts was not accepted in this round.",
+    "Android 13 final-artifact regression not rerun.",
+    "OEM live activity / island, real pending-order payment, POCO F3 installation and real road cruise need applicable hardware or orders.",
+    "Category mapping preserves unknown and ambiguous styles; not every building is classifiable.",
+    "Private logs, screenshots, device identifiers and personal configurations are excluded."
+  ]
+}

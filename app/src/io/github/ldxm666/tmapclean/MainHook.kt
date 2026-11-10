@@ -131,7 +131,19 @@ object MainHook {
             H.log(Log.INFO, TAG, "event=skip_subprocess process=" + proc)
             return
         }
-        installSelf(param.getClassLoader(), pkg, "dispatcher")
+        // PackageReady's loader can resolve the original APK but Tencent replaces it
+        // with Tinker's loader during Application.attach. Hooking those old Class
+        // objects reports success yet none of the UI/SDK calls ever reaches them.
+        // Slim builds already install via the Application callback. Use that same
+        // authoritative host path for the full module too; never latch INSTALLED
+        // merely because the pre-attach loader can find the anchor names.
+        installContextHook()
+        val host = io.github.ldxm666.mapclean.HostPrefs.hostContext()
+        if (host == null) {
+            H.log(Log.INFO, TAG, "event=install_deferred reason=await_host_application via=dispatcher")
+            return
+        }
+        installFromHost(host)
     }
 
     /**

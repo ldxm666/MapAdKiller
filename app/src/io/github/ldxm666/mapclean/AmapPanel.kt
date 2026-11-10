@@ -26,7 +26,7 @@ class AmapPanel private constructor() {
 
         /** Shown above the tool catalogue; see the 5-cell explanation below. */
         private const val TOOL_NOTE =
-            "首页工具栏为 5 格：优先保留原生顺序，空位按「已开启」自动补位；超出的工具仍在「更多工具」页里。"
+            "首页工具按原生顺序连续排列，每行最多 5 格、最多 2 行；关闭的工具与空行不占位，超出的工具仍在「更多工具」页里。"
 
         /** 闭区间步进序列，给滑块的停靠点用（例如 5..60 步进 1）。 */
         private fun steps(from: Int, to: Int, step: Int): IntArray {
@@ -166,8 +166,12 @@ class AmapPanel private constructor() {
                         // 样式 protobuf，只把兴趣点要素置不可见，道路 / 水域 / 地名全部保留。
                         PanelTypes.Item(
                             Config.K_MAP_POI, "显示地图兴趣点图标和名称",
-                            "统一控制酒店、景点、门店等兴趣点的图标和名称；道路、街道、城市与地名保留。"
+                            "兴趣点总开关。开启后可在下方按业务类别选择；关闭时全部兴趣点隐藏。道路、街道与地名保留。修改标注设置后需完全退出并重开高德。"
                         ),
+                        *io.github.ldxm666.mapadkiller.AmapPoiSettings.KEYS.mapIndexed { i, key ->
+                            PanelTypes.Item(key, "显示${io.github.ldxm666.mapadkiller.AmapPoiSettings.TITLES[i]} POI",
+                                "需先开启兴趣点总开关。使用高德原生业务规则；未知类别保留，搜索结果和路线标记不受影响。修改后重开高德生效。")
+                        }.toTypedArray(),
                         PanelTypes.Item(
                             Config.K_MAP_PROMO, "地图右侧运营挂件",
                             "扫街榜和活动入口。"
@@ -413,11 +417,9 @@ class AmapPanel private constructor() {
                         ),
                         PanelTypes.Item(
                             Config.K_ALIMAMA_SPLASH_OFF,
-                            "拦截开屏广告请求（默认关）",
-                            "高德的开屏**页面**不是广告，所以默认不拦。" +
-                                    "真机实测：拦掉这条请求反而会让开屏页拿不到内容又不结束，" +
-                                    "表现就是「白屏几秒」。确实不想看广告再打开，代价是首屏变慢。",
-                            true
+                            "拦截开屏广告（含缓存）",
+                            "默认开启：拦截阿里妈妈广告请求和已缓存物料，沿用高德的无广告结束流程。" +
+                                    "不会强制跳过整个品牌启动页。改动后需强停并重开高德。"
                         ),
                         PanelTypes.Item(
                             Config.K_ALIMAMA_LOG_OFF,
@@ -761,6 +763,9 @@ class AmapPanel private constructor() {
         fun mapPoiVisible(): Boolean {
             return Config.visible(Config.K_MAP_POI)
         }
+
+        @JvmStatic
+        fun mapPoiHiddenMask(): Int = io.github.ldxm666.mapadkiller.AmapPoiSettings.hiddenMask()
 
         /**
          * Persist one switch. Uses `commit()` rather than `apply()`: the user may

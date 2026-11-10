@@ -128,7 +128,9 @@ class NativeLabelAssets private constructor() {
         private fun arm(force: Boolean) {
             // The POI switch lives in a different group per vendor (amap_enhancer_config vs
             // bmapclean_config), so the read goes through whichever panel this build ships.
-            val mask = if (if (Vendor.baidu()) BaiduPanel.mapPoiVisible() else AmapPanel.mapPoiVisible()) SHOW else HIDE
+            val mask = if (Vendor.baidu()) {
+                if (BaiduPanel.mapPoiVisible()) SHOW else HIDE
+            } else AmapPanel.mapPoiHiddenMask()
             // Loading is best-effort and separate on purpose: configure() must still run when the
             // library is already mapped, and a failed load must not be allowed to skip arming.
             load()

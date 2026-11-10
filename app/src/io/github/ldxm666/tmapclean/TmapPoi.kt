@@ -28,6 +28,7 @@ object TmapPoi {
 
     @JvmStatic fun install(cl: ClassLoader) {
         TmapAnnotations.install(cl)
+        TmapPoiCategories.install(cl)
         val cls = H.cls(cl, "com.tencent.map.lib.TencentMap") ?: return
         for (i in methods.indices) {
             H.hookSig(cls, methods[i], "tmap_poi_$i", object : XposedInterface.Hooker {
@@ -194,6 +195,7 @@ object TmapPoi {
 
     @JvmStatic fun refresh() {
         TmapAnnotations.refresh()
+        TmapPoiCategories.refresh()
         val snapshot = synchronized(maps) { ArrayList(maps.keys) }
         for (map in snapshot) apply(map)
         val sdk = synchronized(controllers) { ArrayList(controllers.keys) }

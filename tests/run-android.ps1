@@ -23,6 +23,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Test dex failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Test dex upload failed' }
 $failedTests = @()
 $testClasses = @(
+    'io.github.ldxm666.mapadkiller.AmapSplashTest',
+    'io.github.ldxm666.mapadkiller.AmapHomeGeometryTest',
+    'io.github.ldxm666.mapadkiller.AmapStartupTest',
+    'io.github.ldxm666.mapadkiller.AmapPoiCategoryTest',
     'io.github.ldxm666.tmapclean.TmapStateRecoveryTest',
     'io.github.ldxm666.bmapclean.BaiduConfigRefreshTest',
     'io.github.ldxm666.bmapclean.BaiduCacheIdentityTest',
@@ -31,6 +35,7 @@ $testClasses = @(
     'io.github.ldxm666.bmapclean.BaiduMineCardsTest',
     'io.github.ldxm666.mapadkiller.AmapTabLayoutTest',
     'io.github.ldxm666.tmapclean.TmapAnnotationsTest',
+    'io.github.ldxm666.tmapclean.TmapPoiCategoryTest',
     'io.github.ldxm666.mapclean.SystemCardCompatTest',
     'io.github.ldxm666.mapadkiller.AmapDataTest',
     'io.github.ldxm666.mapadkiller.AmapTaxiDataTest',

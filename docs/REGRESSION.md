@@ -1,6 +1,6 @@
 # 跨模块回归台账
 
-本台账对应 2.3.4 工作树。变更入口、下游范围及验收命令须一起维护；静态扫描或单次编译成功不能代替行为验收。当前执行证据见 [VALIDATION-2.3.4.md](VALIDATION-2.3.4.md)。
+本台账包含 2.3.4 基线与 2.3.5 增量。变更入口、下游范围及验收命令须一起维护；静态扫描或单次编译成功不能代替行为验收。当前执行证据见 [VALIDATION-2.3.5.md](VALIDATION-2.3.5.md)，历史基线见 [2.3.4 记录](VALIDATION-2.3.4.md)。
 
 ## 审查基准与范围
 
@@ -104,5 +104,23 @@ python tools/check_anchors.py --Apk path/to/tencent-11.7.0-6013.apk --Anchors to
 | TEST-TOOLS-ANCHORS-234 | 构造器不误判丢失，DEX 查询失败不得判通过 | `test_check_anchors.py` |
 
 ## 交付判据
+
+### 2.3.5 增量（基准：公开 2.3.4 / adfe2bda2066fa18e7c9ab758c87f7a44d9a4271）
+
+历史 2.3.4 的 Android 13 结果不自动继承为新包实机通过。2.3.5 的实际运行环境、产物摘要与限制单列在 [验证记录](VALIDATION-2.3.5.md)。
+
+| TEST-ID | 保护行为 | 执行资产 |
+| --- | --- | --- |
+| TEST-AMAP-STARTUP-235 | 首次打开、升级、缺少旧标记时仍安装功能 hook；仅显式请求进入采集 | `AmapStartupTest.java` |
+| TEST-AMAP-GRID-235 | 尾部空位裁剪、空行消除、仅重建工厂所有行，保留家/公司及 AI 原生视图 | `AmapConfigRefreshTest.java`、`AmapDataTest.java` |
+| TEST-AMAP-HOME-BOTTOM-235 | 同一视图树内底栏隐藏后宫格沉底；搜索/手势 inset、恢复、拖动、未知标签及旧树隔离 | `AmapHomeGeometryTest.java`；国内内置包实际开关及收起/上拉截图 |
+| TEST-AMAP-REPEATED-DRAG-235 | 原生 setter 的 10dp 与状态栏偏移、私有方法、连续滑动和额外锚点；稳定帧不循环布局 | `AmapHomeGeometryTest.java`；快速连续滑动实机截图及日志 |
+| TEST-AMAP-FULLSCREEN-235 | 工具宫格关开、全屏中刷新、点击地图隐藏与恢复；隐藏/拖动/动画不被强制重排 | `AmapHomeGeometryTest.java`；宫格开关与全屏往返实机检查 |
+| TEST-AMAP-POI-235 | 九类掩码、兼容总开关、保留原始样式/道路/搜索路线 | `AmapPoiCategoryTest.java`、`NativeLabelTest.cpp`；国内/Play 八套原生样式 × 十种掩码 |
+| TEST-TMAP-POI-235 | 九类组合、教育教学楼、注释/尾逗号解析、未知类型放行、缓存身份 | `TmapPoiCategoryTest.java`；实际原生控制器报告与截图 |
+| TEST-TMAP-LOADER-235 | 完整模块不得锁定 Application.attach 前的原包 Class；等待宿主 Tinker 类加载器 | `TmapStateRecoveryTest.java`；完整模块经 LSPatch 宿主运行检查 |
+| TEST-AMAP-SPLASH-235 | 缓存与网络双路径、只改本次展示结果、线程隔离、显式关闭、回调单次释放、无构造函数 R8 结果 | `AmapSplashTest.java`；国内/Play 原始 APK 的 ART 反射验证；国内包三轮冷启动 |
+
+共享 native 或配置存储更改必须传播到五种生产模块；高德首页/广告更改传播到完整模块、国内/Play；腾讯入口更改传播到完整模块与腾讯内置模块。`tests/run-production.py` 读取实际 APK 内嵌模块，拒绝测试 DEX 覆盖生产类，并对照国内/Play 功能 DEX。
 
 每条实际命令记录退出码。失败、未运行、宿主版本未验证必须单独列出；不把未运行写成通过。修复后重跑对应模块及其下游；若再次发现缺陷并更改源码，旧产物和旧报告失效，须重新构建受影响变体。

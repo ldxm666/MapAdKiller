@@ -243,6 +243,9 @@ TARGETS = {
             b"Lio/github/ldxm666/mapadkiller/AmapBuildingPatch;",
             b"Lio/github/ldxm666/mapadkiller/AmapUpdateBlock;",
             b"Lio/github/ldxm666/mapadkiller/AmapHookArgs;",
+            b"Lio/github/ldxm666/mapadkiller/AmapPoiSettings;",
+            b"Lio/github/ldxm666/mapadkiller/AmapSplashRules;",
+            b"Lio/github/ldxm666/mapadkiller/AmapHomeGeometry;",
         ),
         "banned": vendor_classes("io.github.ldxm666.bmapclean", STUBBED_CLASSES) + (
             b"Lio/github/ldxm666/mapadkiller/BmapHooks;",
@@ -278,6 +281,8 @@ TARGETS = {
             b"Lio/github/ldxm666/tmapclean/TmapMapIcons;",
             b"Lio/github/ldxm666/tmapclean/TmapPoi;",
             b"Lio/github/ldxm666/tmapclean/TmapAnnotations;",
+            b"Lio/github/ldxm666/tmapclean/TmapPoiCategories;",
+            b"Lio/github/ldxm666/tmapclean/TmapPoiStyles;",
             b"Lio/github/ldxm666/mapclean/TmapPanel;",
             b"Lio/github/ldxm666/mapadkiller/MainHook;",
         ),

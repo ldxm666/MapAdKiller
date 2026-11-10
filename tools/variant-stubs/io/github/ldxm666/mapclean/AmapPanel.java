@@ -44,4 +44,5 @@ final class AmapPanel {
     static boolean readStrict(String key) { return true; }
     /** Visible = do not touch the map; 高德's filter is not compiled into this variant. */
     static boolean mapPoiVisible() { return true; }
+    static int mapPoiHiddenMask() { return 0; }
 }

@@ -17,7 +17,8 @@ SOURCE_TREES = {"app/src", "app/stub-src", "app/res", "app/META-INF", "app/nativ
                 "tools/variant-stubs", "tools/module-stubs", "tests/ui"}
 PUBLIC_DOCS = {"docs/RELEASE-2.3.3.md", "docs/VALIDATION-2.3.3.md", "docs/kotlin-migration-guide.md",
                "docs/miuix-design-spec.md", "docs/AMAP-1702-ANCHORS.md", "docs/RELEASE-2.3.4.md",
-               "docs/VALIDATION-2.3.4.md", "docs/REGRESSION.md", "docs/validation-2.3.4-results.json"}
+               "docs/VALIDATION-2.3.4.md", "docs/REGRESSION.md", "docs/validation-2.3.4-results.json", "docs/RELEASE-2.3.5.md",
+               "docs/VALIDATION-2.3.5.md", "docs/validation-2.3.5-results.json"}
 EXCLUDED_PARTS = {".git", ".codex", ".agents", ".aws", "__pycache__", ".idea", ".vscode", "evidence", "shots"}
 EXCLUDED_SUFFIXES = {".apk", ".zip", ".keystore", ".jks", ".p12", ".log", ".db", ".sqlite", ".pyc", ".dex", ".o", ".obj"}
 NATIVE_ABIS = {"arm64-v8a", "armeabi-v7a", "x86", "x86_64"}

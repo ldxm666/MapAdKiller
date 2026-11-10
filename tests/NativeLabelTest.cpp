@@ -70,7 +70,43 @@ static void tests(){
     check(value(child(first,2,1),1)!=value(child(second,2,1),1),"private state IDs do not collide across point groups");
     check(value(child(first,5,1),1)!=value(child(second,5,1),1),"private drawing IDs do not collide across point groups");
     check(child(multiple,1,2)==child(output,1,2),"nonpoint geometry stays intact after multiple point groups");
+    // TEST-AMAP-POI-CATEGORY-235: select by the host's own runtime rule catalogue.
+    const uint32_t codes[]={0x14300000,0x14400000,0x14e00000,0x14500000,0x14b00000,0x14200000,0x14100000,0x14600000,0x14700000};
+    Bytes ruleTable,categoryDefs,categoryStyle;
+    for(unsigned i=0;i<9;i++){
+        Bytes row;number(row,1,12024);number(row,2,100+i);number(row,3,codes[i]);message(ruleTable,1,row);
+        message(categoryDefs,1,rule(12024,100+i,10));message(categoryDefs,1,rule(12029,100+i,10));
+        check(poiCategory(codes[i])==(1u<<(i+1)),"known native business code bit matches UI");
+    }
+    Bytes unknown;number(unknown,1,12024);number(unknown,2,99999);number(unknown,3,0x1ff00000);message(ruleTable,1,unknown);
+    message(categoryDefs,1,rule(12024,99999,10));message(categoryDefs,1,rule(10001,100,10));
+    message(categoryDefs,2,state(10,100));message(categoryDefs,5,draw(100));
+    message(categoryStyle,1,group(0,categoryDefs));message(categoryStyle,1,child(originalFixture,1,1));
+    PoiCategories categories;check(poiCatalogue(ruleTable.data(),ruleTable.size(),categories),"native rule catalogue parses");
+    check(categories.size()==9 && !categories.count(99999),"unknown native business codes stay visible");
+    for(unsigned combination=0;combination<512;combination++){
+        output.clear();changed=0;
+        check(amap(categoryStyle.data(),categoryStyle.size(),output,changed,nullptr,combination<<1,&categories),"all business combinations parse");
+        after=child(child(output,1),3);unsigned expected=0;
+        for(unsigned i=0;i<9;i++)for(unsigned alternate=0;alternate<2;alternate++){
+            bool hide=(combination&(1u<<i))!=0;expected+=hide;
+            check((child(after,1,i*2+alternate)!=child(categoryDefs,1,i*2+alternate))==hide,"only selected normal/alternate rules change");
+        }
+        check(changed==int(expected),"exact number of selected rules changes");
+        check(child(after,1,18)==child(categoryDefs,1,18),"unknown point rule preserved");
+        check(child(after,1,19)==child(categoryDefs,1,19),"geographic rule preserved");
+        check(child(after,2)==child(categoryDefs,2) && child(after,5)==child(categoryDefs,5),"shared originals byte identical for every mask");
+        check(child(output,1,1)==child(categoryStyle,1,1),"road geometry byte identical for every mask");
+    }
+    output.clear();changed=0;
+    check(amap(categoryStyle.data(),categoryStyle.size(),output,changed,nullptr,2,nullptr) && output==categoryStyle && !changed,"missing catalogue fails open for category mode");
+    auto brokenTable=ruleTable;brokenTable.pop_back();PoiCategories untouched{{42,2}};
+    check(!poiCatalogue(brokenTable.data(),brokenTable.size(),untouched) && untouched.size()==1 && untouched.count(42),"truncated catalogue cannot partially replace valid mapping");
+    Bytes conflicting=ruleTable,conflict;number(conflict,1,12024);number(conflict,2,100);number(conflict,3,codes[1]);message(conflicting,1,conflict);
+    check(!poiCatalogue(conflicting.data(),conflicting.size(),untouched),"ambiguous subkey catalogue fails open");
+    check(poiCategory(0x14f00000)==(1u<<5) && poiCategory(0x14d00000)==(1u<<7),"verified alternate business families covered");
+    check(poiCategory(0x14800000)==0 && poiCategory(0x15000000)==0,"unverified and geographic families preserved");
     std::printf("NativeLabelTest OK assertions=%d\n",assertions);
 }
 static Bytes read(const char *path){std::ifstream f(path,std::ios::binary);check(bool(f),"input opens");return Bytes(std::istreambuf_iterator<char>(f),{});}
-int main(int argc,char **argv){if(argc==1){tests();return 0;}if(argc!=3)return 2;auto b=read(argv[1]);Bytes out;int changed=0,fallbackDrawings=0;check(amap(b.data(),b.size(),out,changed,&fallbackDrawings),"actual scene parses");std::ofstream f(argv[2],std::ios::binary);f.write(reinterpret_cast<const char *>(out.data()),out.size());check(bool(f),"output writes");std::printf("ActualStyle OK rules=%d fallbackDraws=%d bytes=%zu\n",changed,fallbackDrawings,out.size());return 0;}
+int main(int argc,char **argv){if(argc==1){tests();return 0;}if(argc!=3 && argc!=5)return 2;auto b=read(argv[1]);Bytes out;int changed=0,fallbackDrawings=0;PoiCategories categories;uint32_t mask=1;if(argc==5){auto rules=read(argv[4]);check(poiCatalogue(rules.data(),rules.size(),categories),"actual rule catalogue parses");mask=uint32_t(std::strtoul(argv[3],nullptr,0));}check(amap(b.data(),b.size(),out,changed,&fallbackDrawings,mask,argc==5?&categories:nullptr),"actual scene parses");std::ofstream f(argv[2],std::ios::binary);f.write(reinterpret_cast<const char *>(out.data()),out.size());check(bool(f),"output writes");std::printf("ActualStyle OK mask=%u rules=%d fallbackDraws=%d bytes=%zu\n",mask,changed,fallbackDrawings,out.size());return 0;}

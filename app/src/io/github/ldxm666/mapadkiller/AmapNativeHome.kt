@@ -22,6 +22,7 @@ class AmapNativeHome private constructor() {
         private val attached: MutableSet<View> = Collections.newSetFromMap(WeakHashMap<View, Boolean>())
         private val sizes: MutableMap<View, IntArray> = WeakHashMap()
         private val returning: MutableSet<View> = Collections.newSetFromMap(WeakHashMap<View, Boolean>())
+        private val geometryReported: MutableSet<View> = Collections.newSetFromMap(WeakHashMap<View, Boolean>())
 
         @Volatile
         private var compactSupported = false
@@ -34,6 +35,8 @@ class AmapNativeHome private constructor() {
          */
         @Volatile
         private var factoryMethod: Method? = null
+        private val factorySource = ThreadLocal<JSONObject>()
+        private var quickService = java.lang.ref.WeakReference<View>(null)
 
         @Volatile
         private var chipsMethod: Method? = null
@@ -414,6 +417,7 @@ class AmapNativeHome private constructor() {
                         refresh()
                     }
                     val self = chain.getThisObject()
+                    if (self is View) quickService = java.lang.ref.WeakReference(self)
                     if (compact() && self is View) {
                         val view: View = self
                         // Dump the enclosing screen once so the empty grey card under the tool bar
@@ -486,11 +490,13 @@ class AmapNativeHome private constructor() {
                     if (compact() && self is View) {
                         val panel = H.getObjectField(self, "mSplashToolboxPanel")
                         val next = chain.getArg(2).toString()
+                        if (Config.debugLog()) H.log("amap_compact_state from=" + chain.getArg(1) + " to=" + next)
                         if (panel is View) panel.visibility =
-                                if ("COLLAPSED" == next || "HIDDEN" == next) View.INVISIBLE else View.VISIBLE
+                                if ("COLLAPSED" == next || "HIDDEN" == next || "HIDDEN_EMPTY" == next) View.INVISIBLE else View.VISIBLE
+                        // Check the settled pixel position too. Stable QS bounds do not mean
+                        // an interrupted drag/extra native anchor actually returned to our anchor.
+                        if (next == "ANCHORED" || next == "EXPANDED" || next == "COLLAPSED") rebound(self)
                     }
-                    if (compact() && "EXPANDED" == chain.getArg(2).toString() && self is View)
-                        rebound(self)
                     return result
                 }
             }, View::class.java, panelState, panelState)
@@ -637,6 +643,8 @@ class AmapNativeHome private constructor() {
 
         /** 我们为「首页工具宫格」开关亲手隐藏过的子 View（只恢复自己改过的，不碰宿主状态）。 */
         private val GRID_HIDDEN: java.util.WeakHashMap<View, Int> = java.util.WeakHashMap()
+        private val GRID_PADDING: MutableMap<View, IntArray> = WeakHashMap()
+        private val GRID_COUNTS: MutableMap<View, Int> = WeakHashMap()
 
         /** chips 行的文字特征：宿主原生那排「设置家 / 设置单位 / 常去地点」。 */
         private val CHIP_TEXTS = arrayOf(
@@ -683,8 +691,10 @@ class AmapNativeHome private constructor() {
             if (vg == null) return
             try {
                 val kids = vg.childCount
-                for (i in 0 until kids) {
-                    val child = vg.getChildAt(i) ?: continue
+                val owned = built?.takeIf { it.container.get() === vg }?.toolRows
+                        ?.mapNotNull { it.get() }
+                        ?: (0 until kids).mapNotNull { vg.getChildAt(it) }
+                for (child in owned) {
                     if (isChipsRow(child)) continue
                     if (show) {
                         val original = GRID_HIDDEN.remove(child)
@@ -694,6 +704,14 @@ class AmapNativeHome private constructor() {
                         child.visibility = View.GONE
                     }
                 }
+                if (!show) {
+                    if (!GRID_PADDING.containsKey(vg)) GRID_PADDING[vg] = intArrayOf(
+                            vg.paddingLeft, vg.paddingTop, vg.paddingRight, vg.paddingBottom)
+                    vg.setPadding(vg.paddingLeft, 0, vg.paddingRight, 0)
+                } else {
+                    GRID_PADDING.remove(vg)?.let { vg.setPadding(it[0], it[1], it[2], it[3]) }
+                }
+                vg.requestLayout()
                 H.log("event=amap_tool_grid_visibility show=" + show + " kids=" + kids)
             } catch (t: Throwable) {
                 H.log("event=amap_tool_grid_visibility error=" + t.javaClass.simpleName)
@@ -720,12 +738,12 @@ class AmapNativeHome private constructor() {
                     // 「整块工具栏」开关只隐藏**宫格自己的子 View**：宿主把「设置家」那排
                     // chips 追加在同一个容器里，直接 GONE 容器会把设置家一起藏掉（用户 bug）。
                     val gridHolder = vg
-                    applyToolGridVisibility(gridHolder, Config.visible(Config.K_TOOLS_VISIBLE))
+                    applyToolGridVisibility(gridHolder, Config.visible(Config.K_TOOLS_VISIBLE) && GRID_COUNTS[gridHolder] != 0)
                     // 宿主有时在 decorate 之后才把格子 / chips 塞进来，layout 完再按同一规则刷一次。
                     try {
                         gridHolder.post(object : Runnable {
                             override fun run() {
-                                applyToolGridVisibility(gridHolder, Config.visible(Config.K_TOOLS_VISIBLE))
+                                applyToolGridVisibility(gridHolder, Config.visible(Config.K_TOOLS_VISIBLE) && GRID_COUNTS[gridHolder] != 0)
                             }
                         })
                     } catch (ignored: Throwable) {
@@ -873,8 +891,8 @@ class AmapNativeHome private constructor() {
                                 // outside the five defaults appeared dead. Filling here injects the
                                 // enabled catalogue tools into the render payload without touching
                                 // the host's stored list.
-                                val out = AmapData.toolbox(source, AmapData.CURRENT,
-                                        chain.getArg(0) as? Context)
+                                val out = AmapData.renderToolbox(AmapData.toolbox(source, AmapData.CURRENT,
+                                        chain.getArg(0) as? Context))
                                 if (!toolGridReported) {
                                     toolGridReported = true
                                     H.log("event=amap_tool_grid_items before=" + AmapData.slotIds(source) +
@@ -894,8 +912,16 @@ class AmapNativeHome private constructor() {
                                         toolFactoryReported = true
                                         H.log("event=amap_tool_factory_filter kept=" + AmapData.slotIds(out))
                                     }
-                                    val row = chain.proceed(args)
-                                    return decorateHomeRow(row, cl, chain.getArg(0) as? Context)
+                                    val previous = factorySource.get()
+                                    factorySource.set(source)
+                                    try {
+                                        val row = chain.proceed(args)
+                                        if (row is View) GRID_COUNTS[row] = (0 until AmapData.HOME_SLOTS)
+                                                .count { out.optString("id$it").isNotEmpty() }
+                                        return decorateHomeRow(row, cl, chain.getArg(0) as? Context)
+                                    } finally {
+                                        if (previous == null) factorySource.remove() else factorySource.set(previous)
+                                    }
                                 }
                             }
                         } catch (ignored: Throwable) {
@@ -1855,24 +1881,69 @@ class AmapNativeHome private constructor() {
 
         private fun rebound(self: View) {
             if (!returning.add(self)) return
-            self.post(object : Runnable {
+            self.postOnAnimation(object : Runnable {
                 override fun run() {
-                    returning.remove(self)
-                    if (!compact() || !self.isAttachedToWindow) return
                     try {
-                        val state = self.javaClass.getMethod("getPanelState").invoke(self)
-                        if ("EXPANDED" != state.toString()) return
-                        val anchored = state.javaClass.getField("ANCHORED").get(null)
-                        // Use the native animator after release; never interrupt an active drag.
-                        self.javaClass.getMethod("setPanelState", state.javaClass, java.lang.Boolean.TYPE)
-                                .invoke(self, anchored, true)
-                        H.log("amap_compact_rebound native_anchor")
+                        if (compact() && self.isAttachedToWindow) finishCompact(self)
                     } catch (e: Exception) {
                         H.log("amap_compact_rebound failed=" + e.javaClass.simpleName)
+                    } finally {
+                        returning.remove(self)
                     }
                 }
             })
         }
+
+        /** Only after native drag release: reconcile actual geometry AND final slideable position. */
+        private fun finishCompact(self: View) {
+            val type = self.javaClass
+            val state = type.getMethod("getPanelState").invoke(self)
+            val name = state.toString()
+            if (name != "EXPANDED" && name != "ANCHORED" && name != "COLLAPSED") return
+            if (type.getMethod("getViewDragState").invoke(self) != 0) return
+            resize(self)
+            val target = if (name == "EXPANDED") state.javaClass.getField("ANCHORED").get(null) else state
+            val point = if (name == "COLLAPSED") 0f else type.getMethod("getAnchorPoint").invoke(self) as Float
+            // This method is PRIVATE in SlidableLayout (CN and Play). getMethod() only
+            // finds public members; follow the superclass chain, preserving its exact math.
+            val topMethod = panelTopMethods[type] ?: run {
+                var owner: Class<*>? = type
+                var found: Method? = null
+                while (owner != null && found == null) {
+                    found = H.method(owner, "computePanelTopPosition", java.lang.Float.TYPE)
+                    owner = owner.superclass
+                }
+                (found ?: return).also { panelTopMethods[type] = it }
+            }
+            val expected = topMethod.invoke(self, point) as Int
+            val sliding = H.getObjectField(self, "mSlideableView") as? View ?: return
+            val extra = type.getMethod("getAnchorHeightExtraNow").invoke(self) as Int
+            if (name != "EXPANDED" && kotlin.math.abs(sliding.top - expected) <= 1 &&
+                    (name != "ANCHORED" || extra == -1)) return
+            // The animated setter may reject a repeated request within the host's 300ms
+            // settling window. Its non-animated overload resets the extra anchor and lays
+            // out at the canonical point. Never call while DRAGGING, or alter a collapsed state.
+            val accepted = type.getMethod("setPanelState", state.javaClass, java.lang.Boolean.TYPE)
+                    .invoke(self, target, false)
+            H.log("amap_compact_rebound from=" + name + " top=" + sliding.top +
+                    " expected=" + expected + " extra=" + extra + " accepted=" + accepted)
+        }
+
+        private fun geometryMatches(self: View, minimum: Int, anchor: Int, transparent: Int): Boolean = try {
+            val type = self.javaClass
+            // SlideContainer's setters both add the native 10dp drag-bar space before
+            // calling SlidableLayout. Its inherited getters include that space. Comparing
+            // them with the input heights requested a fresh layout on EVERY frame.
+            // The transparent-height setter additionally includes the status-bar inset.
+            val dragBar = dp(self.context, 10)
+            val actualMin = type.getMethod("getMinHeight").invoke(self)
+            val actualAnchor = type.getMethod("getAnchorHeight").invoke(self)
+            val actualTransparent = type.getMethod("getTransparentHeight").invoke(self)
+            val actualTop = transparent + statusBar(self)
+            val matches = actualMin == minimum + dragBar && actualAnchor == anchor + dragBar && actualTransparent == actualTop
+            if (!matches && Config.debugLog() && geometryReported.add(self)) H.log("amap_compact_drift actual=" + actualMin + "," + actualAnchor + "," + actualTransparent + " expected=" + (minimum+dragBar) + "," + (anchor+dragBar) + "," + actualTop)
+            matches
+        } catch (_: Exception) { false }
 
         private fun contentHeight(self: View): Int {
             try {
@@ -1893,7 +1964,7 @@ class AmapNativeHome private constructor() {
                 val width = if (self.width > 0) self.width else self.resources.displayMetrics.widthPixels
                 panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                // The native minimum already includes the search bar, bottom tabs and system inset.
+                // minimum() retains the search bar and system inset, releasing hidden tabs.
                 return minimum(self) + panel.measuredHeight + dp(self.context, 12)
             } catch (ignored: Exception) {
                 return 0
@@ -1902,20 +1973,25 @@ class AmapNativeHome private constructor() {
 
         private fun resize(self: View) {
             if (self.width <= 0 || self.height <= 0) return
-            val height = contentHeight(self)
-            if (height <= 0) return
             try {
                 val type = self.javaClass
+                val state = type.getMethod("getPanelState").invoke(self)
+                // A hidden panel belongs to the native immersive-map state machine.
+                // Re-entering setPanelState here resets its animation/last visible state.
+                if (state.toString() !in arrayOf("ANCHORED", "COLLAPSED", "EXPANDED") ||
+                        type.getMethod("getViewDragState").invoke(self) != 0) return
+                val height = contentHeight(self)
+                if (height <= 0) return
                 val minimum = minimum(self)
                 val max = Math.min(self.height - statusBar(self), height + dp(self.context, 48))
                 val last = sizes[self]
-                if (last != null && last[0] == self.width && last[1] == self.height && last[2] == height && last[3] == max && last[4] == minimum) return
-                val state = type.getMethod("getPanelState").invoke(self)
-                if ("DRAGGING" == state.toString()) return
+                val transparent = Math.max(0, self.height - max - statusBar(self))
+                if (last != null && last[0] == self.width && last[1] == self.height && last[2] == height && last[3] == max && last[4] == minimum &&
+                        geometryMatches(self, minimum, height, transparent)) return
                 sizes[self] = intArrayOf(self.width, self.height, height, max, minimum)
                 type.getMethod("setMinHeight", Integer.TYPE).invoke(self, minimum)
                 type.getMethod("setAnchorHeight", Integer.TYPE).invoke(self, height)
-                type.getMethod("setTransparentHeight", Integer.TYPE).invoke(self, Math.max(0, self.height - max - statusBar(self)))
+                type.getMethod("setTransparentHeight", Integer.TYPE).invoke(self, transparent)
                 type.getMethod("computeSlideRange").invoke(self)
                 type.getMethod("onMeasureComplete").invoke(self)
                 // Reposition once after changing the range; never reset the state during a gesture.
@@ -1938,7 +2014,26 @@ class AmapNativeHome private constructor() {
             val type = self.javaClass
             val min = minHeightMethods[type] ?: type.getMethod("getMinHeight", java.lang.Boolean.TYPE)
                     .also { minHeightMethods[type] = it }
-            return min.invoke(self, "SEARCHBAR_MODE_TOP" != value.toString()) as Int
+            val bottomSearch = "SEARCHBAR_MODE_TOP" != value.toString()
+            val native = min.invoke(self, bottomSearch) as Int
+            if (!AmapTabLayout.hiddenFor(self)) return native
+            val top = if (bottomSearch) min.invoke(self, false) as Int else native
+            val bottom = if (bottomSearch) native else min.invoke(self, true) as Int
+            return AmapHomeGeometry.minimum(native, top, bottom, bottomSearch, true,
+                    self.resources.displayMetrics.density)
+        }
+
+        /** A tab transition can leave QS dimensions unchanged, so a layout listener alone misses it. */
+        @JvmStatic
+        fun onTabLayoutChanged(bar: View) {
+            val qs = quickService.get() ?: return
+            if (bar.parent == null || bar.rootView !== qs.rootView) return
+            qs.post {
+                if (compact()) {
+                    sizes.remove(qs)
+                    resize(qs)
+                }
+            }
         }
 
         @Volatile
@@ -1949,6 +2044,8 @@ class AmapNativeHome private constructor() {
 
         private val minHeightMethods: MutableMap<Class<*>, Method> =
                 java.util.Collections.synchronizedMap(WeakHashMap())
+
+        private val panelTopMethods: MutableMap<Class<*>, Method> = WeakHashMap()
 
         /**
          * 状态栏高度，整个进程只解析一次。
@@ -2172,13 +2269,16 @@ class AmapNativeHome private constructor() {
                 val delegate: Any?
         ) {
             val container: java.lang.ref.WeakReference<ViewGroup> = java.lang.ref.WeakReference(container)
+            var toolRows = (0 until container.childCount).map {
+                java.lang.ref.WeakReference(container.getChildAt(it))
+            }
         }
 
         private fun remember(chain: XposedInterface.Chain, container: ViewGroup) {
             val boot = chain.getArg(3)
             built = Built(container, chain.getArg(0) as Context, chain.getArg(1).toString(),
                     chain.getArg(2) as Int,
-                    if (boot is JSONObject) boot else JSONObject(),
+                    JSONObject((factorySource.get() ?: (boot as? JSONObject) ?: JSONObject()).toString()),
                     chain.getArg(4))
             builtSignature = signature()
         }
@@ -2228,19 +2328,42 @@ class AmapNativeHome private constructor() {
             // 这样开关 ON/OFF 立刻生效，且不碰 buildAICotView / buildAILoadingView 的既有路径。
             if (panelClass.endsWith("ToolboxPanelV2")) {
                 if (container.parent !== panel) return
-                // 工具宫格走 decorateHomeRow 原地重建（原生容器，只切可见性）：
-                // ON/OFF 都立即生效，且工具宫格用同一份 catalogue 重建，不会丢格子。
+                // 只重建工厂拥有的工具行；家/公司和 AI 卡保留原视图与状态。
+                val previousSignature = builtSignature
                 try {
+                    if (signature() != builtSignature && factoryMethod != null) {
+                        // Rebuild only factory-owned rows from the unfiltered payload. V2
+                        // also appends home/company and AI content to this container; those
+                        // views and their state must retain their identity.
+                        val fresh = try {
+                            factoryMethod!!.invoke(null, current.context, current.theme,
+                                    current.mode, current.boot, current.delegate) as? ViewGroup
+                        } finally { built = current; builtSignature = previousSignature }
+                        if (fresh != null) {
+                            val rows = (0 until fresh.childCount).map { fresh.getChildAt(it) }
+                            for (ref in current.toolRows) ref.get()?.let {
+                                if (it.parent === container) container.removeView(it)
+                            }
+                            for ((index, row) in rows.withIndex()) {
+                                fresh.removeView(row)
+                                container.addView(row, index)
+                            }
+                            current.toolRows = rows.map { java.lang.ref.WeakReference(it) }
+                            GRID_COUNTS[fresh]?.let { GRID_COUNTS[container] = it }
+                        }
+                    }
                     decorateHomeRow(container, panel.javaClass.classLoader, current.context)
                     // chips 行挂在面板根上（与宿主 init 的 this.addView 一致），单独增删。
                     ensureV2ChipsRow(panel, panel.javaClass.classLoader,
                             current.theme, current.mode, "v2_refresh")
                     H.log("event=home_chips_refresh via=v2_container show=" +
                             Config.visible(Config.K_HOME_CHIPS))
+                    container.requestLayout()
+                    quickService.get()?.let { qs -> qs.post { if (compact()) resize(qs) } }
+                    builtSignature = signature()
                 } catch (error: Throwable) {
                     H.log("event=home_chips_refresh_failed err=" + error.javaClass.simpleName)
                 }
-                builtSignature = signature()
                 return
             }
             // Only V3 builds its content the way build() reproduces it.

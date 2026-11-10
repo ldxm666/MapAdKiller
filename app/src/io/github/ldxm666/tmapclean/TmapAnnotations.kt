@@ -101,6 +101,7 @@ object TmapAnnotations {
         val home = H.call(base, "isHomePage") as? Boolean ?: return
         val map = H.field(H.call(base, "getSceneSwitch"), "map")
         val sdk = H.field(H.field(H.field(map, "mMapEngine"), "mJNIWrapper"), "mTXMap")
+        if (sdk != null && base is View) TmapPoiCategories.bind(sdk, home, base.context)
         val renderer = H.call(sdk, "getMapRenderController")
         if (renderer == null) {
             if (previous != null) update(previous, home)
