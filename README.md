@@ -50,7 +50,7 @@
 
 ## 下载
 
-统一从 [v2.3.5.step2 Release](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.5.step2) 下载。模块仓库另提供 [模块版 2305-2.3.5](https://github.com/Xposed-Modules-Repo/io.github.ldxm666.mapadkiller/releases/tag/2305-2.3.5)（2.3.5 基线；本次 step2 的安装包以主仓库 Release 为准）。
+统一从 [v2.3.5.step2 Release](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.5.step2) 下载。模块仓库另提供 [模块版 23052-2.3.5.step2](https://github.com/Xposed-Modules-Repo/io.github.ldxm666.mapadkiller/releases/tag/23052-2.3.5.step2)。
 
 | 文件 | 安装方式 |
 | --- | --- |
