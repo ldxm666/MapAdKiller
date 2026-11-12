@@ -5,6 +5,11 @@
     {"label": "Alimama request implementation", "class": "com.autonavi.minimap.alimama.AlimamaRequestHolder", "methods": ["sendSplashScreen"]},
     {"label": "Request completion releases splash lock", "class": "com.autonavi.minimap.net.Callback", "methods": ["onFailure"]},
     {"label": "Advertising presentation scope and native finish", "class": "com.autonavi.minimap.g", "methods": ["o", "e"]},
-    {"label": "Cached advertisement readiness", "class": "y96", "methods": ["g", "h", "a", "b", "f"]}
+    {"label": "Cached advertisement readiness", "class": "y96", "methods": ["g", "h", "a", "b", "f"]},
+    {"label": "Splash material requester (all callers incl. child VApp and cloud refill)", "class": "ah5", "methods": ["attemptRequestData", "nowHasSplashItemsFromAlimama"]},
+    {"label": "Realtime splash request (raw HttpURLConnection, bypasses AOS)", "class": "com.autonavi.minimap.impl.SplashScreenServiceImpl", "methods": ["a", "fetchRealTime"]},
+    {"label": "Realtime splash request runnable", "class": "yc5", "methods": ["run"]},
+    {"label": "Splash image renderer (null => host finishes with ERROR)", "class": "com.autonavi.minimap.view.ImageSplashView", "methods": ["getSplashView"]},
+    {"label": "Splash video renderer", "class": "com.autonavi.minimap.view.VideoSplashView", "methods": ["getSplashView"]}
   ]
 }

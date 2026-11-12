@@ -32,6 +32,17 @@ object AmapAlimama {
             return
         }
         if (splashOn) installCacheGate(cl)
+        if (splashOn) {
+            // 同一开关下的深度清除（见 AmapSplashKill）：素材请求源头 ah5、实时开屏
+            // SplashScreenServiceImpl.a()/yc5、渲染器 Image/VideoSplashView.getSplashView，
+            // 以及已经落在 files/splash/ 的 i_* / v_* 素材。任一环节装不上只记日志。
+            try {
+                AmapSplashKill.install(cl)
+            } catch (t: Throwable) {
+                H.log(Log.WARN, MainHook.TAG, "event=splash_kill_failed reason="
+                        + t.javaClass.simpleName)
+            }
+        }
         try {
             val holder = H.cls(cl, CLS_HOLDER)
             val splash = H.cls(cl, CLS_SPLASH_REQ)
@@ -51,6 +62,12 @@ object AmapAlimama {
                         // 请求被拦前必须释放回调持有的 a76 锁。
                         block("sendSplashScreen", "ws/valueadded/alimama/splash_screen", true, Config.K_ALIMAMA_SPLASH_OFF),
                         splash, falcon, callback)
+                // 2 参重载（SplashScreenRequest, AosResponseCallback）：DEX 里确实存在，
+                // 注释说它转发到 3 参，但"转发"是宿主实现细节，不能当作唯一入口。
+                // 签名对不上时 hookSig 只记 MISS，不会误挂。
+                H.hookSig(holder, "sendSplashScreen", "amap_alimama_splash_2",
+                        block("sendSplashScreen/2", "ws/valueadded/alimama/splash_screen", true, Config.K_ALIMAMA_SPLASH_OFF),
+                        splash, callback)
             } else {
                 H.log(Log.INFO, MainHook.TAG, "event=hook_skipped key=alimama_splash_off reason=switch_off")
             }

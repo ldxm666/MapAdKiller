@@ -68,7 +68,7 @@ if (-not $verFile) { throw "Version.java / Version.kt not found" }
 $verText = [System.IO.File]::ReadAllText($verFile)
 if ($verText -notmatch 'NAME\s*(?::\s*String\s*)?=\s*"([^"]+)"') { throw "cannot parse Version.NAME from $verFile" }
 $VerName = $Matches[1]
-if ($VerName -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$') { throw "unexpected Version.NAME: $VerName" }
+if ($VerName -notmatch '^\d+(\.\d+)+([.-][A-Za-z0-9]+)*$') { throw "unexpected Version.NAME: $VerName" }
 $LspName = "MapClean-lsp-v$VerName.apk"
 Write-Host "module version = $VerName  ->  output $LspName"
 
