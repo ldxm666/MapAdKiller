@@ -1,9 +1,25 @@
-## v2.3.5.step2（versionCode 23052，2026-11-13）— 高德开屏广告四层清除
+## 2.3.5.step2（2026-11-13）
 
-- 高德开屏广告：在 2.3.5 的「阿里妈妈请求 + `y96` 缓存就绪位」两点之外，补齐同一份 DEX 里另外四条上屏路径。素材请求总闸 `Ah5.attemptRequestData`（`SplashRequester`，所有调用方共用，含子进程 VApp 与云控补量）；实时开屏 `SplashScreenServiceImpl.a()` → `Yc5.run()`（裸 `HttpURLConnection` POST `ws/aos/alimama/splash_screen_rt`，不经 AOS，旧 hook 结构上看不到）；渲染器 `ImageSplashView` / `VideoSplashView.getSplashView` 返回 null（`v76.run()` 走宿主自己的 `e(ERROR)` 收尾，不会停在开屏页）；`files/splash/` 中已落地的 `i_*` / `v_*` 素材每进程后台清一次，只删素材、不动 `bg_silent/cloud_config` 与目录结构。
-- 补齐 `AlimamaRequestHolder.sendSplashScreen` 的 2 参重载（2.3.5 只挂了 3 参）。
-- 开关语义不变：全部受 `alimama_splash_off` 控制（默认开），显式关闭即整体放行；品牌开屏页、`canShowSplash`、`SplashFrequencyController`、首页与 POI 一律不碰。
-- 根因与证据：高德 17.02.0.2010 的 8 个 DEX（73,638 类）中**不存在任何第三方广告 SDK**（pangle / kwad / gdt / mobads / sigmob / mintegral 等全部 0 命中），广告是高德自有阿里妈妈通道 + 云控下发素材与频次，本地原生 View 渲染。真机复现：只关请求拦截时，高德仍会现下一张 506,821 B 的开屏图落地并进入就绪流程 ⇒ 仅拦请求不足以“抹除”。
-- 实测（2210132C / Android 16 / 内置包）：冷启动 2 轮四层 hook 全部命中（`splash_kill_blocked target=SplashRequester.attemptRequestData(I)`、`...SplashScreenServiceImpl.fetchRealTime()`），`splash_cache_purged files=0`，`files/splash` 素材计数归零；`TotalTime` 1005 / 1046 ms（2.3.5 基线 1533–1643 ms），无白屏、无 ANR，首页与底栏正常。
-- 说明：本次只对高德国内 17.02.0.2010 做了锚点校验与真机验证；Play 17.02.2.2014 的同名混淆类（`wm6` 对应 `y96`）尚未核对 `ah5` / `yc5`，使用前需单独跑一次 `tools/check_anchors.py`。百度、腾讯变体仅同步版本号，功能未改动。
-- 详细分析：[SPLASH-AD-17.02-ANALYSIS.md](SPLASH-AD-17.02-ANALYSIS.md)。
+**高德的开屏广告，这次真的关掉了。**
+
+上一版只堵了两个口子，高德还能从别的路把广告送进来。这次把四条路一起堵上：
+
+- 广告素材的下载入口；
+- 打开 App 时"现取现用"的那条实时请求；
+- 图片 / 视频广告的显示控件；
+- 手机里已经存下的广告素材（每次打开地图清一次）。
+
+顺带补上了上一版漏掉的一个请求写法。
+
+**开关没变**：设置里还是「拦截开屏广告」那一个，默认开。想留着广告看的，关掉就好。高德自己的品牌开屏页、首页、搜索、地图标注、导航，一律没动。
+
+**为什么之前还会冒出来**：上一版拦的是"广告请求"和"缓存判断"两个点。高德还有一条实时取广告的通道，走另一套网络调用，旧做法根本看不到。实测把请求放行后，高德当场就下了一张 500KB 的开屏图存进手机——所以光堵请求不够，素材要清、显示控件也要管住。
+
+**实测**：冷启动 1 秒左右进地图，没有白屏、没有卡顿；开屏广告没有，手机里的广告素材 0 个。
+
+**注意**
+
+- 这次只在**高德国内版 17.02.0.2010** 上实测过。Play 版（17.02.2.2014）还没验，先别用。
+- 百度、腾讯这次没有功能改动，只是版本号跟着走。
+
+安装包选一个装：模块版 `MapClean-lsp-v2.3.5.step2.apk`，或者免 root 内置版 `Amap-2.3.5.step2-nonroot-embedded.apk`。装内置版就不要再对高德开模块。

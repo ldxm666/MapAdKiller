@@ -1,9 +1,8 @@
-## v2.3.5.step2（versionCode 23052，2026-11-13）— 高德开屏广告四层清除
+## v2.3.5.step2（versionCode 23052，2026-11-13）— 高德开屏广告彻底关闭
 
-- 高德开屏广告不再是"只拦两个点"：在 2.3.5 的阿里妈妈请求与 `y96` 就绪位之外，补上素材请求总闸 `Ah5.attemptRequestData`、实时开屏 `SplashScreenServiceImpl.a()`/`Yc5.run()`（裸 `HttpURLConnection`，不经 AOS）、`ImageSplashView`/`VideoSplashView.getSplashView` 渲染器（返回 null，宿主走自己的 `ERROR` 收尾）、以及 `files/splash/` 已落地 `i_*`/`v_*` 素材的每进程清理。全部受 `alimama_splash_off` 一个开关控制。
-- 补 `AlimamaRequestHolder.sendSplashScreen` 的 2 参重载。
-- 定性结论：17.02.0.2010 的 8 个 DEX 中没有任何第三方广告 SDK，开屏是高德自有阿里妈妈通道 + 云控素材/频次 + 本地原生 View。
-- 实测：冷启动 1005 / 1046 ms，四层 hook 全部命中，素材计数归零，无白屏。详见 [2.3.5.step2 更新说明](docs/RELEASE-2.3.5.step2.md) 与 [开屏分析](docs/SPLASH-AD-17.02-ANALYSIS.md)。
+- 上一版只拦了"广告请求 + 缓存判断"两个点，高德还有一条实时取广告的通道走另一套网络调用、看不到；手机里已存的广告素材也一直没清。这次把素材下载、实时请求、图片/视频显示控件、已存素材四层一起处理，全部受 `alimama_splash_off` 一个开关控制（默认开）。
+- 补上上一版漏掉的 `sendSplashScreen` 2 参重载。
+- 实测冷启动约 1 秒进地图，无白屏；开屏广告与广告素材均为 0。技术细节见 [开屏分析](docs/SPLASH-AD-17.02-ANALYSIS.md)。
 
 ## v2.3.5（versionCode 2305，2026-11-11）— 标注分类 / 高德首页与开屏修复
 
