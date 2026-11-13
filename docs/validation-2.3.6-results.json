@@ -1,0 +1,132 @@
+{
+  "date": "2026-11-13",
+  "versionName": "2.3.6",
+  "versionCode": 23060,
+  "delivery": "Local test packages; not published",
+  "source": "Reviewed working-tree snapshot; not yet committed",
+  "environment": {
+    "phone": "Xiaomi 2210132C",
+    "android": 16,
+    "system": "HyperOS 3",
+    "rooted": true,
+    "framework": "LSPosed 2.2.1 / API 102",
+    "jdk": "Temurin 21.0.11",
+    "buildTools": "35.0.0"
+  },
+  "automated": {
+    "androidGroupsPassed": 37,
+    "productionGroupsPassed": {
+      "module": 37,
+      "amap-cn": 16,
+      "amap-play": 16,
+      "baidu": 10,
+      "tencent": 6
+    },
+    "productionTotal": 85,
+    "productionUiAssertionsPassed": 30,
+    "pythonTestsPassed": 6,
+    "originalHostArtAnchorsPassed": {
+      "cn": 16,
+      "play": 17
+    },
+    "amapCnPlayFeatureDexIdentical": true
+  },
+  "live": {
+    "amap": {
+      "path": "Official Play 17.02.2.2014 + module",
+      "coldStartMs": [
+        1457,
+        2746
+      ],
+      "embeddedFirstInstallTested": false
+    },
+    "baidu": {
+      "path": "Embedded, external module scope off",
+      "coldStartMs": 2663,
+      "partialCompact": {
+        "clicks": 20,
+        "nativeTransitions": 19,
+        "sameProcess": true
+      },
+      "fullyCompact": {
+        "clicks": 20,
+        "nativeTransitions": 20,
+        "sameProcess": true
+      },
+      "originalSettingsRestored": true
+    },
+    "tencent": {
+      "path": "Embedded, external module scope off",
+      "coldStartMs": 2551,
+      "installedHooks": 105,
+      "missingHooks": 0,
+      "bannerContainerZeroSize": true,
+      "bannerChildrenAbsentOnObservedLaunches": true,
+      "nonNullCampaignRedeliveryObserved": false,
+      "endToEndCampaignBlockVerified": false,
+      "originalBannerSettingRestored": true
+    }
+  },
+  "notYetVerified": [
+    "AMap CN/Play embedded first install and complete gestures",
+    "Android 13 / MIUI 14, ColorOS, physical unrooted device",
+    "Tencent campaign redelivery and actual non-null runtime interception",
+    "All live server card combinations and delayed/cache restoration",
+    "Baidu full native home and mixed gestures/background matrix",
+    "Real driving/GPS automatic-cruise road test"
+  ],
+  "artifactAudit": {
+    "module": {
+      "versionName": "2.3.6",
+      "versionCode": 23060,
+      "moduleSignerSha256": "cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed",
+      "hostSignerSha256": "cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed",
+      "sha256": "37029cc286c28dd22563dfa5b64f0fe1b7043b82d22a46847802b6f4aa41754f"
+    },
+    "amap-cn": {
+      "versionName": "2.3.6",
+      "versionCode": 23060,
+      "moduleSignerSha256": "cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed",
+      "hostSignerSha256": "c081890cf2a1adf13e56d7b50a4f3d8edb35b7c46d6ccc732dd997b7e433be1d",
+      "sha256": "b53e56b9215f5c37d9c86400356b783ca963de65cd095ffb26e806fa713d155c"
+    },
+    "amap-play": {
+      "versionName": "2.3.6",
+      "versionCode": 23060,
+      "moduleSignerSha256": "cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed",
+      "hostSignerSha256": "c081890cf2a1adf13e56d7b50a4f3d8edb35b7c46d6ccc732dd997b7e433be1d",
+      "sha256": "a9098d615cf474a1958a6b84e4be45acaed6cd2bbb4bc08adda96ed59ec9ed80",
+      "splits": [
+        {
+          "file": "split_config.arm64_v8a.apk",
+          "sha256": "cf09aa9fce4fbe3a5621dc31836afef7da759c54e0b859617fe421f644cf0ada",
+          "sameSigner": true
+        },
+        {
+          "file": "split_config.xxxhdpi.apk",
+          "sha256": "6b353313e2725b3102e1b7aa669963e5aac69ce861fcc8342312299ca97d2bcf",
+          "sameSigner": true
+        },
+        {
+          "file": "split_config.zh.apk",
+          "sha256": "830411a5699cef9c300d1b9058b5d9e5c55d59ea62e8e81515ff3c1022e63220",
+          "sameSigner": true
+        }
+      ]
+    },
+    "baidu": {
+      "versionName": "2.3.6",
+      "versionCode": 23060,
+      "moduleSignerSha256": "cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed",
+      "hostSignerSha256": "c081890cf2a1adf13e56d7b50a4f3d8edb35b7c46d6ccc732dd997b7e433be1d",
+      "sha256": "939c8082feb6cb46ab3b11cddfd62070d3ccde48ac5220f846a8603375ed9de7"
+    },
+    "tencent": {
+      "versionName": "2.3.6",
+      "versionCode": 23060,
+      "moduleSignerSha256": "cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed",
+      "hostSignerSha256": "c081890cf2a1adf13e56d7b50a4f3d8edb35b7c46d6ccc732dd997b7e433be1d",
+      "sha256": "6ce45aa978505ec5b946c86ff197275953896512645518e3384d9e5f226b16dd"
+    }
+  }
+}

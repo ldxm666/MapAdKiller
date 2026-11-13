@@ -18,7 +18,10 @@ SOURCE_TREES = {"app/src", "app/stub-src", "app/res", "app/META-INF", "app/nativ
 PUBLIC_DOCS = {"docs/RELEASE-2.3.3.md", "docs/VALIDATION-2.3.3.md", "docs/kotlin-migration-guide.md",
                "docs/miuix-design-spec.md", "docs/AMAP-1702-ANCHORS.md", "docs/RELEASE-2.3.4.md",
                "docs/VALIDATION-2.3.4.md", "docs/REGRESSION.md", "docs/validation-2.3.4-results.json", "docs/RELEASE-2.3.5.md",
-               "docs/VALIDATION-2.3.5.md", "docs/validation-2.3.5-results.json"}
+               "docs/VALIDATION-2.3.5.md", "docs/validation-2.3.5-results.json",
+               "docs/RELEASE-2.3.6.md", "docs/VALIDATION-2.3.6.md", "docs/validation-2.3.6-results.json",
+               "docs/VALIDATION-2.3.6-r3.md", "docs/交接-2.3.6-2026-11-14.md",
+               "docs/RELEASE-2.3.6-MODULE.md", "docs/ANNOUNCE-2.3.6.sh"}
 EXCLUDED_PARTS = {".git", ".codex", ".agents", ".aws", "__pycache__", ".idea", ".vscode", "evidence", "shots"}
 EXCLUDED_SUFFIXES = {".apk", ".zip", ".keystore", ".jks", ".p12", ".log", ".db", ".sqlite", ".pyc", ".dex", ".o", ".obj"}
 NATIVE_ABIS = {"arm64-v8a", "armeabi-v7a", "x86", "x86_64"}
@@ -59,7 +62,7 @@ def source_files(source: Path):
             if name.endswith("/libmapclean_labels.so"):
                 inspect_elf(path.read_bytes())
         # Reject accidental GitHub credentials without echoing their contents.
-        if path.suffix.lower() in {".md", ".kt", ".java", ".py", ".ps1", ".json", ".properties", ".txt", ".cpp", ".h", ".c", ".xml", ".prop", ".cjs"}:
+        if path.suffix.lower() in {".md", ".kt", ".java", ".py", ".ps1", ".sh", ".json", ".properties", ".txt", ".cpp", ".h", ".c", ".xml", ".prop", ".cjs"}:
             if re.search(rb"\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})", path.read_bytes()):
                 raise ValueError(f"Credential-shaped content detected in {name}; not packaged")
         yield path, name

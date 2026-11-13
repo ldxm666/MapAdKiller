@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$BuildDirectory, [string]$Serial = "")
+param([Parameter(Mandatory=$true)][string]$BuildDirectory, [string]$Serial = "", [string]$TestFilter = "")
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $taskBuild = Join-Path $PSScriptRoot 'build'
@@ -24,10 +24,13 @@ if ($LASTEXITCODE -ne 0) { throw 'Test dex upload failed' }
 $failedTests = @()
 $testClasses = @(
     'io.github.ldxm666.mapadkiller.AmapSplashTest',
+    'io.github.ldxm666.mapadkiller.AmapToolOrderTest',
+    'io.github.ldxm666.mapadkiller.AmapToolOrderBackupTest',
     'io.github.ldxm666.mapadkiller.AmapHomeGeometryTest',
     'io.github.ldxm666.mapadkiller.AmapStartupTest',
     'io.github.ldxm666.mapadkiller.AmapPoiCategoryTest',
     'io.github.ldxm666.tmapclean.TmapStateRecoveryTest',
+    'io.github.ldxm666.tmapclean.TmapHomeBannerTest',
     'io.github.ldxm666.bmapclean.BaiduConfigRefreshTest',
     'io.github.ldxm666.bmapclean.BaiduCacheIdentityTest',
     'io.github.ldxm666.mapadkiller.AmapConfigRefreshTest',
@@ -38,6 +41,8 @@ $testClasses = @(
     'io.github.ldxm666.tmapclean.TmapPoiCategoryTest',
     'io.github.ldxm666.mapclean.SystemCardCompatTest',
     'io.github.ldxm666.mapadkiller.AmapDataTest',
+    'io.github.ldxm666.mapadkiller.AmapCardRulesTest',
+    'io.github.ldxm666.mapadkiller.AmapMapWidgetTest',
     'io.github.ldxm666.mapadkiller.AmapTaxiDataTest',
     'io.github.ldxm666.mapadkiller.AmapTaxiSkinTest',
     'io.github.ldxm666.mapadkiller.AmapNaviScaleTest',
@@ -46,6 +51,7 @@ $testClasses = @(
     'io.github.ldxm666.mapadkiller.AmapPlaceDataTest',
     'io.github.ldxm666.bmapclean.BaiduLabelStyleTest',
     'io.github.ldxm666.bmapclean.BaiduTabRoutingTest',
+    'io.github.ldxm666.bmapclean.BaiduHomeReselectTest',
     'io.github.ldxm666.bmapclean.BaiduPanelLayoutTest',
     'io.github.ldxm666.bmapclean.BaiduCommuteTest',
     'io.github.ldxm666.bmapclean.BaiduPaymentTest',
@@ -56,6 +62,10 @@ $testClasses = @(
     'io.github.ldxm666.mapclean.EmbeddedSettingsPolicyTest',
     'io.github.ldxm666.mapclean.FrameworkStatusTest'
 )
+if ($TestFilter) {
+    $testClasses = @($testClasses | Where-Object { $_ -match $TestFilter })
+    if (-not $testClasses.Count) { throw "No regression groups match: $TestFilter" }
+}
 foreach ($testClass in $testClasses) {
     Write-Output "TEST $testClass"
     & $adbBin shell 'CLASSPATH=/data/local/tmp/mapclean-hotfix-tests.dex' app_process / io.github.ldxm666.mapclean.RegressionHarness $testClass

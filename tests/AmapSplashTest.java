@@ -28,6 +28,18 @@ public final class AmapSplashTest {
         public a h(int scene,String schema){return null;}
     }
     private static final class Request {}
+    public static class Requester {
+        public void attemptRequestData(int scene) {}
+        public void attemptRequestData(int scene,boolean force) {}
+    }
+    public static class WrongRequester {
+        public void attemptRequestData(int scene) {}
+        public boolean attemptRequestData(int scene,boolean force) {return false;}
+    }
+    public static class Realtime implements Runnable {
+        public Realtime(String url,String body) {}
+        public void run() {}
+    }
     private static class Callback {
         int calls; Object received;
         public void onFailure(Request request,IllegalArgumentException error) {
@@ -49,6 +61,11 @@ public final class AmapSplashTest {
     }
     public static void main(String[] ignored) throws Exception {
         String key=Config.K_ALIMAMA_SPLASH_OFF;
+        check(AmapSplashKill.requesterShape(Requester.class),"both exact requester overloads accepted");
+        check(!AmapSplashKill.requesterShape(WrongRequester.class),"reused obfuscated class rejected by return type");
+        check(!AmapSplashKill.requesterShape(null),"absent requester stays native");
+        check(AmapSplashKill.realtimeShape(Realtime.class),"verified URL/body Runnable shape accepted");
+        check(!AmapSplashKill.realtimeShape(Requester.class),"unrelated Play class is not a realtime task");
         check(Config.defaultVisible(key),"missing ad-block preference defaults on");
         check(!Config.defaultVisible(Config.K_SPLASH_SKIP),"whole-page skip stays opt-in");
         HashMap<String,Object> values=new HashMap<>();

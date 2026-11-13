@@ -26,7 +26,7 @@ class AmapPanel private constructor() {
 
         /** Shown above the tool catalogue; see the 5-cell explanation below. */
         private const val TOOL_NOTE =
-            "首页工具按原生顺序连续排列，每行最多 5 格、最多 2 行；关闭的工具与空行不占位，超出的工具仍在「更多工具」页里。"
+            "可拖动或上下移动调整顺序，每行最多 5 格、最多 2 行；更多工具固定在末尾，超出的工具仍可在其中找到。"
 
         /** 闭区间步进序列，给滑块的停靠点用（例如 5..60 步进 1）。 */
         private fun steps(from: Int, to: Int, step: Int): IntArray {
@@ -146,9 +146,8 @@ class AmapPanel private constructor() {
                         arrayOf<Any?>(
                             "内容卡片", arrayOf(
                                 PanelTypes.Item(Config.K_FEED_WEATHER, "天气卡片"),
-                                PanelTypes.Item(Config.K_FEED_BOARD, "扫街榜 / 周边精选榜单"),
-                                PanelTypes.Item(Config.K_FEED_CONTENT, "攻略 / 内容流卡片"),
-                                PanelTypes.Item(Config.K_FEED_FESTIVAL, "出行节 / 促销活动接口"),
+                                PanelTypes.Item(Config.K_FEED_OTHER, "推荐与活动卡片",
+                                        "统一控制榜单、攻略内容和促销活动；天气单独控制。"),
                             )
                         ),
                     ), "底栏是常驻的；「我的页」「内容卡片」要滚动进去才看得到。" +
@@ -185,6 +184,11 @@ class AmapPanel private constructor() {
                             "启用第三方标注过滤",
                             "默认关闭；开启会恢复第三方标注过滤，但可能影响地图帧率。",
                             true
+                        ),
+                        PanelTypes.Item(
+                            Config.K_CRUISE_FORCE_OFF, "强制关闭自动巡航",
+                            "默认关闭，按需开启。开启后高德原生和模块接管都不会自动进入巡航，" +
+                                    "已累计的触发条件和自动重试也会清除。手动进入巡航和正常导航不受影响，不退出正在使用的巡航。"
                         ),
                         PanelTypes.Item(
                             Config.K_CRUISE_OFFICIAL, "使用高德原生自动进入巡航（推荐）",
@@ -734,6 +738,25 @@ class AmapPanel private constructor() {
         @JvmStatic
         fun read(key: String): Boolean {
             return Config.visible(key)
+        }
+
+        @JvmStatic fun toolOrderEntry(context: android.content.Context): android.view.View =
+                io.github.ldxm666.mapadkiller.AmapToolOrderEditor.entry(context)
+
+        @JvmStatic fun toolOrderValues(): Map<String, *> = try {
+            if (io.github.ldxm666.mapadkiller.CfgStore.embedded()) io.github.ldxm666.mapadkiller.CfgStore.readAll()
+            else io.github.ldxm666.mapadkiller.App.svc()?.getRemotePreferences(Config.PREF_GROUP)?.all ?: Config.snapshot()
+        } catch (_: Throwable) { Config.snapshot() }
+
+        @JvmStatic fun writeToolOrder(ids: List<String>): Boolean {
+            val encoded = try { ToolOrderCodec.encode(ids) } catch (_: Throwable) { return false }
+            val ok = if (io.github.ldxm666.mapadkiller.CfgStore.embedded()) Config.put(Config.K_TOOLS_ORDER, encoded)
+            else try {
+                val p = io.github.ldxm666.mapadkiller.App.svc()?.getRemotePreferences(Config.PREF_GROUP) ?: return false
+                ToolOrderCodec.persist(p, Config.K_TOOLS_ORDER, encoded)
+            } catch (_: Throwable) { false }
+            if (ok) apply(Config.K_TOOLS_ORDER)
+            return ok
         }
 
         /**

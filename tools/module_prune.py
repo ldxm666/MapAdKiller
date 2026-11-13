@@ -36,13 +36,14 @@ MODULE_DROP = [
     "mapclean/FloatingBall.java",
     "mapclean/FloatingController.java",
     "mapclean/FloatingHooks.java",
-    "mapclean/GlassSlider.java",
+    # GlassSlider is shared with standalone MainActivity; it is not embedded-only.
     # AvatarAsset / GithubMark are kept: the module settings page shows the author
     # avatar and the GitHub logo on its home/about tabs now.
     "mapclean/AvatarBadge.java",
     "mapadkiller/AmapMineEntry.java",
     # 百度版的长按「我的」入口：同样是内置版专属（模块模式用模块 App 的设置页）。
     "mapclean/BaiduMineEntry.java",
+    "tmapclean/TmapEntry.java",
 ]
 
 # 删除理由 + 依赖核实结论（写进构建日志，方便以后复核）
@@ -64,10 +65,12 @@ KEEP_GUARD = [
     "mapclean/FloatingConfig.java",  # 悬浮窗配置键（被 AmapPanel/FloatingPanel 用，保留）
     "mapclean/UpdateChecker.java",  # 更新检查
     "mapclean/AmapPanel.java",      # 面板（MainActivity 也用）
+    "mapclean/FeedCardConfig.java", # weather/non-weather switch migration and read rule
     "mapadkiller/Config.java",      # 配置后端（远程/本地/none）
     "mapadkiller/HostInfo.java",    # 宿主签名 + isEmbedded()
     "mapadkiller/MainHook.java",    # 框架入口
     "mapadkiller/AmapData.java",    # 协议适配
+    "mapclean/GlassSlider.java",
 ]
 
 
@@ -89,7 +92,16 @@ LINE_DROP = [
      r"FloatingController\.setEnabled\("),
     ("mapclean/FloatingPanel.java",
      r"FloatingController\.setEnabled\("),
+    ("tmapclean/TmapTabBar.java", r"TmapEntry\.bind\("),
 ]
+
+def source_path(root, rel):
+    """The source migration changed .java to .kt, not the class ownership."""
+    path = os.path.join(root, rel)
+    if os.path.isfile(path):
+        return path
+    alternate = os.path.splitext(path)[0] + ".kt"
+    return alternate if os.path.isfile(alternate) else path
 
 def pkg_root(src):
     """定位包根：src 下应当有 io/github/ldxm666。"""
@@ -101,12 +113,12 @@ def pkg_root(src):
 
 def do_check(root, label, stubbed=None, require_dropped=True):
     stubbed = stubbed or set()
-    missing = [f for f in KEEP_GUARD if not os.path.isfile(os.path.join(root, f))]
+    missing = [f for f in KEEP_GUARD if not os.path.isfile(source_path(root, f))]
     if missing:
         print("[%s] FATAL 缺少必须保留的文件: %s" % (label, ", ".join(missing)))
         return False
     still = [] if not require_dropped else [f for f in MODULE_DROP
-             if f.replace(os.sep, "/") not in stubbed and os.path.isfile(os.path.join(root, f))]
+             if f.replace(os.sep, "/") not in stubbed and os.path.isfile(source_path(root, f))]
     if still:
         print("[%s] FATAL 这些文件本该被删掉但还在: %s" % (label, ", ".join(still)))
         return False
@@ -147,7 +159,7 @@ def main():
     # 2) 删掉内置版专属文件
     removed = 0
     for rel in MODULE_DROP:
-        path = os.path.join(root_out, rel)
+        path = source_path(root_out, rel)
         if os.path.isfile(path):
             os.remove(path)
             removed += 1
@@ -158,7 +170,7 @@ def main():
     # 2b) 删掉保留代码里对被删类的调用行（这样就不需要 stub，类名彻底消失）
     import re
     for rel, pat in LINE_DROP:
-        path = os.path.join(root_out, rel)
+        path = source_path(root_out, rel)
         if not os.path.isfile(path):
             print("WARN LINE_DROP 未找到 %s" % rel)
             continue
@@ -173,6 +185,21 @@ def main():
         with open(path, "w", encoding="utf-8", newline="") as f:
             f.writelines(kept)
         print("LINE_DROP %s x%d (/%s/)" % (rel, dropped, pat))
+
+    # Kotlin rejects an unused import if its embedded-only class was removed.
+    dropped_names = {os.path.splitext(os.path.basename(rel))[0] for rel in MODULE_DROP}
+    for folder, _, files in os.walk(root_out):
+        for name in files:
+            if not name.endswith(".kt"):
+                continue
+            path = os.path.join(folder, name)
+            with open(path, encoding="utf-8") as stream:
+                lines = stream.readlines()
+            kept = [line for line in lines if not (line.lstrip().startswith("import ") and
+                    line.strip().rsplit(".", 1)[-1] in dropped_names)]
+            if kept != lines:
+                with open(path, "w", encoding="utf-8", newline="") as stream:
+                    stream.writelines(kept)
 
     # 3) 用 stub 顶替
     added = 0

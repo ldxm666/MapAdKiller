@@ -10,6 +10,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /** Shared setting keys. Hook reads use an immutable snapshot refreshed at most every two seconds. */
 object Config {
+    const val K_TOOLS_ORDER = "ui_tools_order"
     const val PKG = "io.github.ldxm666.mapadkiller"
     const val PREF_GROUP = "amap_enhancer_config"
 
@@ -80,6 +81,8 @@ object Config {
     const val K_TOOLS_VISIBLE = "ui_tools_visible"
     const val K_TOOLS_ALLOWLIST = "ui_tools_allowlist"
     const val K_FEED_WEATHER = "feed_weather"
+    /** One shared control for rankings, content and promotions; weather remains separate. */
+    const val K_FEED_OTHER = "feed_other"
     const val K_FEED_SCENIC = "feed_scenic"
     const val K_FEED_RANK = "feed_rank"
     const val K_FEED_POSTS = "feed_posts"
@@ -234,7 +237,7 @@ object Config {
     fun cruiseOfficial(): Boolean {
         // Config 只有 visible(String) 一个重载；它对未知 key 默认返回 true，
         // 正好是这个开关要的缺省值。
-        return try { visible(K_CRUISE_OFFICIAL) } catch (t: Throwable) { true }
+        return !cruiseForceOff() && try { visible(K_CRUISE_OFFICIAL) } catch (t: Throwable) { true }
     }
     // ── 子进程省电（默认 true = 已拦截；面板里可关掉，用于排查「是不是我拦的」）──────
     // 语义与 K_HOTWORD_OFF 一致：**true 表示"这个行为被关掉"**，不是"显示"。
@@ -315,6 +318,8 @@ object Config {
                     if (key == K_NAVI_INFO_PERCENT || key == null) AmapNaviScale.refresh()
                     AmapTabLayout.refresh(key)
                     AmapNativeHome.onConfigChanged(key)
+                    AmapCruise.onConfigChanged(key)
+                    AmapCruiseOfficial.onConfigChanged(key)
                 }
             }
 
@@ -356,11 +361,17 @@ object Config {
             var v: Boolean
             try { v = compute() } catch (t: Throwable) { v = true }
             value = v
-            resolved = true
+            // An early fallback is not a saved preference. Keep retrying until the
+            // final backend exists; otherwise cold-start defaults live forever.
+            resolved = cached != null && backend >= 0
         }
     }
 
     private val FLAGS = CopyOnWriteArrayList<Flag>()
+
+    init {
+        io.github.ldxm666.mapclean.HostPrefs.onContextReady(Runnable { invalidate() })
+    }
 
     /** 直接绑一个键的 Flag（compute 就是 Config.visible(key)）。 */
     @JvmStatic
@@ -385,6 +396,7 @@ object Config {
         hot(K_TOOLS_ALLOWLIST)
         // 首页推荐画布（compact() 每次面板重建都判 5 个）
         hot(K_FEED_WEATHER)
+        hot(K_FEED_OTHER)
         hot(K_FEED_BOARD)
         hot(K_FEED_CONTENT)
         hot(K_FEED_FESTIVAL)
@@ -442,6 +454,8 @@ object Config {
         AmapTabLayout.refresh(key)
         if (key == null || key == K_NAVI_INFO_PERCENT) AmapNaviScale.refresh()
         AmapNativeHome.onConfigChanged(key)
+        AmapCruise.onConfigChanged(key)
+        AmapCruiseOfficial.onConfigChanged(key)
     }
     private fun toolLabels(): Array<String> {
         val out = arrayOfNulls<String>(AmapData.TOOLS.size)
@@ -457,7 +471,7 @@ object Config {
         // Only the advertising request/cache gate defaults on; the separate whole-page
         // skip remains opt-in. Explicit user false is still honored by value().
         if (K_ALIMAMA_SPLASH_OFF == key) return true
-        if (K_CRUISE_AUTO == key) return false
+        if (K_CRUISE_AUTO == key || K_CRUISE_FORCE_OFF == key) return false
         // 实验特性默认关。放在这里而不是只在读取点判断，是因为面板画开关走的也是
         // visible() —— 少了这一行，开关会显示"开"而实现其实一条 hook 都没装。
         if (K_AMAP_FPS_ON == key || K_AMAP_BUILDING_ON == key || K_VOICE_CLASSIC == key) return false
@@ -477,7 +491,7 @@ object Config {
         // simply never there -- with a switch that has to be found first and a home page that
         // has to be rebuilt before it takes effect. The switch still hides the row for anyone
         // who wants the shorter panel.
-        return K_HOME_QUICK_ROW != key && K_FEED_BOARD != key && K_FEED_FESTIVAL != key
+        return K_HOME_QUICK_ROW != key && K_FEED_OTHER != key && K_FEED_BOARD != key && K_FEED_FESTIVAL != key
                 && K_FEED_WEATHER != key && K_FEED_CONTENT != key
                 && K_MY_FRIENDS != key && K_MAP_PROMO != key && K_TAXI_CARD != key
     }
@@ -838,12 +852,19 @@ object Config {
     /** 写一个字符串键并立即 commit；成功返回 true。 */
     @JvmStatic
     fun put(key: String, value: String): Boolean {
+        if (CfgStore.embedded()) {
+            val ok = CfgStore.writeString(key, value)
+            if (ok) invalidate(key)
+            return ok
+        }
         val e = edit() ?: return false
         var ok: Boolean
         try { ok = e.putString(key, value).commit() } catch (t: Throwable) { ok = false }
         if (ok) invalidate(key)
         return ok
     }
+
+    @JvmStatic fun getString(key: String, fallback: String?): String? = currentValues()[key] as? String ?: fallback
 
     /** 读 int（面板的滑块类配置用）；后端不可用时返回 fallback，绝不抛。 */
     @JvmStatic
@@ -880,6 +901,7 @@ object Config {
         if (now >= expiresAt) synchronized(Config::class.java) {
             if (now >= expiresAt) {
                 try {
+                    val readyPrefs = prefs()
                     val merged: Map<String, Any?> = if (CfgStore.embedded()) {
                         @Suppress("UNCHECKED_CAST")
                         CfgStore.readAll() as Map<String, Any?>
@@ -888,8 +910,8 @@ object Config {
                         HashMap(prefs()!!.all as Map<String, Any?>)
                     }
                     snapshot = Collections.unmodifiableMap(merged)
+                    expiresAt = if (readyPrefs != null && backend >= 0) now + 2000 else 0
                 } catch (ignored: Throwable) {}
-                expiresAt = now + 2000
             }
         }
         return snapshot
@@ -945,6 +967,8 @@ object Config {
 
     private fun value(values: Map<String, *>, key: String?): Boolean {
         if (key == null) return defaultVisible(null)
+        if (io.github.ldxm666.mapclean.FeedCardConfig.owns(key))
+            return io.github.ldxm666.mapclean.FeedCardConfig.enabled(values)
         val stored = values[key]
         if (stored is Boolean) return stored
         if (key.startsWith(K_TOOL_PREFIX) && java.lang.Boolean.TRUE == values[K_TOOLS_ALLOWLIST]) return false
@@ -965,7 +989,10 @@ object Config {
         return try { visible(K_SEARCH_GRID) } catch (t: Throwable) { true }
     }
     @JvmStatic
-    fun cruiseAuto(): Boolean { return try { visible(K_CRUISE_AUTO) } catch (t: Throwable) { false } }
+    fun cruiseAuto(): Boolean { return !cruiseForceOff() && try { visible(K_CRUISE_AUTO) } catch (t: Throwable) { false } }
+    const val K_CRUISE_FORCE_OFF = "cruise_force_off"
+    @JvmStatic
+    fun cruiseForceOff(): Boolean = try { visible(K_CRUISE_FORCE_OFF) } catch (_: Throwable) { false }
     /** 工具图标统一彩绘（实验）——默认 false，保持高德原生「第一行彩绘 + 第二行线条」。 */
     @JvmStatic
     fun toolColorIcon(): Boolean {

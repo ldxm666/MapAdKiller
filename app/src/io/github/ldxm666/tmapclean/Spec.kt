@@ -46,6 +46,9 @@ class Spec private constructor() {
         /** 首页下方推荐信息流卡片列表 */
         const val K_HOME_FEED = "ui_home_feed"
 
+        /** 首页独立活动横幅，不包含原生业务提示。 */
+        const val K_HOME_BANNER = "ui_home_banner"
+
         /** 地点详情「大家都在看」 */
         const val K_LOOK_AND_LOOK = "ui_look_and_look"
 
@@ -149,6 +152,7 @@ class Spec private constructor() {
                     listOf(
                         K_SEEK_CHIPS,          // 搜索框上方 chip 行（问一问 / 厕所 / 超市 / 美食）
                         K_HOME_FEED,           // 首页下方推荐信息流卡片
+                        K_HOME_BANNER,         // 首页独立活动横幅
                         K_LOOK_AND_LOOK,       // 地点详情「大家都在看」
                         K_MY_POINTS,           // 我的 · 积分中心
                         K_MY_MINIPROGRAM,      // 我的 · 小程序
@@ -461,6 +465,10 @@ class Spec private constructor() {
                         Row(
                             K_HOME_FEED, "显示下方推荐信息流卡片",
                             "关掉后首页下方那一串运营卡片不再出现。", true
+                        ),
+                        Row(
+                            K_HOME_BANNER, "显示首页悬浮活动横幅",
+                            "例如「新人专属」礼物图和动画推广，默认隐藏。", true
                         )
                     )
                 ),

@@ -21,6 +21,10 @@ final class AmapPanel {
 
     static void invalidate() { }
 
+    static android.view.View toolOrderEntry(android.content.Context c) {
+        android.view.View v = new android.view.View(c); v.setVisibility(android.view.View.GONE); return v;
+    }
+
     static void apply(String key) { }
 
 

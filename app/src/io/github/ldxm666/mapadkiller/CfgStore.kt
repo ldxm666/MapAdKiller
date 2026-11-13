@@ -109,6 +109,16 @@ object CfgStore {
         }
     }
 
+    @JvmStatic fun writeString(key: String, value: String): Boolean {
+        val lp = local()
+        val rp = remote()
+        val primary = (if (embedded()) lp else rp ?: lp) ?: return false
+        if (!io.github.ldxm666.mapclean.ToolOrderCodec.persist(primary, key, value)) return false
+        val mirror = if (primary === lp) rp else lp
+        if (mirror != null && mirror !== primary) io.github.ldxm666.mapclean.ToolOrderCodec.persist(mirror, key, value)
+        return try { readAll()[key] == value } catch (_: Throwable) { false }
+    }
+
     /**
      * 写布尔键：内置版以 local 为准 + remote 镜像；模块版 remote 优先 + local 镜像。
      * 返回「至少一个后端 commit 成功」。

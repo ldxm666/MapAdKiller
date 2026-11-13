@@ -1,4 +1,4 @@
-param([switch]$BuildOnly)
+param([switch]$BuildOnly, [switch]$OrderOnly)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $sdk = 'C:\Users\Administrator\AppData\Local\Android\Sdk'
@@ -7,7 +7,7 @@ $android = Join-Path $sdk 'platforms\android-34\android.jar'
 $jdk = 'D:\JDK\bin'
 $taskBuild = Join-Path $env:TEMP 'mapclean-ui-regression'
 New-Item -ItemType Directory -Force -Path "$taskBuild\classes","$taskBuild\dex" | Out-Null
-& "$jdk\javac.exe" -encoding UTF-8 --release 8 -cp $android -d "$taskBuild\classes" "$PSScriptRoot\UiRegression.java"
+& "$jdk\javac.exe" -encoding UTF-8 --release 8 -cp $android -d "$taskBuild\classes" (Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.java' | ForEach-Object FullName)
 if ($LASTEXITCODE) { throw 'UI test compile failed' }
 & "$jdk\jar.exe" -cf "$taskBuild\tests.jar" -C "$taskBuild\classes" .
 & "$bt\d8.bat" --min-api 26 --lib $android --output "$taskBuild\dex" "$taskBuild\tests.jar"
@@ -29,7 +29,8 @@ $session = $Matches[1]
 & adb shell "su -c 'cmd package install-write -S $size $session base.apk /data/local/tmp/mapclean-ui-tests.apk'"
 & adb shell "su -c 'cmd package install-commit $session'"
 $deviceAdb = 'D:\Tools\platform-tools\adb.exe'
-$run = Start-Process -FilePath $deviceAdb -ArgumentList @('shell','am','instrument','-w','io.github.ldxm666.mapclean.tests/io.github.ldxm666.mapclean.tests.UiRegression') -WindowStyle Hidden -PassThru -RedirectStandardOutput "$taskBuild\run.txt" -RedirectStandardError "$taskBuild\run.err"
+$runner = if ($OrderOnly) { 'OrderUiRegression' } else { 'UiRegression' }
+$run = Start-Process -FilePath $deviceAdb -ArgumentList @('shell','am','instrument','-w',"io.github.ldxm666.mapclean.tests/io.github.ldxm666.mapclean.tests.$runner") -WindowStyle Hidden -PassThru -RedirectStandardOutput "$taskBuild\run.txt" -RedirectStandardError "$taskBuild\run.err"
 # MIUI can defer an instrumentation-owned background launch; a shell launch grants
 # the activity a visible foreground start without changing any device policy.
 Start-Sleep -Milliseconds 1500

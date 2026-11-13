@@ -32,8 +32,11 @@ class ConfigBackup private constructor() {
                 val stored = store.read(group.key)
                 val values = JSONObject()
                 for (key in group.value) {
-                    val value = stored[key]
+                    val raw = stored[key]
+                    val value = if (group.key == AMAP && key == FeedCardConfig.KEY && (raw == null || raw is Boolean))
+                        FeedCardConfig.enabled(stored) else raw
                     if (value is Set<*> && LEARNED == key) values.put(key, JSONArray(value))
+                    else if (value is String && key == ToolOrderCodec.KEY) values.put(key, ToolOrderCodec.encode(ToolOrderCodec.decode(value)))
                     else if (value == null || value is Boolean) values.put(key, if (value == null) JSONObject.NULL else value)
                     else throw IllegalArgumentException("配置类型错误：" + key)
                 }
@@ -51,11 +54,13 @@ class ConfigBackup private constructor() {
                 for (group in schema.entries) {
                     if (!groups.has(group.key)) continue
                     val values = decodeGroup(groups.getJSONObject(group.key), group.value)
+                    if (group.key == AMAP && group.value.contains(FeedCardConfig.KEY)) FeedCardConfig.migrateImport(values)
                     if (values.isNotEmpty()) result[group.key] = values
                 }
             } else {
                 // Legacy flat exports contain AMap settings only; never change Baidu on import.
                 val values = decodeGroup(backup, schema[AMAP])
+                if (schema[AMAP]?.contains(FeedCardConfig.KEY) == true) FeedCardConfig.migrateImport(values)
                 if (values.isNotEmpty()) result[AMAP] = values
             }
             if (result.isEmpty()) throw IllegalArgumentException("没有可识别的配置项")
@@ -78,6 +83,8 @@ class ConfigBackup private constructor() {
                         roots.add(item)
                     }
                     value = roots
+                } else if (value is String && key == ToolOrderCodec.KEY) {
+                    value = ToolOrderCodec.encode(ToolOrderCodec.decode(value))
                 } else if (value !is Boolean) throw IllegalArgumentException("开关类型错误：" + key)
                 result[key] = value
             }

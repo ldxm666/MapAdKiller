@@ -38,6 +38,12 @@ class AmapNativeHome private constructor() {
         private val factorySource = ThreadLocal<JSONObject>()
         private var quickService = java.lang.ref.WeakReference<View>(null)
 
+        private class CanvasSource(val view: java.lang.ref.WeakReference<View>, val load: Method,
+                val page: java.lang.ref.WeakReference<Any>, val delegate: java.lang.ref.WeakReference<Any>, val guide: Boolean)
+        private var canvasSource: CanvasSource? = null
+        private var canvasSignature = ""
+        private var canvasRevision = 0
+
         @Volatile
         private var chipsMethod: Method? = null
 
@@ -88,15 +94,11 @@ class AmapNativeHome private constructor() {
          */
         private val COMPACT: Config.Flag = object : Config.Flag() {
             override fun compute(): Boolean {
-                // ★ 打车卡**不参与**本判定（铁律，勿加回）。
-                // 历史的坑：把 visible(K_TAXI_CARD) 写进合取式，用户只要打车卡 ⇒ COMPACT=false
-                // ⇒ loadAjxQs 不返回 null、preloadAIData 放行 ⇒ 整块推荐画布重建 ⇒
-                // 天气 / 扫街榜 / 内容流 / 出行节跟着一起"炸开"。
-                // 现在「是否建画布」只由四个**内容**开关决定；打车卡的收放完全交给
-                // AmapFeed1521 的 dataType 白名单在数据层解决（cardList 里只留打车家族）。
+                // Each known card is filtered independently before rendering. A taxi-only
+                // canvas must remain available; layer suppression is only a layout optimization.
                 return compactSupported && !Config.visible(Config.K_FEED_WEATHER) &&
                         !Config.visible(Config.K_FEED_BOARD) && !Config.visible(Config.K_FEED_CONTENT) &&
-                        !Config.visible(Config.K_FEED_FESTIVAL)
+                        !Config.visible(Config.K_FEED_FESTIVAL) && !Config.visible(Config.K_TAXI_CARD)
             }
         }
 
@@ -177,7 +179,19 @@ class AmapNativeHome private constructor() {
             }
             for (load in loads) H.hookSig(qs, "loadAjxQs", "amap_compact_canvas_" + load.parameterTypes.size, object : XposedInterface.Hooker {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
-                    return if (compact()) null else chain.proceed()
+                    val self = chain.getThisObject() as? View
+                    val context = chain.getArg(0)
+                    val delegate = chain.getArg(1)
+                    if (self != null && context != null && delegate != null) {
+                        canvasSource = CanvasSource(java.lang.ref.WeakReference(self), load,
+                                java.lang.ref.WeakReference(context), java.lang.ref.WeakReference(delegate),
+                                load.parameterTypes.size == 3 && chain.getArg(2) == true)
+                        canvasSignature = feedSignature()
+                    }
+                    if (compact()) return null
+                    val result = chain.proceed()
+                    AmapHomeTools.schedule(result)
+                    return result
                 }
             }, *load.parameterTypes)
             // ── AI 预载（永不加载：compact 时连 LLM 会话都不建）───────────────────────────
@@ -440,21 +454,7 @@ class AmapNativeHome private constructor() {
                             // 而 initToolBoxPanel 恰好可能先建面板、稍后才挂进容器。
                             // 这一句以前直接 NPE → 被 HookGuard 判死 → amap_compact_height
                             // 整个进程不再工作（"紧凑首页"点了没反应，重启才好）。
-                            var lp: ViewGroup.LayoutParams? = toolbar.layoutParams
-                            if (lp == null) {
-                                lp = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.WRAP_CONTENT)
-                            }
-                            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                            toolbar.layoutParams = lp
-                        }
-                        synchronized(attached) {
-                            if (attached.add(view)) view.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
-                                override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int,
-                                                            ol: Int, ot: Int, orr: Int, ob: Int) {
-                                    if (compact()) resize(v)
-                                }
-                            })
+                            prepareCompactPanel(view, toolbar)
                         }
                         resize(view)
                     }
@@ -2297,6 +2297,7 @@ class AmapNativeHome private constructor() {
             out.append(if (Config.visible(Config.K_TOOLS_ALLOWLIST)) '1' else '0')
             for (entry in AmapToolCatalog.ENTRIES)
                 out.append(if (Config.visible(AmapToolCatalog.key(entry[0]))) '1' else '0')
+            out.append('|').append(Config.getString(Config.K_TOOLS_ORDER, ""))
             return out.toString()
         }
 
@@ -2421,11 +2422,111 @@ class AmapNativeHome private constructor() {
         /** Entry point for the floating panel: it writes a switch, then tells the hook side. */
         @JvmStatic
         fun onConfigChanged(key: String?) {
-            if (key == null || Config.K_HOME_CHIPS == key || Config.K_TOOLS_VISIBLE == key ||
-                    Config.K_TOOLS_ALLOWLIST == key || key.startsWith(Config.K_TOOL_PREFIX)) {
+            AmapMapWidget.onConfigChanged(key)
+            val toolsChanged = key == null || Config.K_TOOLS_VISIBLE == key || Config.K_TOOLS_ALLOWLIST == key ||
+                    Config.K_TOOLS_ORDER == key || key.startsWith(Config.K_TOOL_PREFIX)
+            if (toolsChanged || key == Config.K_TAXI_CARD || key == Config.K_HOME_CHIPS || key?.startsWith("feed_") == true) {
+                val source = canvasSource
+                val view = source?.view?.get()
+                val signature = feedSignature()
+                if (view != null && signature != canvasSignature) {
+                    canvasSignature = signature
+                    val revision = ++canvasRevision
+                    view.postDelayed({ refreshCanvas(source, revision, 0) }, 120)
+                }
+            }
+            if (toolsChanged || Config.K_HOME_CHIPS == key) {
                 val view = built?.container?.get() ?: return
                 if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) refresh()
                 else view.post { refresh() }
+            }
+        }
+
+        private fun feedSignature(): String = arrayOf(Config.K_FEED_WEATHER, Config.K_FEED_BOARD,
+                Config.K_FEED_CONTENT, Config.K_FEED_FESTIVAL, Config.K_TAXI_CARD, Config.K_HOME_CHIPS)
+                .joinToString("") { if (Config.visible(it)) "1" else "0" } + "|" + signature()
+
+        private fun prepareCompactPanel(view: View, panel: View) {
+            val lp = panel.layoutParams ?: ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT)
+            if (panel.layoutParams == null || lp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                panel.layoutParams = lp
+            }
+            synchronized(attached) {
+                if (attached.add(view)) view.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                    override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int,
+                                                ol: Int, ot: Int, orr: Int, ob: Int) {
+                        if (compact()) resize(v)
+                    }
+                })
+            }
+        }
+
+        /** Native qs_render_over removes the splash toolbox after AJX takes over.
+         * releaseAjxQs does not put it back. Re-enter the original initialization only
+         * when that panel was detached; its hook restores the existing compact layout.
+         */
+        private fun restoreNativePanel(view: View, theme: String, mode: Int, state: Any?): Boolean {
+            if (!compact() || view.javaClass.getMethod("getViewDragState").invoke(view) != 0) return false
+            var panel = H.getObjectField(view, "mSplashToolboxPanel") as? View ?: return false
+            if (panel.parent == null) {
+                val init = view.javaClass.getMethod("initToolBoxPanel", String::class.java, Integer.TYPE)
+                if (init.returnType != Void.TYPE) return false
+                init.invoke(view, theme, mode)
+                panel = H.getObjectField(view, "mSplashToolboxPanel") as? View ?: return false
+            }
+            // A preloaded panel owned by another view must not be moved or made visible here.
+            var parent = panel.parent
+            var depth = 0
+            while (parent != null && parent !== view && depth++ < 12) parent = parent.parent
+            if (parent !== view) return false
+            panelRef = java.lang.ref.WeakReference(panel)
+            quickService = java.lang.ref.WeakReference(view)
+            prepareCompactPanel(view, panel)
+            when (state?.toString()) {
+                "COLLAPSED", "HIDDEN", "HIDDEN_EMPTY" -> panel.visibility = View.INVISIBLE
+                "ANCHORED", "EXPANDED" -> panel.visibility = View.VISIBLE
+            }
+            refresh()
+            H.log("event=home_native_tools_restored state=$state")
+            return true
+        }
+
+        private fun refreshCanvas(source: CanvasSource, revision: Int, retry: Int) {
+            if (revision != canvasRevision || source !== canvasSource) return
+            val view = source.view.get() ?: return
+            val page = source.page.get() ?: return
+            val delegate = source.delegate.get() ?: return
+            if (!view.isAttachedToWindow) return
+            try {
+                val type = view.javaClass
+                // Native release/reload removes rendered cards and their measured placeholders.
+                // Defer during a gesture/animation; never reposition an actively dragged panel.
+                if (type.getMethod("getViewDragState").invoke(view) != 0) {
+                    if (retry < 40) view.postDelayed({ refreshCanvas(source, revision, retry + 1) }, 100)
+                    return
+                }
+                val state = type.getMethod("getPanelState").invoke(view)
+                type.getMethod("removeQuickServiceListener").invoke(view)
+                type.getMethod("releaseAjxQs").invoke(view)
+                sizes.remove(view)
+                if (!compact()) {
+                    val args = if (source.load.parameterTypes.size == 3) arrayOf(page, delegate, source.guide) else arrayOf(page, delegate)
+                    source.load.invoke(view, *args)
+                } else {
+                    val native = built
+                    if (native == null || !restoreNativePanel(view, native.theme, native.mode, state))
+                        H.log("event=home_native_tools_restore_missing")
+                }
+                val reset = type.declaredMethods.firstOrNull { it.name == "resetQSHeights" && it.parameterTypes.size == 1 && it.parameterTypes[0].isInstance(page) }
+                reset?.isAccessible = true
+                reset?.invoke(view, page)
+                if (state != null) type.getMethod("setPanelState", state.javaClass, java.lang.Boolean.TYPE).invoke(view, state, false)
+                view.requestLayout()
+                H.log("event=home_cards_refresh state=$state compact=${compact()}")
+            } catch (error: Throwable) {
+                H.log("event=home_cards_refresh_failed err=${error.javaClass.simpleName}")
             }
         }
 

@@ -1124,6 +1124,7 @@ class FloatingPanel(c: Context, darkTheme: Boolean) : FrameLayout(c), PanelTypes
                 if (banner != null) body.addView(banner)
             }
             if (g.action != null) body.addView(buildActionRow(g.action!!))
+            if (g.label == "首页工具") body.addView(AmapPanel.toolOrderEntry(ctx))
             if (g.note != null) body.addView(groupNote(g.note!!))
             val items = g.items
             val sections = g.sections

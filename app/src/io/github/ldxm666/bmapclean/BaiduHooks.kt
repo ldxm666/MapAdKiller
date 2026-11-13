@@ -87,6 +87,7 @@ class BaiduHooks private constructor() {
             // 地点详情页三块推广位（长按地图 / POI 详情）：本地 H5 模板的卡片清单过滤。
             BaiduPoiAds.install(cl)
             BaiduPanelHeight.install(cl)
+            BaiduHomeReselect.install(cl)
             // BMAd 开放封装层在这里就挂（provider 类在 install 时已能解析，实测 voided=2）；
             // commonadprovider 的 ADN loader 走上面的懒挂载，见 hookAdSdkOnRequest。
             BaiduSdkBlock.installBmad(cl)
@@ -307,7 +308,8 @@ class BaiduHooks private constructor() {
                 H.log(Log.WARN, MainHook.TAG, "toolGrid report failed: " + t)
             }
         }
-        private fun emptyHome(): Boolean {
+        @JvmStatic
+        fun emptyHome(): Boolean {
             return !Cfg.visible(Spec.K_TOOLS) && !Cfg.visible(Spec.K_HC)
                     && !Spec.effectiveVisible(Spec.K_FEED_CHIPS, Spec.HOOK_READ)
                     && !Spec.effectiveVisible(Spec.K_FEED_QUALITY, Spec.HOOK_READ)

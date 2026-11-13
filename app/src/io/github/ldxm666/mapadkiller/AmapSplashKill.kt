@@ -49,19 +49,19 @@ import io.github.libxposed.api.XposedInterface
 object AmapSplashKill {
 
     /** 开屏素材请求器（`SplashRequester`）。 */
-    private const val CLS_REQUESTER = "ah5"
+    private val REQUESTERS = arrayOf("ah5", "ys5")
 
     /** 开屏服务实现（持有实时请求与 `tryShowSplashView`）。 */
     private const val CLS_SERVICE = "com.autonavi.minimap.impl.SplashScreenServiceImpl"
 
     /** 实时开屏的裸 HttpURLConnection Runnable。 */
-    private const val CLS_RT_RUNNABLE = "yc5"
+    private val REALTIME_TASKS = arrayOf("yc5", "wo5")
 
     private const val CLS_IMAGE = "com.autonavi.minimap.view.ImageSplashView"
     private const val CLS_VIDEO = "com.autonavi.minimap.view.VideoSplashView"
 
     /** 广告素材模型与点击监听：只用来定位 `getSplashView` 的精确签名。 */
-    private const val CLS_ITEM = "k66"
+    private val ITEM_NAMES = setOf("k66", "fj6")
     private const val CLS_LISTENER = "com.autonavi.minimap.listener.IEventListener"
 
     /** 每进程一次：同一 id 只打一条日志，开屏热路径上不重复拼串。 */
@@ -80,11 +80,12 @@ object AmapSplashKill {
     // ─────────────────────────────────────────────── 1. 素材请求源头
 
     private fun installRequester(cl: ClassLoader) {
-        val c = H.cls(cl, CLS_REQUESTER)
+        val c = REQUESTERS.mapNotNull { H.cls(cl, it) }.firstOrNull { requesterShape(it) }
         if (c == null) {
             H.log(Log.WARN, MainHook.TAG, "event=splash_kill_miss anchor=SplashRequester")
             return
         }
+        H.log("event=splash_requester_anchor class=" + c.name)
         // 两个重载都要拦：(I)V 是直接请求，(IZ)V 是带 force 的云控补量入口。
         H.hookSig(c, "attemptRequestData", "amap_splash_requester_int",
                 block("SplashRequester.attemptRequestData(I)"), Int::class.javaPrimitiveType)
@@ -108,30 +109,56 @@ object AmapSplashKill {
             H.log(Log.WARN, MainHook.TAG, "event=splash_kill_miss anchor=SplashScreenServiceImpl")
         }
         // 兜底：即使有第三条路把 Runnable 直接丢进线程池，URL 也发不出去。
-        val runnable = H.cls(cl, CLS_RT_RUNNABLE)
+        val runnable = REALTIME_TASKS.mapNotNull { H.cls(cl, it) }.firstOrNull { realtimeShape(it) }
         if (runnable != null) {
-            H.hookSig(runnable, "run", "amap_splash_realtime_run", block("yc5.run()"))
+            H.log("event=splash_realtime_anchor class=" + runnable.name)
+            H.hookSig(runnable, "run", "amap_splash_realtime_run", block(runnable.name + ".run()"))
+        } else {
+            H.log("event=splash_kill_miss anchor=realtime_task native_kept=true")
         }
     }
 
     // ─────────────────────────────────────────────── 3. 渲染器
 
     private fun installRenderer(cl: ClassLoader) {
-        val item = H.cls(cl, CLS_ITEM)
         val listener = H.cls(cl, CLS_LISTENER)
-        if (item == null || listener == null) {
+        if (listener == null) {
             H.log(Log.WARN, MainHook.TAG, "event=splash_kill_miss anchor=renderer_signature"
-                    + " item=" + (item != null) + " listener=" + (listener != null))
+                    + " listener=false")
             return
         }
         for ((cls, id) in arrayOf(CLS_IMAGE to "amap_splash_view_image",
                 CLS_VIDEO to "amap_splash_view_video")) {
             val c = H.cls(cl, cls) ?: continue
+            val method = c.declaredMethods.firstOrNull {
+                val p = it.parameterTypes
+                it.name == "getSplashView" && p.size == 3 && p[0] == Context::class.java &&
+                        p[1].name in ITEM_NAMES && p[2] == listener &&
+                        android.view.View::class.java.isAssignableFrom(it.returnType)
+            }
+            if (method == null) {
+                H.log("event=splash_kill_miss anchor=" + cls + " native_kept=true")
+                continue
+            }
+            val item = method.parameterTypes[1]
+            H.log("event=splash_renderer_anchor class=" + cls + " item=" + item.name)
             // 返回 null ⇒ v76.run() 走 g.l(k66) + e(ERROR) 收尾，直接进地图。
             H.hookSig(c, "getSplashView", id, nullView("getSplashView:" + cls.substringAfterLast('.')),
                     Context::class.java, item, listener)
         }
     }
+
+    /** Both overloads and void return are required: these names exist as unrelated Play classes. */
+    @JvmStatic fun requesterShape(owner: Class<*>?): Boolean = try {
+        owner != null && owner.getDeclaredMethod("attemptRequestData", Integer.TYPE).returnType == Void.TYPE &&
+                owner.getDeclaredMethod("attemptRequestData", Integer.TYPE, java.lang.Boolean.TYPE).returnType == Void.TYPE
+    } catch (_: Throwable) { false }
+
+    @JvmStatic fun realtimeShape(owner: Class<*>?): Boolean = try {
+        owner != null && Runnable::class.java.isAssignableFrom(owner) &&
+                owner.getDeclaredConstructor(String::class.java, String::class.java) != null &&
+                owner.getDeclaredMethod("run").returnType == Void.TYPE
+    } catch (_: Throwable) { false }
 
     // ─────────────────────────────────────────────── 4. 已落地素材清除
 
@@ -152,7 +179,7 @@ object AmapSplashKill {
                 override fun run() {
                     val ctx = Config.hostCtx()
                     if (ctx != null) {
-                        purge(ctx)
+                        if (Config.visible(Config.K_ALIMAMA_SPLASH_OFF)) purge(ctx)
                         return
                     }
                     if (++tries > 20) {
@@ -173,6 +200,7 @@ object AmapSplashKill {
             var files = 0
             var bytes = 0L
             try {
+                if (!Config.visible(Config.K_ALIMAMA_SPLASH_OFF)) return@Thread
                 val dir = File(context.filesDir, "splash")
                 if (!dir.isDirectory) return@Thread
                 val list = dir.listFiles() ?: return@Thread
@@ -201,6 +229,7 @@ object AmapSplashKill {
     /** `void` 方法：不 proceed 即短路。 */
     private fun block(label: String): XposedInterface.Hooker = object : XposedInterface.Hooker {
         override fun intercept(chain: XposedInterface.Chain): Any? {
+            if (!Config.visible(Config.K_ALIMAMA_SPLASH_OFF)) return chain.proceed()
             if (once(label)) {
                 H.log(Log.INFO, MainHook.TAG, "event=splash_kill_blocked target=" + label)
             }
@@ -211,6 +240,7 @@ object AmapSplashKill {
     /** 返回 `View` 的方法：给 null 让宿主走它自己的渲染失败收尾。 */
     private fun nullView(label: String): XposedInterface.Hooker = object : XposedInterface.Hooker {
         override fun intercept(chain: XposedInterface.Chain): Any? {
+            if (!Config.visible(Config.K_ALIMAMA_SPLASH_OFF)) return chain.proceed()
             if (once(label)) {
                 H.log(Log.INFO, MainHook.TAG, "event=splash_kill_noview target=" + label)
             }

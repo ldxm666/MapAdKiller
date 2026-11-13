@@ -71,6 +71,11 @@ class HostPrefs private constructor() {
         @Volatile
         private var remembered: Context? = null
 
+        private val contextListeners = java.util.concurrent.CopyOnWriteArrayList<Runnable>()
+
+        /** Shared by adapters; vendor stubs do not need to reference another adapter. */
+        @JvmStatic fun onContextReady(listener: Runnable) { contextListeners.add(listener) }
+
         /**
          * 记下宿主自己的 Context（Application 或 Activity 皆可）。
          *
@@ -90,7 +95,11 @@ class HostPrefs private constructor() {
             } catch (t: Throwable) {
                 return
             }
+            val first = remembered == null
             remembered = ctx
+            if (first) for (listener in contextListeners) {
+                try { listener.run() } catch (_: Throwable) { }
+            }
         }
 
         /** 有没有拿到过直给的宿主 Context（诊断用）。 */

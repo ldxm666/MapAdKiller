@@ -23,8 +23,9 @@ object AmapAlimama {
 
     @JvmStatic
     fun install(cl: ClassLoader) {
-        // 配置和面板使用同一缺省值；关闭时不安装相应拦截。
-        val splashOn = Config.visible(Config.K_ALIMAMA_SPLASH_OFF)
+        // Attach may not have happened yet. Install the small hooks now; each
+        // interceptor checks the actual setting at invocation time.
+        val splashOn = true
         val logOn = Config.installGate(Config.K_ALIMAMA_LOG_OFF)
         if (!splashOn && !logOn) {
             H.log(Log.INFO, MainHook.TAG, "event=hook_skipped key=alimama_splash_off+alimama_log_off"

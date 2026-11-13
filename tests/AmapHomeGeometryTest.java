@@ -19,10 +19,21 @@ public final class AmapHomeGeometryTest {
         public static String a(){return bottom?"SEARCHBAR_MODE_BOTTOM":"SEARCHBAR_MODE_TOP";}
     }
     public enum State { ANCHORED,COLLAPSED,EXPANDED,DRAGGING,HIDDEN,HIDDEN_EMPTY }
+    public static final class DomBinding { public View u; }
+    public static final class NativeProperty {
+        public Object node;
+        public Object getNode(){return node;}
+    }
+    public static final class BoundContainer extends FrameLayout {
+        final NativeProperty property=new NativeProperty();
+        BoundContainer(Context context){super(context);}
+        public NativeProperty getProperty(){return property;}
+    }
     public static final class QS extends FrameLayout {
         public final FrameLayout mSplashToolboxPanel;
         public final View mSlideableView;
-        int minimum,anchor,transparent,writes,extra=-1,settles,drag;
+        int minimum,anchor,transparent,writes,extra=-1,settles,drag,initializations,restoredMode;
+        String restoredTheme;
         int statusBar(){int id=getResources().getIdentifier("status_bar_height","dimen","android");return id==0?0:getResources().getDimensionPixelSize(id);}
         State state=State.ANCHORED;
         QS(Context c){super(c);mSplashToolboxPanel=new FrameLayout(c);mSplashToolboxPanel.addView(new View(c),new LayoutParams(100,326));addView(mSplashToolboxPanel);mSlideableView=new View(c);addView(mSlideableView);}
@@ -34,6 +45,10 @@ public final class AmapHomeGeometryTest {
         public float getAnchorPoint(){return (float)(anchor-minimum)/(getHeight()-transparent-minimum);}
         private int computePanelTopPosition(float point){return getHeight()-minimum-(int)(point*(getHeight()-transparent-minimum));}
         public int getViewDragState(){return drag;}
+        public void initToolBoxPanel(String theme,int mode){
+            initializations++;restoredTheme=theme;restoredMode=mode;
+            addView(mSplashToolboxPanel,new LayoutParams(-1,1800));
+        }
         public int getAnchorHeightExtraNow(){return extra;}
         public State getPanelState(){return state;}
         public void setMinHeight(int n){minimum=n+dp(10);writes++;}
@@ -58,6 +73,13 @@ public final class AmapHomeGeometryTest {
         check(AmapHomeGeometry.minimum(153,106,152,true,true,1)==153,"inconsistent current native minimum fail open");
         if(Looper.getMainLooper()==null)Looper.prepareMainLooper();
         Class<?> at=Class.forName("android.app.ActivityThread");Context c=(Context)at.getMethod("getSystemContext").invoke(at.getMethod("systemMain").invoke(null));
+        Method binding=AmapHomeTools.class.getDeclaredMethod("boundView",Object.class);binding.setAccessible(true);
+        DomBinding oldNode=new DomBinding(),currentNode=new DomBinding();BoundContainer nativeView=new BoundContainer(c);
+        oldNode.u=nativeView;currentNode.u=nativeView;nativeView.property.node=currentNode;
+        check(binding.invoke(AmapHomeTools.INSTANCE,currentNode)==nativeView,"native More view must still be bound to the matched DOM node");
+        check(binding.invoke(AmapHomeTools.INSTANCE,oldNode)==null,"recycled native view is never hidden through a stale DOM node");
+        nativeView.property.node=null;
+        check(binding.invoke(AmapHomeTools.INSTANCE,currentNode)==null,"unbound native More view fails closed");
         Map<String,Object> values=new HashMap<>();
         SharedPreferences prefs=(SharedPreferences)Proxy.newProxyInstance(SharedPreferences.class.getClassLoader(),new Class[]{SharedPreferences.class},(p,m,a)->{
             if(m.getName().equals("getAll"))return new HashMap<>(values);
@@ -127,6 +149,25 @@ public final class AmapHomeGeometryTest {
         writes=qs.writes;priorSettles=qs.settles;
         for(int i=0;i<100;i++){resize.invoke(AmapNativeHome.Companion,qs);finish.invoke(AmapNativeHome.Companion,qs);}
         check(qs.writes==writes&&qs.settles==priorSettles,"100 stable frames cause no new layout or state reset");
+        // Replay native qs_render_over removing the fallback, then the production
+        // content-switch recovery. Only the original native init may reattach it.
+        Method restore=AmapNativeHome.Companion.getClass().getDeclaredMethod("restoreNativePanel",View.class,String.class,int.class,Object.class);restore.setAccessible(true);
+        qs.state=State.ANCHORED;qs.removeView(qs.mSplashToolboxPanel);
+        View originalTool=qs.mSplashToolboxPanel.getChildAt(0);
+        check((Boolean)restore.invoke(AmapNativeHome.Companion,qs,"native-theme",2,qs.state),"detached native toolbox restored after AJX removal");
+        check(qs.initializations==1&&qs.mSplashToolboxPanel.getParent()==qs&&"native-theme".equals(qs.restoredTheme)&&qs.restoredMode==2,"recovery uses native init with captured theme and mode");
+        check(qs.mSplashToolboxPanel.getVisibility()==View.VISIBLE&&qs.mSplashToolboxPanel.getLayoutParams().height==-2,"restored anchored panel uses compact visibility and wrap-content");
+        check(qs.mSplashToolboxPanel.getChildAt(0)==originalTool&&qs.state==State.ANCHORED,"native tool content and panel state survive recovery");
+        check((Boolean)restore.invoke(AmapNativeHome.Companion,qs,"native-theme",2,qs.state)&&qs.initializations==1,"already attached toolbox is not initialized or added twice");
+        qs.removeView(qs.mSplashToolboxPanel);qs.state=State.HIDDEN;
+        check((Boolean)restore.invoke(AmapNativeHome.Companion,qs,"native-theme",2,qs.state)&&qs.mSplashToolboxPanel.getVisibility()==View.INVISIBLE&&qs.state==State.HIDDEN,"hidden map state is not made visible by recovery");
+        qs.removeView(qs.mSplashToolboxPanel);qs.state=State.ANCHORED;qs.drag=2;int initialized=qs.initializations;
+        check(!(Boolean)restore.invoke(AmapNativeHome.Companion,qs,"native-theme",2,qs.state)&&qs.initializations==initialized,"recovery defers during native dragging or settling");
+        qs.drag=0;values.put(Config.K_FEED_WEATHER,true);Config.invalidate(Config.K_FEED_WEATHER);
+        check(!(Boolean)restore.invoke(AmapNativeHome.Companion,qs,"native-theme",2,qs.state)&&qs.initializations==initialized,"canvas mode never reattaches the compact fallback");
+        values.put(Config.K_FEED_WEATHER,false);Config.invalidate(Config.K_FEED_WEATHER);
+        FrameLayout foreign=new FrameLayout(c);foreign.addView(qs.mSplashToolboxPanel);
+        check(!(Boolean)restore.invoke(AmapNativeHome.Companion,qs,"native-theme",2,qs.state)&&qs.mSplashToolboxPanel.getParent()==foreign&&qs.initializations==initialized,"a panel owned by another container is not stolen");
         System.out.println("AmapHomeGeometryTest: "+checks+" assertions passed");
     }
 }

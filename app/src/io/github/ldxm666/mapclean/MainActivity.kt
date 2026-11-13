@@ -1167,6 +1167,8 @@ class MainActivity : Activity() {
             // Keep long tool categories independently collapsible, but obtain
             // every ID/key from the shared catalogue used by the hooks.
             if (group.label == "首页工具" && group.sections != null) {
+                val ordering = newDrawer("高德 · 工具排序")
+                ordering.card.addView(AmapPanel.toolOrderEntry(this))
                 for (section in group.sections!!) {
                     @Suppress("UNCHECKED_CAST")
                     val items = section[1] as Array<PanelTypes.Item>
@@ -2217,6 +2219,9 @@ class MainActivity : Activity() {
         val schema: MutableMap<String, MutableSet<String>> = LinkedHashMap()
         val amap: MutableSet<String> = LinkedHashSet(switches.keys)
         amap.add(ConfigBackup.LEARNED)
+        amap.add(ToolOrderCodec.KEY)
+        // Keep old card keys importable after removing their individual UI rows.
+        amap.addAll(FeedCardConfig.LEGACY_KEYS)
         if (!embedded() || embeddedAmap()) schema[ConfigBackup.AMAP] = amap
         if (!embedded() || !embeddedAmap()) schema[ConfigBackup.BAIDU] = LinkedHashSet(bmapSwitches.keys)
         if (!embedded()) schema[ConfigBackup.UI] = LinkedHashSet(java.util.Arrays.asList(App.K_HIDE_ICON))
@@ -2241,6 +2246,7 @@ class MainActivity : Activity() {
                     val value = entry.value
                     if (value == null) editor.remove(entry.key)
                     else if (value is Boolean) editor.putBoolean(entry.key, value)
+                    else if (value is String && entry.key == ToolOrderCodec.KEY) editor.putString(entry.key, value)
                     else if (value is Set<*>) editor.putStringSet(entry.key, LinkedHashSet<String>(value as Set<String>))
                     else throw IllegalArgumentException("配置类型错误")
                 }

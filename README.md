@@ -4,7 +4,7 @@
 
 **高德、百度、腾讯地图的广告精简与界面定制。**
 
-[![Version](https://img.shields.io/badge/version-2.3.5.step2-2ea44f?style=flat-square)](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.5.step2)
+[![Version](https://img.shields.io/badge/version-2.3.6-2ea44f?style=flat-square)](docs/RELEASE-2.3.6.md)
 [![libxposed](https://img.shields.io/badge/libxposed-API%20102-0969da?style=flat-square)](https://github.com/libxposed/api)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square)](LICENSE)
 [![Telegram 交流群](https://img.shields.io/badge/Telegram-交流群-26A5E4?style=flat-square)](https://t.me/MapAdkiller)
@@ -14,7 +14,7 @@
 
 ## 当前版本
 
-**2.3.5.step2 · versionCode 23052 · 2026-11-13**。支持免 root 内置版和现代 Xposed 模块版，各地图单独配置，可备份与恢复。
+**2.3.6 · versionCode 23060 · 2026-11-14**。模块与四种内置包统一更新。支持免 root 内置版和现代 Xposed 模块版，各地图单独配置，可备份与恢复。
 
 | 地图 | 包名 | 本轮适配基线 |
 | --- | --- | --- |
@@ -25,7 +25,27 @@
 
 其它地图版本不保证锚点一致。模块最低 Android 8.0，并需要支持 API 102 的框架；内置版使用 LSPatch，需要 Android 9.0 或更高版本，且不能低于宿主自身要求。
 
-## 2.3.5.step2 更新重点
+## 2.3.6 更新重点
+
+- 高德 Play 17.02.2.2014 按实际 DEX 适配，Context 就绪后重新读取设置。
+- 首页工具支持长按拖动和上下移动；关闭保留顺序，“更多工具”固定末尾。
+- 修复关闭全部内容卡片后，原生工具面板偶尔没有恢复、只剩搜索框的问题。
+- 修复打开很多工具却只显示三项的问题，带天气卡片的首页也会按设置补齐并排序。带天气卡片的首页最多显示九个普通工具加“更多工具”；关闭“更多工具”后保留这九个普通工具。排在后面的工具可移到前面。
+- 修复“更多工具”图标被挤成其它工具拼图、误带公交角标的问题，恢复原生图标。
+- 关闭首页工具总开关时，一起收起“更多工具”和整行占位，天气仍可正常显示；重新开启可恢复工具。
+- 排序窗口沿用软件配色、字体、圆角和按钮，支持浅色／深色，按内容缩短高度。
+- 内容区只留两个开关：“天气卡片”单独控制，“推荐与活动卡片”一起控制榜单、攻略内容和促销活动。打车卡与家／公司入口仍各自控制，原有设置和旧备份可以继续用。
+- 修复只开天气却不出天气，或同时出现“发布行程”的问题。右侧圆形“扫街榜”推广也受独立的地图推广开关控制，默认隐藏。
+- 百度精简首页重选使用原生收起、隐藏流程，避免展开空白背景。
+- 新增“强制关闭自动巡航”，默认关闭；按需开启后禁止两种自动触发，保留手动巡航和正常导航，并修正开关切换后旧状态可能引起的误触发。
+- 腾讯首页“新人专属”等悬浮推广默认隐藏，新增独立开关；同步清理推广动画和点击区域。
+- 完整模块及四种内置包统一 2.3.6 / 23060，原地图自身版本号保持原样。
+
+详见 [用户更新说明](docs/RELEASE-2.3.6.md)、[11 月 14 日补充验证](docs/VALIDATION-2.3.6-r3.md) 和 [首轮验证记录](docs/VALIDATION-2.3.6.md)。
+
+最终成品通过完整模块 38 组 Android 回归与五套成品 88 组生产 DEX 回归，实际原包锚点国内 43／Play 44 项通过。高德实机检查使用官方 Play 版加模块，两个内置包首次安装尚未在独立设备验收；详见补充验证记录。
+
+## 2.3.5.step2 更新重点（历史版本）
 
 - 高德开屏广告：在原有广告请求与缓存判断之外，增加广告素材下载、启动阶段实时请求、图片/视频广告视图、本地已存广告素材四条路径的拦截。
 - 高德开屏广告：补充 `sendSplashScreen` 双参数重载的拦截，2.3.5 仅覆盖三参数重载。
@@ -50,16 +70,16 @@
 
 ## 下载
 
-统一从 [v2.3.5.step2 Release](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.5.step2) 下载。模块仓库另提供 [模块版 23052-2.3.5.step2](https://github.com/Xposed-Modules-Repo/io.github.ldxm666.mapadkiller/releases/tag/23052-2.3.5.step2)。
+完整安装包与源码统一从 [主仓库 v2.3.6](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.6) 下载，模块仓库另提供 [模块版 23060-2.3.6](https://github.com/Xposed-Modules-Repo/io.github.ldxm666.mapadkiller/releases/tag/23060-2.3.6)。
 
 | 文件 | 安装方式 |
 | --- | --- |
-| `MapClean-lsp-v2.3.5.apk` | 模块版：配合 LSPosed / 支持现代 API 102 的框架，三家地图共用 |
-| `Amap-2.3.5-nonroot-embedded.apk` | 免 root：高德国内版单 APK |
-| `Baidu-2.3.5-nonroot-embedded.apk` | 免 root：百度单 APK |
-| `Tencent-2.3.5-nonroot-embedded.apk` | 免 root：腾讯单 APK |
-| `Amap-Play-2.3.5-nonroot-embedded.zip` | 免 root：高德 Play 拆分包，四个 APK 一起装 |
-| `MapAdKiller-2.3.5-source.zip` | 源码及编译依赖，不含签名私钥和地图原始 APK |
+| `MapClean-lsp-v2.3.6.apk` | 模块版：配合 LSPosed / 支持现代 API 102 的框架，三家地图共用 |
+| `Amap-2.3.6-nonroot-embedded.apk` | 免 root：高德国内版单 APK |
+| `Baidu-2.3.6-nonroot-embedded.apk` | 免 root：百度单 APK |
+| `Tencent-2.3.6-nonroot-embedded.apk` | 免 root：腾讯单 APK |
+| `Amap-Play-2.3.6-nonroot-embedded.zip` | 免 root：高德 Play 拆分包，四个 APK 一起装 |
+| `MapAdKiller-2.3.6-source.zip` | 源码及编译依赖，不含签名私钥和地图原始 APK |
 | `SHA256SUMS.txt` | 下载文件 SHA-256 校验值 |
 
 **模块版与内置版选择一种。** 模块 APK 约 5.4 MiB；内置版包含完整宿主，体积明显更大。模块依赖框架注入，不重新签名官方地图；内置版是重新签名的地图安装包，不需要框架。不要对内置地图重复启用外部模块。
@@ -68,7 +88,7 @@
 
 ### 模块版
 
-1. 安装 `MapClean-lsp-v2.3.5.apk`。
+1. 安装 `MapClean-lsp-v2.3.6.apk`。
 2. 在框架中启用模块，勾选需要处理的地图作用域。
 3. 强制停止并重新打开对应地图。可以打开模块 App 配置，也可以从地图里的悬浮球进入面板。
 

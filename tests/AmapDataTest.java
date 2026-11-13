@@ -89,10 +89,10 @@ public final class AmapDataTest {
         check("103".equals(template.getString("id1")), "cached original not mutated");
         check("0".equals(AmapData.toolbox(template, new Options().off(Config.K_TOOLS_VISIBLE)).getString("king_switch")), "all hidden turns native panel off");
         Options noFeed = new Options().off(Config.K_FEED_BOARD).off(Config.K_FEED_CONTENT);
-        check(AmapData.stream(frame("tipsRanking", false), noFeed) == null, "paged rank card dropped");
-        check(AmapData.stream(frame("contentCenterFeed", false), noFeed) == null, "content loader dropped");
+        check("markdown".equals(AmapData.stream(frame("tipsRanking", false), noFeed).getJSONObject("component").getString("type")), "paged rank payload removed without dropping sequence");
+        check("markdown".equals(AmapData.stream(frame("contentCenterFeed", false), noFeed).getJSONObject("component").getString("type")), "content payload removed without dropping sequence");
         check(AmapData.stream(frame("taxiQS", false), all) != null, "taxi card uses its visible switch");
-        check(AmapData.stream(frame("taxiQS", false), new Options().off(Config.K_TAXI_CARD)) == null, "taxi card hides when its current switch is off");
+        check("markdown".equals(AmapData.stream(frame("taxiQS", false), new Options().off(Config.K_TAXI_CARD)).getJSONObject("component").getString("type")), "taxi card hides when its current switch is off");
         check(AmapData.stream(frame("taxiQS", false), new Options().on(Config.K_TAXI_CARD).on(Config.K_RIDE_CARD_OFF)) != null, "legacy inverted key cannot override current taxi choice");
         JSONObject navigation = frame("navContinuation", false);
         check(AmapData.stream(navigation, noFeed) == navigation, "navigation continuation preserved");
@@ -100,11 +100,11 @@ public final class AmapDataTest {
         check(AmapData.stream(unknown, noFeed) == unknown, "unknown protocol passes through");
         JSONObject terminal = frame("tipsRanking", true);
         JSONObject finished = AmapData.stream(terminal, noFeed);
-        check(finished.getBoolean("is_done") && !finished.getBoolean("has_more"), "terminal closes loading and pagination");
+        check(finished.getBoolean("is_done") && finished.getBoolean("has_more"), "server completion and pagination preserved");
         check("fixture".equals(finished.getString("session_id")), "terminal metadata preserved");
         check(terminal.getBoolean("has_more"), "stream source not mutated");
-        check(AmapData.stream(frame("hourlyWeather", false), new Options().off(Config.K_FEED_WEATHER)) == null, "weather ID filtered");
-        check(AmapData.stream(frame("frequentLocations", false), new Options().off(Config.K_HOME_CHIPS)) == null, "location chip ID filtered");
+        check("markdown".equals(AmapData.stream(frame("hourlyWeather", false), new Options().off(Config.K_FEED_WEATHER)).getJSONObject("component").getString("type")), "weather ID filtered");
+        check("markdown".equals(AmapData.stream(frame("frequentLocations", false), new Options().off(Config.K_HOME_CHIPS)).getJSONObject("component").getString("type")), "location chip ID filtered");
         check("/ws/promote/main-page/assets".equals(AmapData.requestPath("$aos.m5$/ws/promote/main-page/assets?scene=1")), "query stripped exactly");
         check(!AmapData.handles("/ws/shield/search/poi/detail"), "POI endpoint excluded");
         String promo = "{\"code\":\"1\",\"data\":[{\"campaign\":7}],\"result\":true}";

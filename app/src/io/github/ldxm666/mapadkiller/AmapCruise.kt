@@ -177,7 +177,10 @@ class AmapCruise private constructor() {
         private var suppressUntil = 0L
         private var lastLoggedState = ""
         private var lastBeatAt = 0L
-        private var enterSeq = 0
+        @Volatile private var enterSeq = 0
+        private val sequenceCounter = java.util.concurrent.atomic.AtomicInteger()
+        @Volatile private var enterAutomatic = true
+        private val pendingEnters = java.util.Collections.synchronizedList(java.util.ArrayList<Runnable>())
 
         // 进入判定的窗口状态：窗口起点、起点时的位移基准、上一帧速度、当前否决原因
         private var winBaseDist = 0f
@@ -325,11 +328,41 @@ class AmapCruise private constructor() {
             }
         }
 
+        @JvmStatic
+        fun onConfigChanged(key: String?) {
+            if (key != null && key != Config.K_CRUISE_FORCE_OFF && key != Config.K_CRUISE_AUTO) return
+            // Invalidate delayed automatic retries before the main-thread reset can run.
+            if (enterAutomatic) enterSeq = sequenceCounter.incrementAndGet()
+            val h = handler
+            if (h == null || android.os.Looper.myLooper() == h.looper) cancelAutomatic()
+            else h.post { cancelAutomatic() }
+        }
+
+        private fun cancelPending() {
+            val tasks = synchronized(pendingEnters) { pendingEnters.toList().also { pendingEnters.clear() } }
+            for (task in tasks) handler?.removeCallbacks(task)
+        }
+
+        private fun cancelAutomatic() {
+            if (enterAutomatic) {
+                enterSeq = sequenceCounter.incrementAndGet()
+                cancelPending()
+            }
+            winClear()
+            autoWasOn = false
+        }
+
         private fun tick() {
             // ① 「立即测试」隐藏键（面板按钮写入）：不受开关 / 冷却 / 门槛影响。
             //    先消费再执行 —— 后面就算抛异常，也不会变成「每个 tick 强进一次」的死循环。
             if (Config.cruiseForceOnce()) {
                 forceOnce()
+                return
+            }
+
+            if (Config.cruiseForceOff()) {
+                cancelAutomatic()
+                gateWhy = "forced_off"
                 return
             }
 
@@ -1023,7 +1056,12 @@ class AmapCruise private constructor() {
         // ── 进入 + 复核 ────────────────────────────────────────────────────────────
 
         private fun enterCruise(kmh: Float, src: String) {
-            val seq = ++enterSeq
+            val automatic = src != "force"
+            if (automatic && !Config.cruiseAuto()) { cancelAutomatic(); return }
+            cancelPending()
+            val seq = sequenceCounter.incrementAndGet()
+            enterSeq = seq
+            enterAutomatic = automatic
             lastEnterAt = SystemClock.elapsedRealtime()
             H.log(Log.INFO, MainHook.TAG, "event=cruise_enter reason=" +
                     (if ("force" == src) "force" else "auto") +
@@ -1034,11 +1072,14 @@ class AmapCruise private constructor() {
             // 1.2s×5 复核：没进去就逐级换路重发（见 verify）
             for (i in 1..VERIFY_TRIES) {
                 val attempt = i
-                handler!!.postDelayed(object : Runnable {
+                val task = object : Runnable {
                     override fun run() {
+                        pendingEnters.remove(this)
                         verify(seq, attempt)
                     }
-                }, VERIFY_MS * i)
+                }
+                pendingEnters.add(task)
+                handler!!.postDelayed(task, VERIFY_MS * i)
             }
         }
 
@@ -1051,6 +1092,7 @@ class AmapCruise private constructor() {
          */
         private fun verify(seq: Int, attempt: Int) {
             if (seq != enterSeq) return          // 已经被新一轮取代
+            if (enterAutomatic && !Config.cruiseAuto()) { cancelAutomatic(); return }
             if (!HostFg.fg()) {
                 enterSeq = 0
                 H.logv("event=cruise_enter_cancel reason=page_changed")
@@ -1101,6 +1143,7 @@ class AmapCruise private constructor() {
          * 任何一条抛异常都只记日志，绝不冒到宿主。
          */
         private fun fire(road: Int) {
+            if (enterAutomatic && !Config.cruiseAuto()) return
             try {
                 if (app == null) {
                     app = currentApplication()

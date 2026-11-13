@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -84,6 +85,43 @@ def payloads(path: Path, *, standard: bool) -> dict[str, str]:
     return result
 
 
+def align_descriptor_flags(source: Path, destination: Path) -> int:
+    """Repair LSPatch CD bit 3 to match copied local headers; never alter payloads.
+
+    Some Baidu native libraries retain data descriptors in the original local ZIP
+    headers while LSPatch clears that bit in the rebuilt central directory.
+    apksigner rejects this mismatch before it can normalize the compact archive.
+    The caller verifies the signed input first and compares every payload afterward.
+    """
+    repairs = []
+    with zipfile.ZipFile(source) as archive, source.open("rb") as stream:
+        cursor = archive.start_dir
+        for entry in archive.infolist():
+            stream.seek(cursor)
+            central = stream.read(46)
+            if len(central) != 46 or central[:4] != b"PK\x01\x02":
+                raise ValueError("invalid central ZIP header")
+            flags = struct.unpack_from("<H", central, 8)[0]
+            name, extra, comment = struct.unpack_from("<HHH", central, 28)
+            stream.seek(entry.header_offset)
+            local = stream.read(30)
+            if len(local) != 30 or local[:4] != b"PK\x03\x04":
+                raise ValueError("invalid local ZIP header")
+            local_flags = struct.unpack_from("<H", local, 6)[0]
+            if (flags ^ local_flags) & 8:
+                repairs.append((cursor + 8, (flags & ~8) | (local_flags & 8)))
+            cursor += 46 + name + extra + comment
+    if repairs:
+        if destination.exists() or source.resolve() == destination.resolve():
+            raise ValueError("descriptor repair output must be new and distinct")
+        shutil.copyfile(source, destination)
+        with destination.open("r+b") as stream:
+            for at, flags in repairs:
+                stream.seek(at)
+                stream.write(struct.pack("<H", flags))
+    return len(repairs)
+
+
 def repack(source: Path, destination: Path, *, java: Path, apksigner: Path, keystore: Path,
            password_env: str = "MAPCLEAN_HOST_KEYSTORE_PASSWORD") -> dict:
     source, destination = source.resolve(), destination.resolve()
@@ -97,9 +135,11 @@ def repack(source: Path, destination: Path, *, java: Path, apksigner: Path, keys
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="mapclean-compat-") as tmp:
         output = Path(tmp) / "compatible.apk"
+        prepared = Path(tmp) / "descriptor-aligned.apk"
+        descriptor_repairs = align_descriptor_flags(source, prepared)
         run(base + ["sign", "--ks", keystore, "--ks-pass", f"env:{password_env}", "--key-pass", f"env:{password_env}",
                     "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
-                    "--v4-signing-enabled", "false", "--out", output, source])
+                    "--v4-signing-enabled", "false", "--out", output, prepared if descriptor_repairs else source])
         after_certs = certificates(run(base + ["verify", "--print-certs", output]))
         if after_certs != before_certs: raise ValueError("signing certificate changed; refusing incompatible update")
         after = payloads(output, standard=True)
@@ -121,7 +161,8 @@ def repack(source: Path, destination: Path, *, java: Path, apksigner: Path, keys
     with destination.open("rb") as stream: sha = digest(stream)
     return {"file": destination.name, "size": destination.stat().st_size, "sha256": sha,
             "signerSha256": before_certs, "payloadsPreserved": len(before),
-            "standardZip": True, "signatureChecks": verified, "oemRuntimeTested": False}
+            "standardZip": True, "descriptorFlagsRepaired": descriptor_repairs,
+            "signatureChecks": verified, "oemRuntimeTested": False}
 
 
 def main() -> None:

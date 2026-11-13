@@ -2,4 +2,8 @@
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <application android:label="MapClean UI regression" android:testOnly="true" />
     <instrumentation android:name="io.github.ldxm666.mapclean.tests.UiRegression" android:targetPackage="io.github.ldxm666.mapadkiller" />
+    <instrumentation android:name="io.github.ldxm666.mapclean.tests.OrderUiRegression" android:targetPackage="io.github.ldxm666.mapadkiller" />
+    <instrumentation android:name="io.github.ldxm666.mapclean.tests.CardSwitchUiRegression" android:targetPackage="io.github.ldxm666.mapadkiller" />
+    <instrumentation android:name="io.github.ldxm666.mapclean.tests.HostTreeProbe" android:targetPackage="io.github.ldxm666.mapadkiller" />
+    <instrumentation android:name="io.github.ldxm666.mapclean.tests.AmapPrefsProbe" android:targetPackage="io.github.ldxm666.mapadkiller" />
 </manifest>

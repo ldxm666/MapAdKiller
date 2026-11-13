@@ -4,10 +4,10 @@ package io.github.ldxm666.mapclean
 object Version {
 
     /** 模块版本：与 module.prop、AndroidManifest 保持一致 */
-    const val NAME = "2.3.5.step2"
+    const val NAME = "2.3.6"
     /** Full label shown in UI / module manager; the git tag uses the same string. */
-    const val LABEL = "2.3.5.step2"
-    const val CODE = 23052
+    const val LABEL = "2.3.6"
+    const val CODE = 23060
 
     const val REPO = "https://github.com/ldxm666/MapAdKiller"
     const val RELEASES = "$REPO/releases/latest"

@@ -5,6 +5,8 @@
   "groups": {
     "amap_enhancer_config": {
       "alimama_splash_off": true,
+      "cruise_force_off": false,
+      "ui_tools_order": "[]",
       "tab_探索": false,
       "tab_长按说话": false,
       "tab_打车": false,
@@ -136,6 +138,7 @@
       "tool_id_546": null,
       "tool_id_558": null,
       "tool_id_567": null,
+      "feed_other": null,
       "feed_board": false,
       "feed_festival": false,
       "map_promo": null,
@@ -222,6 +225,7 @@
       "ui_tool_preset": false,
       "ui_home_fav": true,
       "ui_home_feed": false,
+      "ui_home_banner": false,
       "ui_look_and_look": false,
       "ui_map_icons": true,
       "ui_poi_food": true,

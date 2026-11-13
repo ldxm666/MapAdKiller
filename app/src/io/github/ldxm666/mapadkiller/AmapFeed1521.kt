@@ -146,8 +146,7 @@ object AmapFeed1521 {
             // 多用户…）。用户想单独要打车卡就只能去关 ride_card_off，而 ride_card_off 又是
             // COMPACT 的总闸 ⇒ 整个推荐画布重建 ⇒ 天气/榜单/内容流一起炸开。
             //
-            // 新实现：cardList 里**只**摘「打车」家族，且只由 K_TAXI_CARD 决定；
-            // 其它 card type 原样保留，不受任何 feed 开关影响（不再出现"一个开关清空整块"）。
+            // 各类卡片统一交给 AmapCardRules，分别读取对应开关；未知业务卡保留。
             val showTaxi = Config.visible(Config.K_TAXI_CARD)
             val kept = org.json.JSONArray()
             val removed = StringBuilder()
@@ -228,7 +227,7 @@ object AmapFeed1521 {
     }
 
     /**
-     * 这张卡是不是「打车」家族 —— 只有这一族受 [Config.K_TAXI_CARD] 控制。
+     * 普通响应、流式响应与缓存使用同一套逐卡分类规则。
      *
      * <p>真机 17.02.0.1541 证据（event=feed1521_probe）：
      * `cardList=[ShareTripTaxiCard, HitchQSCardMainOrderManager, CombineUI,
@@ -241,80 +240,8 @@ object AmapFeed1521 {
      * </ul>
      * 判定同时看 dataType / dataKey / cardName，任一命中即算 —— 服务端几种拼写都出现过。
      */
-    private fun isTaxiCard(card: org.json.JSONObject): Boolean {
-        try {
-            val type = card.optString("dataType", "")
-            val key = card.optString("dataKey", "")
-            val name = card.optString("cardName", "")
-            if ("ShareTripTaxiCard".equals(type, ignoreCase = true)) return true
-            if (type.indexOf("ShareTripTaxi") >= 0) return true
-            if (key.indexOf("ShareTripTaxi") >= 0) return true
-            if (name.indexOf("ShareTripTaxi") >= 0) return true
-            // 打车组合卡：dataType=CombineUI，dataKey 形如
-            // Combine|CommuteShareTripTaxi|...（15.21 探针原文）。
-            return "CombineUI".equals(type, ignoreCase = true) && key.indexOf("Taxi") >= 0
-        } catch (ignored: Throwable) {
-            return false
-        }
-    }
-
-    /**
-     * 这张卡该不该保留 —— **逐项过滤**的唯一入口。
-     *
-     * <p>规则（按优先级）：
-     * <ol>
-     *   <li>打车家族 ⇒ 只看 [Config.K_TAXI_CARD]（true=留）；</li>
-     *   <li>四个内容开关全关 ⇒ **除打车卡外一律丢**（用户要的"干净首页"：
-     *       天气 / 扫街榜 / 内容流 / 出行节一个都不许露）；</li>
-     *   <li>有任一内容开关打开 ⇒ 按 dataType/dataKey/cardName 里的关键字归类，
-     *       对应开关关着就丢；认不出的类型**放行**（避免误杀原生卡）。</li>
-     * </ol>
-     * 关键字来自 17.02 真机 probe（见 [probe]），不是猜的。
-     */
-    private fun keepCard(card: org.json.JSONObject): Boolean {
-        try {
-            if (isTaxiCard(card)) return Config.visible(Config.K_TAXI_CARD)
-            val weather = Config.visible(Config.K_FEED_WEATHER)
-            val board = Config.visible(Config.K_FEED_BOARD)
-            val content = Config.visible(Config.K_FEED_CONTENT)
-            val festival = Config.visible(Config.K_FEED_FESTIVAL)
-            val norm = (card.optString("dataType", "") + "|"
-                    + card.optString("dataKey", "") + "|"
-                    + card.optString("cardName", "")).lowercase()
-            // ① 已知家族：只认自己那个开关（白名单，先归类再判）。
-            if (hit(norm, WEATHER_KW)) return weather
-            if (hit(norm, BOARD_KW)) return board
-            if (hit(norm, CONTENT_KW)) return content
-            if (hit(norm, FESTIVAL_KW)) return festival
-            // ② 认不出的卡：四个内容开关全关 ⇒ **丢**（白名单语义：
-            //    服务端随时会加新卡，黑名单必然漏；用户要的"干净首页"必须一个不多）。
-            //    有任一开关打开 ⇒ 放行，避免把原生基建卡误杀成首页空洞。
-            return weather || board || content || festival
-        } catch (ignored: Throwable) {
-            return true
-        }
-    }
-
-    /** 天气家族 —— 17.02 真机 probe / AmapData.cardName 双证据。 */
-    private val WEATHER_KW = arrayOf(
-            "weather", "hourlyweather", "weatherforecast")
-
-    /** 扫街榜 / 各类榜单家族。 */
-    private val BOARD_KW = arrayOf(
-            "tipsranking", "ranking", "rank", "board", "bangdan", "榜单")
-
-    /** 内容流 / 推荐流家族。 */
-    private val CONTENT_KW = arrayOf(
-            "contentcenter", "contentfeed", "feed", "recommend")
-
-    /** 出行节 / 促销活动家族。 */
-    private val FESTIVAL_KW = arrayOf(
-            "festival", "promote", "activity", "coupon")
-
-    private fun hit(norm: String, kws: Array<String>): Boolean {
-        for (k in kws) if (norm.indexOf(k) >= 0) return true
-        return false
-    }
+    private fun keepCard(card: org.json.JSONObject): Boolean =
+            AmapCardRules.visible(card, AmapData.CURRENT)
 
     // ── 工具 ────────────────────────────────────────────────────────────────
 

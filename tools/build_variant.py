@@ -222,6 +222,11 @@ TARGETS = {
             b"Lio/github/ldxm666/mapadkiller/AmapHooks;",
             b"Lio/github/ldxm666/mapadkiller/AmapSubprocess;",
             b"Lio/github/ldxm666/mapadkiller/AmapNativeHome;",
+            b"Lio/github/ldxm666/mapadkiller/AmapCardRules;",
+            b"Lio/github/ldxm666/mapadkiller/AmapToolOrder;",
+            b"Lio/github/ldxm666/mapadkiller/AmapToolOrderEditor;",
+            b"Lio/github/ldxm666/mapclean/ToolOrderCodec;",
+            b"Lio/github/ldxm666/mapclean/FeedCardConfig;",
             # Keep the same navigation, cruise and taxi implementations in CN/Play builds.
             # Fail packaging if a later slimming change removes one behind a visible setting.
             b"Lio/github/ldxm666/mapadkiller/AmapNaviScale;",
@@ -279,6 +284,7 @@ TARGETS = {
         "required": FLOATING_REQUIRED + (
             b"Lio/github/ldxm666/tmapclean/MainHook;",
             b"Lio/github/ldxm666/tmapclean/TmapMapIcons;",
+            b"Lio/github/ldxm666/tmapclean/TmapHomeBanner;",
             b"Lio/github/ldxm666/tmapclean/TmapPoi;",
             b"Lio/github/ldxm666/tmapclean/TmapAnnotations;",
             b"Lio/github/ldxm666/tmapclean/TmapPoiCategories;",
@@ -344,6 +350,7 @@ TARGETS = {
         ),
         "required": FLOATING_REQUIRED + (
             b"Lio/github/ldxm666/bmapclean/BaiduHooks;",
+            b"Lio/github/ldxm666/bmapclean/BaiduHomeReselect;",
             b"Lio/github/ldxm666/bmapclean/BaiduPower;",
             b"Lio/github/ldxm666/bmapclean/BaiduPoiLayer;",
             b"Lio/github/ldxm666/bmapclean/BaiduPayment;",
@@ -915,7 +922,7 @@ def main() -> int:
                     default=Path(os.environ.get("ANDROID_SDK_ROOT")
                                  or os.environ.get("ANDROID_HOME")
                                  or Path(os.environ.get("LOCALAPPDATA", "")) / "Android" / "Sdk"))
-    ap.add_argument("--BuildToolsVersion")
+    ap.add_argument("--BuildToolsVersion", default="35.0.0", help="validated production toolchain (default: 35.0.0)")
     ap.add_argument("--LspatchJar", type=Path)
     ap.add_argument("--CacheDirectory", type=Path)
     ap.add_argument("--SignatureBypass", type=int, choices=[0, 1, 2, 3], default=2)

@@ -83,6 +83,45 @@ public final class ConfigBackupTest {
         check(rejected, "failed group commit is reported");
         check(amapBefore.equals(target.read(ConfigBackup.AMAP)), "earlier AMap write rolled back");
         check(baiduBefore.equals(target.read(ConfigBackup.BAIDU)), "partially applied failed Baidu write rolled back");
+        Map<String,Set<String>> cardSchema=new LinkedHashMap<>();
+        Set<String> cardKeys=new LinkedHashSet<>(Arrays.asList(FeedCardConfig.KEY,"feed_weather"));
+        cardKeys.addAll(Arrays.asList(FeedCardConfig.LEGACY_KEYS));
+        cardSchema.put(ConfigBackup.AMAP,cardKeys);
+        for(int bits=0;bits<8;bits++){
+            Memory oldCards=new Memory();oldCards.put(ConfigBackup.AMAP,"feed_weather",true);
+            JSONObject oldFlat=new JSONObject().put("feed_weather",true);
+            for(int i=0;i<FeedCardConfig.LEGACY_KEYS.length;i++){
+                boolean enabled=(bits&(1<<i))!=0;String key=FeedCardConfig.LEGACY_KEYS[i];
+                oldCards.put(ConfigBackup.AMAP,key,enabled);oldFlat.put(key,enabled);
+            }
+            JSONObject newExport=ConfigBackup.encode(oldCards,cardSchema,"fixture");
+            check(newExport.getJSONObject("groups").getJSONObject(ConfigBackup.AMAP).getBoolean(FeedCardConfig.KEY)==(bits!=0),"export records effective merged choice for old settings");
+            for(JSONObject oldBackup:new JSONObject[]{oldFlat,new JSONObject().put("_ver",2).put("groups",new JSONObject().put(ConfigBackup.AMAP,oldFlat))}){
+                Memory newer=new Memory();newer.put(ConfigBackup.AMAP,FeedCardConfig.KEY,bits==0);
+                newer.put(ConfigBackup.AMAP,"unrelated",true);
+                ConfigBackup.apply(newer,ConfigBackup.decode(oldBackup,cardSchema));
+                check(newer.read(ConfigBackup.AMAP).get(FeedCardConfig.KEY).equals(bits!=0),"old flat/versioned backup replaces stale merged preference");
+                check(Boolean.TRUE.equals(newer.read(ConfigBackup.AMAP).get("feed_weather"))&&Boolean.TRUE.equals(newer.read(ConfigBackup.AMAP).get("unrelated")),"migration preserves weather and unrelated values");
+            }
+        }
+        Memory cards=new Memory();cards.put(ConfigBackup.AMAP,FeedCardConfig.KEY,false);cards.put(ConfigBackup.AMAP,"feed_board",true);cards.put(ConfigBackup.AMAP,"feed_weather",true);
+        JSONObject cardExport=ConfigBackup.encode(cards,cardSchema,"fixture");
+        check(!cardExport.getJSONObject("groups").getJSONObject(ConfigBackup.AMAP).getBoolean(FeedCardConfig.KEY),"new explicit off dominates legacy on in export");
+        Memory restored=new Memory();ConfigBackup.apply(restored,ConfigBackup.decode(cardExport,cardSchema));
+        check(!FeedCardConfig.enabled(restored.read(ConfigBackup.AMAP)),"merged choice round trips without resurrecting old flags");
+        ConfigBackup.apply(restored,ConfigBackup.decode(new JSONObject().put(FeedCardConfig.KEY,JSONObject.NULL),cardSchema));
+        check(!FeedCardConfig.enabled(restored.read(ConfigBackup.AMAP))&&!restored.read(ConfigBackup.AMAP).containsKey("feed_board"),"explicit unset clears legacy fallback so reset remains off");
+        rejected=false;try{ConfigBackup.decode(new JSONObject().put(FeedCardConfig.KEY,"false"),cardSchema);}catch(IllegalArgumentException expected){rejected=true;}
+        check(rejected,"merged switch rejects non-boolean backup values");
+        cards.put(ConfigBackup.AMAP,FeedCardConfig.KEY,"false");
+        rejected=false;try{ConfigBackup.encode(cards,cardSchema,"fixture");}catch(IllegalArgumentException expected){rejected=true;}
+        check(rejected,"corrupted stored merged value is rejected during export instead of silently defaulting");
+        cards.put(ConfigBackup.AMAP,FeedCardConfig.KEY,false);
+        Map<String,Object> beforeCards=cards.read(ConfigBackup.AMAP);cards.failOnce=ConfigBackup.AMAP;
+        rejected=false;try{ConfigBackup.apply(cards,ConfigBackup.decode(new JSONObject().put("feed_content",true),cardSchema));}catch(IllegalStateException expected){rejected=true;}
+        check(rejected&&cards.read(ConfigBackup.AMAP).equals(beforeCards),"failed legacy import rolls back its generated merged key and legacy changes");
+        ConfigBackup.apply(cards,ConfigBackup.decode(new JSONObject().put("feed_weather",false),cardSchema));
+        check(Boolean.FALSE.equals(cards.read(ConfigBackup.AMAP).get(FeedCardConfig.KEY)),"weather-only partial backup does not replace the merged choice");
         System.out.println("PASS " + assertions + " backup assertions");
     }
 }

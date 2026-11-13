@@ -18,7 +18,7 @@ public abstract class XposedModule implements XposedInterface {
     public String getFrameworkName() { return null; }
     public String getFrameworkVersion() { return null; }
 
-    public void deoptimize(Executable target) { throw new AssertionError("stub"); }
+    public boolean deoptimize(Executable target) { throw new AssertionError("stub"); }
 
     /** 框架提供：同名 group 与模块 App 侧 XposedService 写入的 RemotePreferences 共享 */
     public android.content.SharedPreferences getRemotePreferences(String group) {

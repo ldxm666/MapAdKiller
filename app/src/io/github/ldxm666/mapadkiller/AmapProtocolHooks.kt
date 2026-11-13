@@ -4,6 +4,7 @@ import android.content.Context
 
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.util.Collections
@@ -23,6 +24,7 @@ object AmapProtocolHooks {
     private data class RequestScope(val path: String, val taxiHome: Boolean)
     private val requests: MutableMap<Any?, RequestScope> = Collections.synchronizedMap(WeakHashMap<Any, RequestScope>())
     private val reportedCards: MutableSet<String> = Collections.synchronizedSet(HashSet<String>())
+    private val reportedToolReads: MutableSet<String> = Collections.synchronizedSet(HashSet<String>())
 
     @JvmStatic
     fun compatible(cl: ClassLoader): Boolean {
@@ -46,6 +48,9 @@ object AmapProtocolHooks {
         val session = H.cls(cl, "com.autonavi.bundle.vui.llm.d")
         val callback = H.cls(cl, "com.autonavi.bundle.vui.api.ILLMSession\$Callback")
         if (callback == null) return
+        // Both verified 17.02 DEX variants store setSceneId's argument in String i.
+        // Read at start as well: ART may inline this tiny final setter on reload.
+        val sceneField = try { session?.getDeclaredField("i")?.takeIf { it.type == String::class.java }?.apply { isAccessible = true } } catch (_: Throwable) { null }
         H.hookSig(session, "setSceneId", "amap_stream_scope", object : XposedInterface.Hooker {
             override fun intercept(chain: XposedInterface.Chain): Any? {
                 sessions.put(chain.getThisObject(), "home_qs" == chain.getArg(0))
@@ -55,23 +60,25 @@ object AmapProtocolHooks {
         H.hookSig(session, "start", "amap_stream_start", object : XposedInterface.Hooker {
             override fun intercept(chain: XposedInterface.Chain): Any? {
                 val target = chain.getArg(0)
-                H.log("amap_stream scoped=" + (java.lang.Boolean.TRUE == sessions.get(chain.getThisObject())))
-                if (target == null || java.lang.Boolean.TRUE != sessions.get(chain.getThisObject())) return chain.proceed()
+                val scene = try { sceneField?.get(chain.getThisObject()) as? String } catch (_: Throwable) { null }
+                val scoped = isHomeStream(chain.getThisObject(), sceneField)
+                H.log("amap_stream scoped=" + scoped + if (Config.debugLog()) " scene=" + scene.orEmpty().take(64) else "")
+                if (target == null || !scoped) return chain.proceed()
                 val proxy = Proxy.newProxyInstance(cl, arrayOf<Class<*>>(callback), object : InvocationHandler {
                     override fun invoke(self: Any?, method: Method, args: Array<Any?>?): Any? {
                         var a = args
                         if ("onMessageReceived" == method.name && a != null && a.size == 1 && a[0] is JSONObject) {
                             val source = a[0] as JSONObject
+                            if (Config.debugLog()) traceHomeFrame(source)
                             var result: JSONObject? = source
                             try {
                                 result = AmapData.stream(source, AmapData.CURRENT)
                             } catch (e: Exception) {
                                 diagnose("stream", e)
                             }
-                            val component = source.optJSONObject("component")
-                            val extra = if (component == null) null else component.optJSONObject("extra_info")
-                            val name = if (extra == null) "terminal" else extra.optString("cardName")
-                            if (reportedCards.add(name)) H.log("amap_stream card=" + name + " keep=" + (result != null))
+                            val name = AmapData.cardName(source).ifEmpty { "terminal" }
+                            if (reportedCards.add(name)) H.log("amap_stream card=" + name +
+                                    " visible=" + AmapCardRules.visible(source, AmapData.CURRENT) + " forwarded=" + (result != null))
                             if (result == null) return null
                             a = arrayOf<Any?>(result)
                         }
@@ -87,28 +94,86 @@ object AmapProtocolHooks {
         }, callback)
     }
 
+    @JvmStatic fun isHomeStream(session: Any?, sceneField: Field?): Boolean {
+        val scene = try { sceneField?.get(session) as? String } catch (_: Throwable) { null }
+        return if (scene != null) scene == "home_qs" else java.lang.Boolean.TRUE == sessions[session]
+    }
+
+    private fun traceHomeFrame(frame: JSONObject) {
+        val component = frame.optJSONObject("component") ?: return
+        val name = AmapData.cardName(frame)
+        val identity = "schema|" + name + "|" + frame.opt("is_done") + "|" + component.opt("type")
+        if (!reportedCards.add(identity)) return
+        fun keys(node: JSONObject?): String = node?.keys()?.asSequence()?.toList()?.joinToString(",").orEmpty()
+        val extra = component.optJSONObject("extra_info") ?: component.optJSONObject("extraInfo")
+        H.log("amap_stream_schema name=$name root=[${keys(frame)}] component=[${keys(component)}]" +
+                " extra=[${keys(extra)}] data=[${keys(component.optJSONObject("data"))}]" +
+                " type=${component.opt("type")} done=${frame.opt("is_done")}" +
+                " more=${frame.opt("has_more")}/${frame.opt("hasMore")}")
+    }
+
     private fun installTools(cl: ClassLoader) {
         val storage = H.cls(cl, "com.autonavi.minimap.ajx3.modules.internalmodules.AjxModuleLocalStorage")
+        val module = H.cls(cl, "com.autonavi.minimap.ajx3.modules.AbstractModule")
+        val context = H.cls(cl, "com.autonavi.minimap.ajx3.context.IAjxContext")
+        val getContext = H.method(module, "getContext")
+        val getPath = H.method(context, "getJsPath")
+        val getNative = H.method(module, "getNativeContext")
         H.hookSig(storage, "getItemSync", "amap_tool_storage", object : XposedInterface.Hooker {
             override fun intercept(chain: XposedInterface.Chain): Any? {
                 val result = chain.proceed()
-                if ("toolbox" != chain.getArg(0) || result !is String) return result
+                if (result !is String) return result
                 try {
-                    return AmapData.storage(chain.getArg(1) as String, result, AmapData.CURRENT)
+                    if ("toolbox" != chain.getArg(0)) return AmapCardRules.cached(result, AmapData.CURRENT)
+                    val key = chain.getArg(1) as String
+                    if (key != "local_tool_list_for_xml_v2" && key != "recommendTools" && key != "choiceTools")
+                        return AmapData.storage(key, result, AmapData.CURRENT)
+                    val owner = getContext?.invoke(chain.getThisObject())
+                    val path = owner?.let { getPath?.invoke(it) as? String }
+                    val host = if (AmapData.homeToolPage(path)) getNative?.invoke(chain.getThisObject()) as? Context else null
+                    val out = AmapData.homeToolStorage(path, key, result, AmapData.CURRENT, host)
+                    if (Config.debugLog() && reportedToolReads.size < 24) {
+                        val ids = if (key == "local_tool_list_for_xml_v2") out?.let { AmapData.slotIds(JSONObject(it)) }.orEmpty() else ""
+                        val identity = "${AmapData.homeToolPage(path)}:$key:$ids"
+                        if (reportedToolReads.add(identity)) H.log("event=home_tool_storage home=${AmapData.homeToolPage(path)} key=$key ids=$ids")
+                    }
+                    return out
                 } catch (e: Exception) {
                     diagnose("tool_storage", e)
                     return result
                 }
             }
         }, String::class.java, String::class.java)
+        // The home JS normalizes its render list back into storage. Keep module additions
+        // virtual; real edits on ToolboxHomepage still persist through the native method.
+        H.hookSig(storage, "setItemInner", "amap_tool_home_write", object : XposedInterface.Hooker {
+            override fun intercept(chain: XposedInterface.Chain): Any? {
+                if (chain.getArg(0) != "toolbox" || chain.getArg(1) != "local_tool_list_for_xml_v2") return chain.proceed()
+                try {
+                    val owner = getContext?.invoke(chain.getThisObject())
+                    val path = owner?.let { getPath?.invoke(it) as? String }
+                    if (AmapData.virtualHomeToolWrite(path, chain.getArg(0) as? String, chain.getArg(1) as? String)) return true
+                } catch (e: Exception) { diagnose("tool_home_write", e) }
+                return chain.proceed()
+            }
+        }, String::class.java, String::class.java, Any::class.java)
         val callback = H.cls(cl, "com.autonavi.minimap.ajx3.core.JsFunctionCallback")
+        if (storage != null) for (method in storage.declaredMethods) {
+            val args = method.parameterTypes
+            if ((method.name == "setItemSync" && args.contentEquals(arrayOf(String::class.java, String::class.java, Any::class.java))) ||
+                    (method.name == "setItemASYNC" && args.size == 4 && args[0] == String::class.java &&
+                            args[1] == String::class.java && args[2] == Any::class.java && args[3] == callback)) {
+                try { H.module?.deoptimize(method) }
+                catch (e: Exception) { diagnose("tool_write_caller", e) }
+            }
+        }
         if (callback != null && storage != null) {
             try {
                 val callbackMethod = callback.getMethod("callback", Array<Any?>::class.java)
                 val getItem = storage.getMethod("getItemSync", String::class.java, String::class.java)
                 H.hookSig(storage, "getItemASYNC", "amap_tool_async", object : XposedInterface.Hooker {
                     override fun intercept(chain: XposedInterface.Chain): Any? {
-                        if ("toolbox" != chain.getArg(0) || chain.getArg(2) == null) return chain.proceed()
+                        if (chain.getArg(2) == null) return chain.proceed()
                         val value: Any?
                         try {
                             value = getItem.invoke(chain.getThisObject(), chain.getArg(0), chain.getArg(1))
@@ -116,6 +181,7 @@ object AmapProtocolHooks {
                             diagnose("tool_async_read", e)
                             return chain.proceed()
                         }
+                        if ("toolbox" != chain.getArg(0) && (value !is String || !value.contains("\"mapBizList\"") || !value.contains("\"cardList\""))) return chain.proceed()
                         try {
                             callbackMethod.invoke(chain.getArg(2), arrayOf<Any?>(arrayOf<Any?>(value)))
                         } catch (e: InvocationTargetException) {

@@ -1,6 +1,6 @@
 # 跨模块回归台账
 
-本台账包含 2.3.4 基线与 2.3.5 增量。变更入口、下游范围及验收命令须一起维护；静态扫描或单次编译成功不能代替行为验收。当前执行证据见 [VALIDATION-2.3.5.md](VALIDATION-2.3.5.md)，历史基线见 [2.3.4 记录](VALIDATION-2.3.4.md)。
+本台账包含 2.3.4 基线、2.3.5 与 2.3.6 增量。变更入口、下游范围及验收命令须一起维护；静态扫描或单次编译成功不能代替行为验收。当前执行证据见 [VALIDATION-2.3.6.md](VALIDATION-2.3.6.md)，历史基线见 [2.3.4 记录](VALIDATION-2.3.4.md)。
 
 ## 审查基准与范围
 
@@ -124,3 +124,17 @@ python tools/check_anchors.py --Apk path/to/tencent-11.7.0-6013.apk --Anchors to
 共享 native 或配置存储更改必须传播到五种生产模块；高德首页/广告更改传播到完整模块、国内/Play；腾讯入口更改传播到完整模块与腾讯内置模块。`tests/run-production.py` 读取实际 APK 内嵌模块，拒绝测试 DEX 覆盖生产类，并对照国内/Play 功能 DEX。
 
 每条实际命令记录退出码。失败、未运行、宿主版本未验证必须单独列出；不把未运行写成通过。修复后重跑对应模块及其下游；若再次发现缺陷并更改源码，旧产物和旧报告失效，须重新构建受影响变体。
+
+## 2.3.6 增量
+
+| 编号 | 不变量与回归入口 |
+| --- | --- |
+| TEST-AMAP-PLAY-236 | 实际 DEX 与方法签名、无关混淆类不挂、Context 就绪重读。AmapSplashTest、AmapConfigRefreshTest、AmapHostAnchorsProbe。 |
+| TEST-AMAP-ORDER-236 | ID 排序先于容量、图标跳转一致、更多末尾、关闭保留、失败回滚与备份。AmapToolOrderTest、AmapToolOrderBackupTest、OrderUiRegression。 |
+| TEST-AMAP-CARDS-236 | 四类＋打车的 32 组合；家／公司独立，HTTP／stream／cache 一致，保留结束信号与 mapBiz。AmapCardRulesTest（1320 项）、AmapDataTest。 |
+| TEST-BAIDU-HOME-236 | native half／hide 保留回调与边距，动画不重入，正常主页不改。BaiduHomeReselectTest（62 项）、BaiduTabRoutingTest、内置包真机。 |
+| TEST-AMAP-CRUISE-236 | 默认 false、最高优先级、待办与累计清理、手动保留。AmapCruiseTest（203 项）、自动速度回调锚点。 |
+| TEST-TMAP-BANNER-236 | 首页推广独立开关、原生清理图片动画和点击区域、保留其它原生提示、重新开启与刷新。TmapHomeBannerTest（73 项）；腾讯内置冷启动与容器检查。 |
+| TEST-PACKAGING-236 | Kotlin 裁剪和共享代码保留；ZIP 修复不改载荷；五套实际 DEX 无测试类覆盖。test_packaging.py、run-production.py。 |
+
+生产 DEX 共 88 组调用：完整模块 38、高德国内 17、Play 17、百度 10、腾讯 6。它不能代替各机型框架／免 Root 交互验收。实际通过与未验证项目见 2.3.6 验证记录。

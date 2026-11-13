@@ -16,8 +16,10 @@ object AmapData {
         fun enabled(key: String): Boolean
         fun selected(key: String): Boolean = enabled(key)
     }
+    interface OrderedSettings : Settings { fun toolOrder(): List<String> }
     @JvmField
-    val CURRENT: Settings = object : Settings {
+    val CURRENT: Settings = object : OrderedSettings {
+        override fun toolOrder(): List<String> = AmapToolOrder.current()
         override fun enabled(key: String): Boolean {
             // 热键走 volatile 读（零 map 查、零时间比较）；其余键保持原样。
             val hot = Config.hotFlag(key)
@@ -342,6 +344,61 @@ object AmapData {
         return out.toString()
     }
 
+    /** The live QS canvas reads local storage directly, bypassing the native factory.
+     * Reconcile only its render copy; More Tools must still see the original selection.
+     */
+    @JvmStatic
+    fun homeToolPage(path: String?): Boolean = path?.substringBefore('?')?.substringBefore('#') ==
+            "path://amap_bundle_quickservice/src/pages/QuickServiceRedesign.page.js"
+
+    @JvmStatic
+    fun virtualHomeToolWrite(path: String?, namespace: String?, key: String?): Boolean =
+            namespace == "toolbox" && key == "local_tool_list_for_xml_v2" && homeToolPage(path)
+
+    @JvmStatic
+    fun homeToolStorage(path: String?, key: String?, raw: String?, s: Settings, ctx: Context?): String? {
+        if (raw.isNullOrEmpty() || !homeToolPage(path))
+            return storage(key, raw, s)
+        if (key == "local_tool_list_for_xml_v2") {
+            val out = toolbox(JSONObject(raw), s, ctx)
+            // AJX reads king_switch itself; the native factory's empty sentinel does not apply.
+            return out.toString()
+        }
+        if (key != "recommendTools" && key != "choiceTools") return storage(key, raw, s)
+        val out = JSONObject(raw)
+        val list = out.optJSONArray(key) ?: return raw
+        // Runtime verification: recommendTools is this page's visible grid; choiceTools
+        // supplies the More Tools folder preview. Filling both duplicates grid tools into
+        // that preview, producing miniature icons and a recommendation badge. Keep the
+        // complete selected grid below; suppress only the disposable homepage preview.
+        if (key == "choiceTools") return out.put(key, JSONArray()).toString()
+        val items = readToolCatalog(ctx)
+        for (i in 0 until list.length()) list.optJSONObject(i)?.let { items[it.optString("id")] = it }
+        val source = try {
+            ctx?.getSharedPreferences("toolbox", Context.MODE_PRIVATE)
+                    ?.getString("local_tool_list_for_xml_v2", null)?.let { JSONObject(it) }
+        } catch (_: Exception) { null } ?: JSONObject().also { slots ->
+            for (i in 0 until list.length()) list.optJSONObject(i)?.let { writeSlotItem(slots, it, i) }
+            AmapToolCatalog.ENTRIES.firstOrNull { it[0] == MORE_TOOLS }?.let { writeSlot(slots, it, list.length()) }
+        }
+        val rendered = toolbox(source, s, ctx)
+        val selected = JSONArray()
+        // This AJX page always allocates its own final More cell before native binding,
+        // even when we hide it. Feeding ten regular cells creates an unsupported eleventh
+        // cell and duplicate bindings. Keep its reserved slot out of the render payload.
+        val capacity = HOME_SLOTS - 1
+        for (i in 0 until HOME_SLOTS) {
+            if (selected.length() >= capacity) break
+            val id = rendered.optString("id$i")
+            // AJX appends More itself. AmapHomeTools hides that exact cell when disabled.
+            if (id.isEmpty() || id == MORE_TOOLS) continue
+            val item = items[id] ?: AmapToolCatalog.ENTRIES.firstOrNull { it[0] == id }?.let { AmapToolCatalog.item(it) }
+            if (item != null) selected.put(JSONObject(item.toString()))
+        }
+        out.put(key, selected)
+        return out.toString()
+    }
+
     /**
      * 过滤云端「更多工具」目录 `tool_list_data`（120 KB 分类 JSON）。
      *
@@ -441,6 +498,8 @@ object AmapData {
     @JvmStatic
     @Throws(Exception::class)
     fun toolbox(source: JSONObject, s: Settings, fill: Boolean, maxSlots: Int): JSONObject {
+        val order = (s as? OrderedSettings)?.toolOrder().orEmpty()
+        if (order.isNotEmpty()) return orderedToolbox(source, s, fill, maxSlots, order, null)
         val kept = ArrayList<Int>()
         val scanLimit = if (maxSlots <= 0) 32 else Math.max(10, maxSlots)
         var count = 0
@@ -572,10 +631,17 @@ object AmapData {
     fun toolbox(source: JSONObject, s: Settings, ctx: Context?): JSONObject {
         val base = toolbox(source, s, false)
         if (ctx == null) return toolbox(source, s, true)
+        val host = readToolCatalog(ctx)
+        // Before the first catalogue fetch, use the verified built-in native routes.
+        if (host.isEmpty()) return toolbox(source, s, true)
+        return toolboxWithCatalog(source, s, base, host)
+    }
+
+    private fun readToolCatalog(ctx: Context?): MutableMap<String, JSONObject> {
         val host = java.util.HashMap<String, JSONObject>()
         try {
-            val raw = ctx.getSharedPreferences("toolbox", Context.MODE_PRIVATE)
-                    .getString("tool_list_data", null)
+            val raw = ctx?.getSharedPreferences("toolbox", Context.MODE_PRIVATE)
+                    ?.getString("tool_list_data", null)
             if (raw != null) {
                 val cats = JSONObject(raw).optJSONArray("category")
                 if (cats != null) for (i in 0 until cats.length()) {
@@ -589,6 +655,13 @@ object AmapData {
                 }
             }
         } catch (ignored: Throwable) {}
+        return host
+    }
+
+    private fun toolboxWithCatalog(source: JSONObject, s: Settings, base: JSONObject,
+            host: MutableMap<String, JSONObject>): JSONObject {
+        val order = (s as? OrderedSettings)?.toolOrder().orEmpty()
+        if (order.isNotEmpty()) return orderedToolbox(source, s, true, HOME_SLOTS, order, host)
         val kept = java.util.ArrayList<String>()
         for (i in 0 until 16) {
             if (!source.has("id" + i)) break
@@ -617,6 +690,53 @@ object AmapData {
         while (slot < HOME_SLOTS) blankSlot(out, slot++)
         if (kept.isEmpty() && extra.isEmpty()) out.put("king_switch", "0")
         moveMoreToolsLast(out)
+        applyColorIcons(out, host)
+        return out
+    }
+
+    /** Reconcile before truncation, moving the entire native slot/action together. */
+    private fun orderedToolbox(source: JSONObject, s: Settings, fill: Boolean, maxSlots: Int,
+            order: List<String>, host: Map<String, JSONObject>?): JSONObject {
+        val slots = LinkedHashMap<String, JSONObject>()
+        var count = 0
+        while (count < 64 && source.has("id$count")) {
+            val id = source.optString("id$count")
+            if (id.isNotEmpty() && toolKeep(id, s) && !skipSearchGrid(id) && !slots.containsKey(id)) {
+                val slot = JSONObject()
+                for (field in SLOT_FIELDS) if (source.has(field + count)) slot.put(field, source.opt(field + count))
+                slots[id] = slot
+            }
+            count++
+        }
+        if (fill) for (entry in AmapToolCatalog.ENTRIES) {
+            val id = entry[0]
+            if (slots.containsKey(id) || !toolFill(id, s) || skipSearchGrid(id)) continue
+            val item = host?.get(id)
+            if (host != null && item == null) continue
+            val temp = JSONObject()
+            if (item == null) writeSlot(temp, entry, 0) else {
+                mergeDefaultIcon(item, id)
+                writeSlotItem(temp, item, 0)
+            }
+            val slot = JSONObject()
+            for (field in SLOT_FIELDS) if (temp.has(field + "0")) slot.put(field, temp.opt(field + "0"))
+            slots[id] = slot
+        }
+        val sorted = AmapToolOrder.reconcile(order, slots.keys.toList())
+        val cap = if (maxSlots > 0) maxSlots else Math.max(count, sorted.size)
+        val more = sorted.contains(MORE_TOOLS)
+        val ids = sorted.filter { it != MORE_TOOLS }.take(Math.max(0, cap - if (more) 1 else 0)).toMutableList()
+        if (more && cap > 0) ids.add(MORE_TOOLS)
+        val out = JSONObject(source.toString())
+        val cells = Math.max(count, Math.max(ids.size, if (fill && maxSlots > 0) maxSlots else 0))
+        val pad = emptySlotTemplate(source, count)
+        for (i in 0 until cells) {
+            for (field in SLOT_FIELDS) out.remove(field + i)
+            val slot = if (i < ids.size) slots[ids[i]] else pad
+            if (slot == null) blankSlot(out, i)
+            else for (field in SLOT_FIELDS) if (slot.has(field)) out.put(field + i, slot.opt(field))
+        }
+        if (ids.isEmpty()) out.put("king_switch", "0")
         applyColorIcons(out, host)
         return out
     }
@@ -971,53 +1091,27 @@ object AmapData {
 
     @JvmStatic
     fun cardVisible(name: String?, s: Settings): Boolean {
-        val key = normalize(name)
-        if (key.isEmpty()) return true
-        if ("tipsranking" == key) return s.enabled(Config.K_FEED_BOARD)
-        if ("hourlyweather" == key || "weatherforecast" == key)
-            return s.enabled(Config.K_FEED_WEATHER)
-        if ("frequentlocations" == key || "frequentlocation" == key)
-            return s.enabled(Config.K_HOME_CHIPS)
-        if ("contentcenterfeed" == key) return s.enabled(Config.K_FEED_CONTENT)
-        // 「去哪里打车」卡（17.02 真机：LLM 流里 cardName=taxiQS，aiqs cardList 里
-        // dataType=ShareTripTaxiCard）——统一只认新键 K_TAXI_CARD。
-        // 不再看 K_RIDE_CARD_OFF：旧键是遗留开关，若继续参与判断，用户打开新开关后
-        // 只要旧键还是默认「开」，打车卡就永远出不来（17.02 真机实测就是这个现象）。
-        if ("taxiqs" == key || "taxiqsmarket" == key
-                || "sharetriptaxicard" == key) return s.enabled(Config.K_TAXI_CARD)
-        return true
+        return AmapCardRules.key(name)?.let { s.enabled(it) } ?: true
     }
 
-    /** Null drops only nonterminal cards; completion envelopes always reach the page. */
+    /** Preserve the stream sequence; remove only a hidden component's render payload. */
     @JvmStatic
     @Throws(Exception::class)
     fun stream(source: JSONObject, s: Settings): JSONObject? {
         if (source.optJSONObject("component") == null) return source
-        val name = cardName(source)
-        val terminal = source.optBoolean("is_done") || source.optBoolean("isDone")
-        // ★ 安全网（本次「炸开」修复的核心之一）：四个内容类开关全关时，推荐画布
-        // 只可能是为了「去哪里打车」卡才建的（AmapNativeHome.COMPACT 只认 K_TAXI_CARD）。
-        // 此时流里的每一张卡都不该出现 —— 不依赖 cardName 是否认识，一律丢弃。
-        // 这样即使 17.02 改了卡片名（cardVisible 认不出），也不可能出现"打车 ON ⇒
-        // 天气/榜单/内容流一起炸开"。
-        val anyFeed = s.enabled(Config.K_FEED_WEATHER) || s.enabled(Config.K_FEED_BOARD)
-                || s.enabled(Config.K_FEED_CONTENT) || s.enabled(Config.K_FEED_FESTIVAL)
-        if (!anyFeed && !terminal) return null
-        val hide = !cardVisible(name, s)
-        if (hide && !terminal) return null
-        val stopPaging = terminal && !s.enabled(Config.K_FEED_BOARD) && !s.enabled(Config.K_FEED_CONTENT)
-        if (!hide && !stopPaging) return source
+        val hide = !AmapCardRules.visible(source, s)
+        if (!hide) return source
         val out = JSONObject(source.toString())
-        if (hide) {
-            val empty = JSONObject()
-            empty.put("type", "markdown"); empty.put("text", ""); empty.put("is_done", true)
-            out.put("component", empty)
+        val component = out.getJSONObject("component")
+        val empty = JSONObject()
+        for (key in arrayOf("id", "extra_info", "extraInfo", "log_param")) {
+            if (component.has(key)) empty.put(key, component.get(key))
         }
-        if (stopPaging) {
-            // Writers disagree on the spelling; set both so whichever the reader uses is honoured.
-            out.put("has_more", false)
-            out.put("hasMore", false)
-        }
+        empty.put("type", "markdown"); empty.put("text", ""); empty.put("is_done", true)
+        out.put("component", empty)
+        // The AJX stream assembler waits for contiguous seq values. Dropping a taxi
+        // frame before hourlyWeather strands the weather even though it is enabled.
+        // Keep root seq/session/completion/pagination exactly as the server sent them.
         return out
     }
 

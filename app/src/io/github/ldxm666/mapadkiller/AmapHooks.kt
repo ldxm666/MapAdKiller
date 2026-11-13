@@ -50,7 +50,8 @@ object AmapHooks {
         defer("search_grid") { AmapSearchGrid.install(cl) }
         feature("home") { AmapNativeHome.install(cl) }
         feature("tabs") { AmapTabLayout.install(cl) }
-        defer("widgets") { AmapMapWidget.install(cl) }
+        // Cached activity widgets can show during the first home frame, before DEFER_MS.
+        feature("widgets") { AmapMapWidget.install(cl) }
         feature("labels") { AmapPoiLayer.install(cl) }
         feature("data") { AmapProtocolHooks.install(cl) }
         // 15.21.0.2038 专用：首页信息流 + 工具宫格（版本前缀匹配，17.02 不进入）。
