@@ -1,4 +1,4 @@
-package io.github.ldxm666.tmapclean;
+package org.navkit.tgeo;
 import android.content.SharedPreferences;
 import io.github.libxposed.api.XposedInterface;
 import java.lang.reflect.*;import java.util.*;

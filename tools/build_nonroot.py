@@ -27,7 +27,7 @@ MANAGER_SHA256 = "e93e34c5170831aad51b2035e3cd94a1c3b5298711189fabc359b566bc34ad
 RELEASE_URL = "https://github.com/JingMatrix/LSPatch/releases/tag/v1.2"
 SOURCE_COMMIT = "0dc50f42503711b14f5e2bb217c2bdd6321ce5be"
 LICENSE_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
-MODULE_PACKAGE = "io.github.ldxm666.mapadkiller"
+MODULE_PACKAGE = "org.navkit.geoassist"
 TARGETS = {"com.autonavi.minimap": "AMap", "com.baidu.BaiduMap": "BaiduMap"}
 CONFIG_ENTRY = "assets/lspatch/config.json"
 MODULE_ENTRY = f"assets/lspatch/modules/{MODULE_PACKAGE}.apk"
@@ -68,7 +68,7 @@ def pinned_download(directory: Path, name: str, expected_sha256: str, source_url
     destination = directory / name
     if not destination.exists():
         url = source_url or f"https://github.com/JingMatrix/LSPatch/releases/download/{TAG}/{name}"
-        request = urllib.request.Request(url, headers={"User-Agent": "MapAdKiller-nonroot-build"})
+        request = urllib.request.Request(url, headers={"User-Agent": "Mapadkiller-nonroot-build"})
         temporary = destination.with_suffix(destination.suffix + ".download")
         try:
             with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as output:
@@ -369,7 +369,7 @@ def main() -> None:
                                   f"https://raw.githubusercontent.com/JingMatrix/LSPatch/{SOURCE_COMMIT}/LICENSE")
     output.mkdir(parents=True, exist_ok=True)
     records = []
-    with tempfile.TemporaryDirectory(prefix="mapclean-nonroot-", dir=output) as temporary:
+    with tempfile.TemporaryDirectory(prefix="nk-nonroot-", dir=output) as temporary:
         module_snapshot = Path(temporary) / "input" / module.name
         module_snapshot.parent.mkdir()
         shutil.copy2(module, module_snapshot)
@@ -378,7 +378,7 @@ def main() -> None:
         for original in originals:
             package = badging(original, build_tools)["package"]
             destination = output / (f"{TARGETS[package]}-{badging(original, build_tools)['versionName']}"
-                                    f"-MapAdKiller-{module_info['versionName']}-{args.Mode}.apk")
+                                    f"-Mapadkiller-{module_info['versionName']}-{args.Mode}.apk")
             if not args.VerifyOnly:
                 command = [args.Java, "-Xmx2g", "-jar", cli, "-o", temporary, "-l", str(args.SignatureBypass)]
                 command += ["--manager"] if args.Mode == "manager" else ["-m", module_snapshot]
@@ -402,7 +402,7 @@ def main() -> None:
             manager_destination = output / MANAGER_NAME
             if manager != manager_destination:
                 shutil.copy2(manager, manager_destination)
-            shutil.copy2(module_snapshot, output / f"MapAdKiller-{module_info['versionName']}-settings.apk")
+            shutil.copy2(module_snapshot, output / f"Mapadkiller-{module_info['versionName']}-settings.apk")
             verify_signature(manager_destination, args.Java, build_tools)
     report = {"lspatchRelease": RELEASE_URL, "lspatchCliSha256": CLI_SHA256,
               "lspatchSource": f"https://github.com/JingMatrix/LSPatch/tree/{SOURCE_COMMIT}",

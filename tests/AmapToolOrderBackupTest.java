@@ -1,8 +1,8 @@
-package io.github.ldxm666.mapadkiller;
+package org.navkit.geoassist;
 import java.util.*;
 import org.json.*;
-import io.github.ldxm666.mapclean.ConfigBackup;
-import io.github.ldxm666.mapclean.ToolOrderCodec;
+import org.navkit.core.ConfigBackup;
+import org.navkit.core.ToolOrderCodec;
 public class AmapToolOrderBackupTest {
     static int checks;
     static void check(boolean ok,String message){checks++;if(!ok)throw new AssertionError(message);}

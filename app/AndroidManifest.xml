@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.github.ldxm666.mapadkiller"
-    android:versionCode="23060"
-    android:versionName="2.3.6">
+    package="org.navkit.geoassist"
+    android:versionCode="23070"
+    android:versionName="2.3.7">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
 
@@ -26,9 +26,9 @@
     </queries>
 
     <application
-        android:name="io.github.ldxm666.mapclean.App"
+        android:name="org.navkit.core.App"
         android:extractNativeLibs="false"
-        android:label="MapAdKiller"
+        android:label="Mapadkiller"
         android:description="@string/description"
         android:icon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -36,12 +36,12 @@
         <!--
             设置页（v2.0.0 起是**左右滑动分页**：百度地图 / 高德地图 / 其他）。
             CATEGORY_INFO 供 LSPosed 管理器解析入口；显式组件名供 adb 拉起：
-              adb shell am start -n io.github.ldxm666.mapclean/.MainActivity
+              adb shell am start -n org.navkit.core/.MainActivity
         -->
         <activity
-            android:name="io.github.ldxm666.mapclean.MainActivity"
+            android:name="org.navkit.core.MainActivity"
             android:exported="true"
-            android:label="MapAdKiller">
+            android:label="Mapadkiller">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.INFO" />
@@ -52,9 +52,9 @@
         <!-- 桌面入口：开/关由 App.setHideIcon() 通过 setComponentEnabledSetting 切换 -->
         <activity-alias
             android:name=".DesktopAlias"
-            android:targetActivity="io.github.ldxm666.mapclean.MainActivity"
+            android:targetActivity="org.navkit.core.MainActivity"
             android:exported="true"
-            android:label="MapAdKiller"
+            android:label="Mapadkiller"
             android:icon="@drawable/ic_launcher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -64,10 +64,10 @@
 
         <!-- 快捷设置磁贴（来自 MapAdKiller v1.1.0） -->
         <service
-            android:name="io.github.ldxm666.mapadkiller.SettingsTile"
+            android:name="org.navkit.geoassist.SettingsTile"
             android:exported="true"
             android:icon="@drawable/ic_launcher"
-            android:label="MapAdKiller"
+            android:label="Mapadkiller"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
@@ -75,21 +75,21 @@
         </service>
 
         <receiver
-            android:name="io.github.ldxm666.mapadkiller.LearnedReceiver"
+            android:name="org.navkit.geoassist.LearnedReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="io.github.ldxm666.mapadkiller.LEARNED" />
+                <action android:name="org.navkit.geoassist.SYNC_DATA" />
             </intent-filter>
         </receiver>
 
         <provider
-            android:name="io.github.ldxm666.mapadkiller.LearnedProvider"
-            android:authorities="io.github.ldxm666.mapadkiller.learned"
+            android:name="org.navkit.geoassist.LearnedProvider"
+            android:authorities="org.navkit.geoassist.store"
             android:exported="true" />
 
         <provider
             android:name="io.github.libxposed.service.XposedProvider"
-            android:authorities="io.github.ldxm666.mapadkiller.XposedService"
+            android:authorities="org.navkit.geoassist.XposedService"
             android:exported="true" />
 
         <!--
@@ -103,18 +103,18 @@
             以为抓取一直失败。
         -->
         <receiver
-            android:name="io.github.ldxm666.mapadkiller.CaptureReportReceiver"
+            android:name="org.navkit.geoassist.CaptureReportReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="io.github.ldxm666.mapadkiller.CAPTURE_STATUS" />
+                <action android:name="org.navkit.geoassist.TRACE_STATUS" />
             </intent-filter>
         </receiver>
 
         <receiver
-            android:name="io.github.ldxm666.bmapclean.ReportReceiver"
+            android:name="org.navkit.bgeo.ReportReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="io.github.ldxm666.bmapclean.REPORT" />
+                <action android:name="org.navkit.bgeo.SYNC" />
             </intent-filter>
         </receiver>
 
@@ -123,10 +123,10 @@
             腾讯的工具列表由服务端下发，安装包里没有静态目录，只能从真实进程里学回来。
         -->
         <receiver
-            android:name="io.github.ldxm666.tmapclean.ReportReceiver"
+            android:name="org.navkit.tgeo.ReportReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="io.github.ldxm666.tmapclean.REPORT" />
+                <action android:name="org.navkit.tgeo.SYNC" />
             </intent-filter>
         </receiver>
     </application>

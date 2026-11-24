@@ -1,4 +1,4 @@
-# MapClean (BMapClean x MapAdKiller) module build (offline toolchain, libxposed API 102)
+﻿# MapClean (BMapClean x MapAdKiller) module build (offline toolchain, libxposed API 102)
 #
 # 自包含：源码/资源/元数据全部取自本脚本所在目录，产物落到本目录 dist\ 与仓库 output\。
 # 临时构建目录必须 ASCII —— aapt2/d8 在非 ASCII 路径上会失败（见 MapAdKiller build.ps1 同款坑）。
@@ -49,7 +49,7 @@ try { New-Item -ItemType Directory -Force -Path $srcRoot -ErrorAction Stop | Out
 $src = Join-Path $srcRoot ("bc" + $stamp + "-" + [guid]::NewGuid().ToString("N").Substring(0,8))
 New-Item -ItemType Directory -Force -Path "$src\build\stubs","$src\build\classes","$src\build\dex","$src\build\out" | Out-Null
 $srcTree = if ($SrcOverride -and (Test-Path $SrcOverride)) { $SrcOverride } else { "$App\src" }
-if (-not (Test-Path "$srcTree\io")) { throw "source tree not found: $srcTree" }
+if (-not (Test-Path "$srcTree\org")) { throw "source tree not found: $srcTree" }
 # 注意：源目录名必须落到 $src\src（脚本后续按 $src\src 取源码），
 # 所以不能用 -Destination $src 直接拷目录（那会变成 $src\module-src）。
 New-Item -ItemType Directory -Force -Path "$src\src" | Out-Null
@@ -61,15 +61,15 @@ if (-not (Test-Path "$src\AndroidManifest.xml")) { throw "copy failed" }
 # 产物名按 Version.NAME 动态生成 —— 这里曾经硬编码 v2.1.6，改版本号时漏改就会
 # 把新版本号写进内容、却仍然输出旧文件名的 APK（发布时极易传错包）。
 # 版本号来源可能是 Version.java 也可能是 Version.kt（转译后）—— 两处都试。
-$verFile = @("$src\src\io\github\ldxm666\mapclean\Version.kt",
-             "$src\src\io\github\ldxm666\mapclean\Version.java") |
+$verFile = @("$src\src\org\navkit\core\Version.kt",
+             "$src\src\org\navkit\core\Version.java") |
         Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $verFile) { throw "Version.java / Version.kt not found" }
 $verText = [System.IO.File]::ReadAllText($verFile)
 if ($verText -notmatch 'NAME\s*(?::\s*String\s*)?=\s*"([^"]+)"') { throw "cannot parse Version.NAME from $verFile" }
 $VerName = $Matches[1]
 if ($VerName -notmatch '^\d+(\.\d+)+([.-][A-Za-z0-9]+)*$') { throw "unexpected Version.NAME: $VerName" }
-$LspName = "MapClean-lsp-v$VerName.apk"
+$LspName = "Mapadkiller-lsp-v$VerName.apk"
 Write-Host "module version = $VerName  ->  output $LspName"
 
 $EAP = $ErrorActionPreference
@@ -143,11 +143,11 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$src\build\dex\classes.dex")) { thr
 # 这里直接在 DEX 里查类型描述符，编译期就把它钉死。
 $dexText = [System.Text.Encoding]::GetEncoding(28591).GetString(
     [System.IO.File]::ReadAllBytes("$src\build\dex\classes.dex"))
-foreach ($symbol in @("Lio/github/ldxm666/bmapclean/MainHook;",
-                      "Lio/github/ldxm666/bmapclean/App;",
-                      "Lio/github/ldxm666/tmapclean/MainHook;",
-                      "Lio/github/ldxm666/tmapclean/App;",
-                      "Lio/github/ldxm666/mapadkiller/TmapHooks;")) {
+foreach ($symbol in @("Lorg/navkit/bgeo/MainHook;",
+                      "Lorg/navkit/bgeo/App;",
+                      "Lorg/navkit/tgeo/MainHook;",
+                      "Lorg/navkit/tgeo/App;",
+                      "Lorg/navkit/geoassist/TmapHooks;")) {
     if (-not $dexText.Contains($symbol)) {
         throw "dispatcher regression: $symbol is not referenced any more - the corresponding map app would silently stop working"
     }
@@ -211,37 +211,44 @@ Write-Host "[6/7] zipalign + sign v1+v2+v3"
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$src\build\out\module-aligned.apk")) { throw "16 KB zipalign failed" }
 & "$Bt\zipalign.exe" -c -P 16 4 "$src\build\out\module-aligned.apk"
 if ($LASTEXITCODE -ne 0) { throw "16 KB zipalign verification failed" }
-# ── 签名密钥：绝不自动生成 ─────────────────────────────────────────────────
-# 曾经这里是「没有就 keytool -genkeypair 生成一个」，结果 2.2.2 那次构建时
-# app\debug.keystore 丢失 ⇒ 悄悄换了密钥 ⇒ 老用户（≤2.2.1，证书 cbecdaeb…）
-# 无法覆盖升级（INSTALL_FAILED_UPDATE_INCOMPATIBLE）。现在缺密钥/密钥不符都直接失败。
-$ks = "$App\debug.keystore"
-$ksExpected = "cbecdaeb31836c4ab2ffe9271b47148810d1335f3a70782dc9d2d29d986554ed"
-if (-not (Test-Path $ks)) {
-    throw ("签名密钥库缺失: $ks`n不要新建！请恢复固定密钥（证书 SHA-256 = $ksExpected），" +
-           "否则老用户无法覆盖升级。历史副本示例: work\MapAdKiller-2.1.6\debug.keystore")
-}
-$ksInfo = & $Keytool -list -v -keystore $ks -storepass android 2>&1 | Out-String
-$ksMatch = [regex]::Match($ksInfo, 'SHA256:\s*([0-9A-Fa-f:]{95})')
-if ($ksMatch.Success) {
-    $ksHex = ($ksMatch.Groups[1].Value -replace ':', '').ToLower()
-    if ($ksHex -ne $ksExpected) {
-        throw ("签名密钥库证书不匹配！`n  实际: $ksHex`n  期望: $ksExpected`n" +
-               "用错密钥会让老用户无法覆盖升级，构建已中止。")
+# ── 签名密钥：必须命中本地 .keys/module-release.jks ─────────────────────────
+$ks = Join-Path $Repo ".keys\module-release.jks"
+$ksExpected = "d22c658646a73aa151b19577b2e6e7ae8b981bb0ddca77ddc719648fe50dd51f"
+if (-not $env:NAVKIT_MOD_KS_PASS) {
+    $envFile = Join-Path $Repo ".keys\local.env"
+    if (Test-Path $envFile) {
+        foreach ($line in [System.IO.File]::ReadAllLines($envFile)) {
+            if ($line -match '^NAVKIT_MOD_KS_PASS=(.+)$') { $env:NAVKIT_MOD_KS_PASS = $Matches[1] }
+        }
     }
 }
-cmd /c "`"$Bt\apksigner.bat`" sign --ks `"$ks`" --ks-pass pass:android --key-pass pass:android --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out `"$src\build\out\BMapClean.apk`" `"$src\build\out\module-aligned.apk`" > `"$src\build\sign.log`" 2>&1"
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$src\build\out\BMapClean.apk")) { Get-Content "$src\build\sign.log"; throw "apksigner sign failed" }
-cmd /c "`"$Bt\apksigner.bat`" verify --print-certs `"$src\build\out\BMapClean.apk`" >> `"$src\build\sign.log`" 2>&1"
+if (-not (Test-Path $ks)) {
+    throw "module keystore missing: $ks"
+}
+if (-not $env:NAVKIT_MOD_KS_PASS) {
+    throw "NAVKIT_MOD_KS_PASS not set and .keys\local.env missing"
+}
+$ksInfo = & $Keytool -list -v -keystore $ks -storepass:env NAVKIT_MOD_KS_PASS 2>&1 | Out-String
+$ksMatch = [regex]::Match($ksInfo, 'SHA256:\s*([0-9A-Fa-f:]{95})')
+if (-not $ksMatch.Success) {
+    throw "failed to inspect module keystore SHA-256 fingerprint"
+}
+$ksHex = ($ksMatch.Groups[1].Value -replace ':', '').ToLower()
+if ($ksHex -ne $ksExpected) {
+    throw "module keystore SHA-256 mismatch: actual=$ksHex expected=$ksExpected"
+}
+cmd /c "`"$Bt\apksigner.bat`" sign --ks `"$ks`" --ks-pass env:NAVKIT_MOD_KS_PASS --key-pass env:NAVKIT_MOD_KS_PASS --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out `"$src\build\out\Mapadkiller.apk`" `"$src\build\out\module-aligned.apk`" > `"$src\build\sign.log`" 2>&1"
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$src\build\out\Mapadkiller.apk")) { Get-Content "$src\build\sign.log"; throw "apksigner sign failed" }
+cmd /c "`"$Bt\apksigner.bat`" verify --print-certs `"$src\build\out\Mapadkiller.apk`" >> `"$src\build\sign.log`" 2>&1"
 if ($LASTEXITCODE -ne 0) { Get-Content "$src\build\sign.log"; throw "apksigner verification failed" }
 Get-Content "$src\build\sign.log" -ErrorAction SilentlyContinue | Select-Object -First 10
-& "$Bt\zipalign.exe" -c -P 16 4 "$src\build\out\BMapClean.apk"
+& "$Bt\zipalign.exe" -c -P 16 4 "$src\build\out\Mapadkiller.apk"
 if ($LASTEXITCODE -ne 0) { throw "signed APK 16 KB alignment verification failed" }
 
 Write-Host "[7/7] dist"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 New-Item -ItemType Directory -Force -Path $Rel | Out-Null
-Copy-Item "$src\build\out\BMapClean.apk" "$Out\BMapClean.apk" -Force
-Copy-Item "$src\build\out\BMapClean.apk" "$Rel\$LspName" -Force
+Copy-Item "$src\build\out\Mapadkiller.apk" "$Out\Mapadkiller.apk" -Force
+Copy-Item "$src\build\out\Mapadkiller.apk" "$Rel\$LspName" -Force
 Get-Item "$Rel\$LspName" | Select-Object FullName,Length
 Write-Host "BUILD OK src=$src"

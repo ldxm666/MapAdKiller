@@ -21,7 +21,7 @@ static std::vector<Call> calls;
 static int assertions=0;
 static bool failReplacement=false;
 static const char *source="/original/cfg/a/mode_1/map.sty";
-static const char *replacement="/private/code_cache/mcpoi/test/mode_1/map.sty";
+static const char *replacement="/private/code_cache/nkpoi/test/mode_1/map.sty";
 static void check(bool condition,const char *name){
     assertions++;if(!condition){std::fprintf(stderr,"FAIL %s\n",name);std::exit(1);}
 }

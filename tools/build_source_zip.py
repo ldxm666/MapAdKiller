@@ -31,11 +31,11 @@ def source_files(source: Path):
     dependencies = verify_dependency_jars(source)
     jars = {"app/libs/" + item["localJar"] for item in dependencies["artifacts"]}
     libs = jars | {"app/libs/README-aidl.md", "app/libs/dependencies.json", "app/libs/kotlin-stdlib-1.9.23.jar"}
-    libs |= {f"app/libs/{abi}/libmapclean_labels.so" for abi in NATIVE_ABIS}
-    # libamapbldpatch.so is this project's own single-translation-unit build of
+    libs |= {f"app/libs/{abi}/libnavkit_style.so" for abi in NATIVE_ABIS}
+    # libnavkit_geom.so is this project's own single-translation-unit build of
     # app/native/amap_buildings.c. Shipping it keeps the package buildable without an NDK;
     # rebuild it with `python app/native/build_buildings.py` after touching the .c.
-    libs |= {"app/libs/arm64-v8a/libamapbldpatch.so"}
+    libs |= {"app/libs/arm64-v8a/libnavkit_geom.so"}
     for path in sorted(source.rglob("*")):
         if not path.is_file():
             continue
@@ -56,10 +56,10 @@ def source_files(source: Path):
             if name not in libs:
                 raise ValueError("Unexpected native library in source package")
             # inspect_elf enforces the Xposed Modern-Native-Hook contract (exported
-            # native_init). libmapclean_labels.so is the only library that contract
-            # applies to; libamapbldpatch.so is a plain JNI library loaded by the
+            # native_init). libnavkit_style.so is the only library that contract
+            # applies to; libnavkit_geom.so is a plain JNI library loaded by the
             # module's own System.loadLibrary call and has no native_init export.
-            if name.endswith("/libmapclean_labels.so"):
+            if name.endswith("/libnavkit_style.so"):
                 inspect_elf(path.read_bytes())
         # Reject accidental GitHub credentials without echoing their contents.
         if path.suffix.lower() in {".md", ".kt", ".java", ".py", ".ps1", ".sh", ".json", ".properties", ".txt", ".cpp", ".h", ".c", ".xml", ".prop", ".cjs"}:
@@ -81,9 +81,9 @@ def main():
                 "app/native/native_hook_dispatch.h", "app/native/baidu_file_assets.h",
                 "app/native/build.py", "app/META-INF/xposed/java_init.list", "app/META-INF/xposed/native_init.list",
                 "app/libs/api-102.0.0.jar", "app/libs/service-classes.jar", "app/libs/interface-102.0.0.jar",
-                "app/libs/kotlin-stdlib-1.9.23.jar", "tools/variant-stubs/io/github/ldxm666/mapclean/BaiduPanel.java",
+                "app/libs/kotlin-stdlib-1.9.23.jar", "tools/variant-stubs/org/navkit/core/BaiduPanel.java",
                 "app/native/vendor/zstd/LICENSE", "app/native/vendor/zstd/COPYING"}
-    required |= {f"app/libs/{abi}/libmapclean_labels.so" for abi in NATIVE_ABIS}
+    required |= {f"app/libs/{abi}/libnavkit_style.so" for abi in NATIVE_ABIS}
     if not required.issubset(names):
         raise ValueError(f"Required source/dependency files missing: {sorted(required - names)}")
     manifest = {"sourceFiles": len(files), "files": [{"path": name, "sha256": sha256(path)} for path, name in files],
@@ -98,14 +98,14 @@ def main():
     try:
         with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for path, name in files:
-                archive.write(path, "MapAdKiller-source/" + name)
+                archive.write(path, "Mapadkiller-source/" + name)
             archive.writestr("SOURCE_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         with zipfile.ZipFile(temporary) as archive:
             failed = archive.testzip()
             if failed is not None:
                 raise ValueError(f"ZIP integrity failed: {failed}")
             for record in manifest["files"]:
-                data = archive.read("MapAdKiller-source/" + record["path"])
+                data = archive.read("Mapadkiller-source/" + record["path"])
                 if hashlib.sha256(data).hexdigest() != record["sha256"]:
                     raise ValueError(f"Source content changed while packaging: {record['path']}")
         temporary.replace(target)

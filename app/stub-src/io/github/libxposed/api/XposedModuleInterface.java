@@ -40,7 +40,7 @@ public interface XposedModuleInterface {
         // 运行时的 XposedModuleInterface$PackageReadyParam 没有这个方法，调用即：
         //   java.lang.NoSuchMethodError: No interface method
         //       getApplication()Landroid/app/Application;
-        //     at io.github.ldxm666.bmapclean.MainHook.onPackageReady(MainHook.java:60)
+        //     at org.navkit.bgeo.MainHook.onPackageReady(MainHook.java:60)
         // v0.1.1 真机实测：异常被自己的 catch 吞成 install_failed，
         // 表现与"模块没启用"完全一样。
         // 需要 Context 时改用 Instrumentation#callApplicationOnCreate(Application) 的入参

@@ -26,51 +26,51 @@ import os
 import shutil
 import sys
 
-# ── 模块版要删掉的「免 root 内置版专属」文件（相对包根 io/github/ldxm666/）──────
+# ── 模块版要删掉的「免 root 内置版专属」文件（相对包根 org/navkit/）──────
 # 每一条都经过依赖核实，见 MODULE_DROP_REASONS。
 MODULE_DROP = [
     # ── 悬浮面板 UI 本体（79 KB：外观页 / 省电页 / 头像徽章 / 滑块全部在内）──
     # 数据类型已抽到 mapclean/PanelTypes.java，被 AmapPanel/BaiduPanel/TmapPanel 使用，
     # 所以删掉 FloatingPanel 不会影响任何保留代码（已 javac 验证）。
-    "mapclean/FloatingPanel.java",
-    "mapclean/FloatingBall.java",
-    "mapclean/FloatingController.java",
-    "mapclean/FloatingHooks.java",
+    "core/FloatingPanel.java",
+    "core/FloatingBall.java",
+    "core/FloatingController.java",
+    "core/FloatingHooks.java",
     # GlassSlider is shared with standalone MainActivity; it is not embedded-only.
     # AvatarAsset / GithubMark are kept: the module settings page shows the author
     # avatar and the GitHub logo on its home/about tabs now.
-    "mapclean/AvatarBadge.java",
-    "mapadkiller/AmapMineEntry.java",
+    "core/AvatarBadge.java",
+    "geoassist/AmapMineEntry.java",
     # 百度版的长按「我的」入口：同样是内置版专属（模块模式用模块 App 的设置页）。
-    "mapclean/BaiduMineEntry.java",
-    "tmapclean/TmapEntry.java",
+    "core/BaiduMineEntry.java",
+    "tgeo/TmapEntry.java",
 ]
 
 # 删除理由 + 依赖核实结论（写进构建日志，方便以后复核）
 MODULE_DROP_REASONS = {
-    "mapclean/FloatingHooks.java":
+    "core/FloatingHooks.java":
         "唯一调用点 MainHook:122 FloatingHooks.install(mod,pkg,true) -> 用 stub 空操作",
-    "mapclean/FloatingController.java":
+    "core/FloatingController.java":
         "调用点 FloatingConfig:384 / FloatingPanel:1982 setEnabled(...) -> 用 stub 空操作",
-    "mapclean/FloatingBall.java":
+    "core/FloatingBall.java":
         "调用点 FloatingPanel 的 ball.setSizeDp/setAlphaPercent -> 用 stub 空方法",
-    "mapadkiller/AmapMineEntry.java":
+    "geoassist/AmapMineEntry.java":
         "唯一调用点 AmapHooks:23 AmapMineEntry.install(cl) -> 用 stub 空操作",
 }
 
 # ── 删完**必须还在**的文件（root 用户的唯一入口 + 核心设施）──────────────────
 KEEP_GUARD = [
-    "mapclean/MainActivity.java",   # root 用户从桌面图标进的设置页
-    "mapclean/PanelTypes.java",     # 面板数据类型（模块版必须保留）
-    "mapclean/FloatingConfig.java",  # 悬浮窗配置键（被 AmapPanel/FloatingPanel 用，保留）
-    "mapclean/UpdateChecker.java",  # 更新检查
-    "mapclean/AmapPanel.java",      # 面板（MainActivity 也用）
-    "mapclean/FeedCardConfig.java", # weather/non-weather switch migration and read rule
-    "mapadkiller/Config.java",      # 配置后端（远程/本地/none）
-    "mapadkiller/HostInfo.java",    # 宿主签名 + isEmbedded()
-    "mapadkiller/MainHook.java",    # 框架入口
-    "mapadkiller/AmapData.java",    # 协议适配
-    "mapclean/GlassSlider.java",
+    "core/MainActivity.java",   # root 用户从桌面图标进的设置页
+    "core/PanelTypes.java",     # 面板数据类型（模块版必须保留）
+    "core/FloatingConfig.java",  # 悬浮窗配置键（被 AmapPanel/FloatingPanel 用，保留）
+    "core/UpdateChecker.java",  # 更新检查
+    "core/AmapPanel.java",      # 面板（MainActivity 也用）
+    "core/FeedCardConfig.java", # weather/non-weather switch migration and read rule
+    "geoassist/Config.java",      # 配置后端（远程/本地/none）
+    "geoassist/HostInfo.java",    # 宿主签名 + isEmbedded()
+    "geoassist/MainHook.java",    # 框架入口
+    "geoassist/AmapData.java",    # 协议适配
+    "core/GlassSlider.java",
 ]
 
 
@@ -78,21 +78,21 @@ KEEP_GUARD = [
 # ── 模块版要**删掉的调用行**（删掉这些行后，被删类就不再需要 stub 顶替）──────────
 # 每一条都是「保留代码里对被删类的唯一调用点」，删掉后整个类名从产物里彻底消失。
 LINE_DROP = [
-    ("mapclean/MainHook.java",
+    ("core/MainHook.java",
      r"FloatingHooks\.install\("),
-    ("mapadkiller/MainHook.java",
+    ("geoassist/MainHook.java",
      r"FloatingHooks\.install\("),
-    ("mapadkiller/AmapHooks.java",
+    ("geoassist/AmapHooks.java",
      r"AmapMineEntry\.install\("),
-    ("mapclean/MainHook.java",
+    ("core/MainHook.java",
      r"BaiduMineEntry\.install\("),
-    ("mapclean/App.java",
+    ("core/App.java",
      r"FloatingController\.refreshEnabled\("),
-    ("mapclean/FloatingConfig.java",
+    ("core/FloatingConfig.java",
      r"FloatingController\.setEnabled\("),
-    ("mapclean/FloatingPanel.java",
+    ("core/FloatingPanel.java",
      r"FloatingController\.setEnabled\("),
-    ("tmapclean/TmapTabBar.java", r"TmapEntry\.bind\("),
+    ("tgeo/TmapTabBar.java", r"TmapEntry\.bind\("),
 ]
 
 def source_path(root, rel):
@@ -104,7 +104,7 @@ def source_path(root, rel):
     return alternate if os.path.isfile(alternate) else path
 
 def pkg_root(src):
-    """定位包根：src 下应当有 io/github/ldxm666。"""
+    """定位包根：src 下应当有 org/navkit。"""
     cand = os.path.join(src, "io", "github", "ldxm666")
     if os.path.isdir(cand):
         return cand

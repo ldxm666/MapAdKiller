@@ -4,7 +4,7 @@
 
 **高德、百度、腾讯地图的广告精简与界面定制。**
 
-[![Version](https://img.shields.io/badge/version-2.3.6-2ea44f?style=flat-square)](docs/RELEASE-2.3.6.md)
+[![Version](https://img.shields.io/badge/version-2.3.7-2ea44f?style=flat-square)](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.7)
 [![libxposed](https://img.shields.io/badge/libxposed-API%20102-0969da?style=flat-square)](https://github.com/libxposed/api)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square)](LICENSE)
 [![Telegram 交流群](https://img.shields.io/badge/Telegram-交流群-26A5E4?style=flat-square)](https://t.me/MapAdkiller)
@@ -14,18 +14,26 @@
 
 ## 当前版本
 
-**2.3.6 · versionCode 23060 · 2026-11-14**。模块与四种内置包统一更新。支持免 root 内置版和现代 Xposed 模块版，各地图单独配置，可备份与恢复。
+**2.3.7 · versionCode 23070 · 2026-11-25**。模块与高德/百度/腾讯国内版三种免 root 内置包统一更新，Release 同时附带三份官方原版未修改地图安装包供对照或搭配模块使用。支持免 root 内置版和现代 Xposed 模块版，各地图单独配置，可备份与恢复。
 
 | 地图 | 包名 | 本轮适配基线 |
 | --- | --- | --- |
-| 高德国内版 | `com.autonavi.minimap` | 17.02.0.2010 |
-| 高德 Google Play 版 | `com.autonavi.minimap` | 17.02.2.2014 |
-| 百度地图 | `com.baidu.BaiduMap` | 22.1.20 |
-| 腾讯地图 | `com.tencent.map` | 11.7.0（6013） |
+| 高德国内版 | `com.autonavi.minimap` | 17.03.0.2008 |
+| 百度地图 | `com.baidu.BaiduMap` | 22.2.20 |
+| 腾讯地图 | `com.tencent.map` | 11.8.1（6031） |
+| 高德 Google Play 版 | `com.autonavi.minimap` | 暂沿用 2.3.6（17.02.2.2014），本版未单独构建 Play 内置包 |
 
 其它地图版本不保证锚点一致。模块最低 Android 8.0，并需要支持 API 102 的框架；内置版使用 LSPatch，需要 Android 9.0 或更高版本，且不能低于宿主自身要求。
 
-## 2.3.6 更新重点
+## 2.3.7 更新重点
+
+- 适配新版宿主：高德 `17.03.0.2008`、百度 `22.2.20`、腾讯 `11.8.1`，补齐新版开屏及广告 SDK 拦截。
+- 修复高德语音助手无法唤起或无法操作的问题；调整高德长连接省电默认行为，避免影响多设备与手车互联。
+- 更新模块包名（`org.navkit.geoassist`）、内部标识与全新独立签名以去特征；不能直接覆盖旧版，需先备份配置并卸载旧版后全新安装。
+- 优化免 root 内置版悬浮窗设置页上下滑动体验与外观参数持久化。
+- 修复内置版冷启动配置读取和 C++ 原生 Hook（标注过滤 `libnavkit_style.so`、去建筑物 `libnavkit_geom.so`）失效问题；完整模块与三套内置包均已通过自动化回归及实机验证。
+
+## 2.3.6 更新重点（历史版本）
 
 - 高德 Play 17.02.2.2014 按实际 DEX 适配，Context 就绪后重新读取设置。
 - 首页工具支持长按拖动和上下移动；关闭保留顺序，“更多工具”固定末尾。
@@ -70,16 +78,18 @@
 
 ## 下载
 
-完整安装包与源码统一从 [主仓库 v2.3.6](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.6) 下载，模块仓库另提供 [模块版 23060-2.3.6](https://github.com/Xposed-Modules-Repo/io.github.ldxm666.mapadkiller/releases/tag/23060-2.3.6)。
+完整安装包、官方原版对照包与源码统一从 [主仓库 v2.3.7](https://github.com/ldxm666/MapAdKiller/releases/tag/v2.3.7) 下载，模块仓库另提供 [模块版 23070-2.3.7](https://github.com/Xposed-Modules-Repo/io.github.ldxm666.mapadkiller/releases/tag/23070-2.3.7)。
 
 | 文件 | 安装方式 |
 | --- | --- |
-| `MapClean-lsp-v2.3.6.apk` | 模块版：配合 LSPosed / 支持现代 API 102 的框架，三家地图共用 |
-| `Amap-2.3.6-nonroot-embedded.apk` | 免 root：高德国内版单 APK |
-| `Baidu-2.3.6-nonroot-embedded.apk` | 免 root：百度单 APK |
-| `Tencent-2.3.6-nonroot-embedded.apk` | 免 root：腾讯单 APK |
-| `Amap-Play-2.3.6-nonroot-embedded.zip` | 免 root：高德 Play 拆分包，四个 APK 一起装 |
-| `MapAdKiller-2.3.6-source.zip` | 源码及编译依赖，不含签名私钥和地图原始 APK |
+| `Mapadkiller-lsp-v2.3.7.apk` | 模块版：配合 LSPosed / 支持现代 API 102 的框架，三家地图共用 |
+| `Amap-2.3.7-nonroot-embedded.apk` | 免 root 内置版：高德国内版单 APK（基于 17.03.0.2008） |
+| `Baidu-2.3.7-nonroot-embedded.apk` | 免 root 内置版：百度地图单 APK（基于 22.2.20） |
+| `Tencent-2.3.7-nonroot-embedded.apk` | 免 root 内置版：腾讯地图单 APK（基于 11.8.1） |
+| `amap-17.03.0.2008-official.apk` | 原版官方未修改安装包：高德地图 17.03.0.2008（供模块版搭配或核对） |
+| `baidu-22.2.20-official.apk` | 原版官方未修改安装包：百度地图 22.2.20（供模块版搭配或核对） |
+| `tencent-11.8.1-official.apk` | 原版官方未修改安装包：腾讯地图 11.8.1（供模块版搭配或核对） |
+| `MapAdKiller-2.3.7-source.zip` | 源码及编译依赖，不含签名私钥和地图原始 APK |
 | `SHA256SUMS.txt` | 下载文件 SHA-256 校验值 |
 
 **模块版与内置版选择一种。** 模块 APK 约 5.4 MiB；内置版包含完整宿主，体积明显更大。模块依赖框架注入，不重新签名官方地图；内置版是重新签名的地图安装包，不需要框架。不要对内置地图重复启用外部模块。
@@ -88,16 +98,16 @@
 
 ### 模块版
 
-1. 安装 `MapClean-lsp-v2.3.6.apk`。
+1. 安装 `Mapadkiller-lsp-v2.3.7.apk`。
 2. 在框架中启用模块，勾选需要处理的地图作用域。
 3. 强制停止并重新打开对应地图。可以打开模块 App 配置，也可以从地图里的悬浮球进入面板。
 
-模块沿用原发布证书，旧模块可覆盖升级。框架未连接时先检查作用域、API 102 支持及目标地图是否正在运行。
+2.3.7 更换了包名（`org.navkit.geoassist`）与全新签名证书以去特征，无法直接覆盖 2.3.6 及更早版本；请先备份配置、卸载旧版后全新安装，并在框架中重新启用模块与勾选作用域。框架未连接时先检查作用域、API 102 支持及目标地图是否正在运行。
 
 ### 免 root 内置版
 
 1. 先备份模块配置、登录相关资料与离线数据，再选择对应地图内置包。
-2. 官方地图与内置版签名不同，不能直接覆盖；切换版本前确认备份，卸载会清除应用数据。同项目同签名内置版通常可覆盖更新。
+2. 官方地图与内置版签名不同，不能直接覆盖；2.3.7 亦更换了全新独立签名以去特征，从 2.3.6 及更早内置版升级前请先备份配置并卸载旧内置版，避免签名不一致导致安装失败（卸载会清除应用数据）。同签名后续内置版通常可覆盖更新。
 3. 安装后打开地图，通过悬浮球或长按底部“我的”约 1 秒进入设置。
 
 高德国内版和 Play 版包名相同，只能装一个。Play ZIP 解压后四个 APK 一起安装，不能只装 base.apk；可用拆分包安装器，或在解压目录执行：

@@ -1,9 +1,9 @@
-package io.github.ldxm666.mapclean;
+package org.navkit.core;
 
 import android.content.Intent;
 import io.github.libxposed.api.XposedInterface;
-import io.github.ldxm666.mapadkiller.AmapSubprocess;
-import io.github.ldxm666.bmapclean.BaiduPower;
+import org.navkit.geoassist.AmapSubprocess;
+import org.navkit.bgeo.BaiduPower;
 import java.lang.reflect.*;
 import java.util.*;
 
@@ -27,10 +27,10 @@ public final class SystemCardCompatTest {
         String mode=ignored.length==0?"both":ignored[0];
         List<XposedInterface.Hooker> hooks=new ArrayList<>();
         if(!mode.equals("baidu")){
-            Field f=Class.forName("io.github.ldxm666.mapadkiller.AmapSubprocess").getDeclaredField("WIDGET_RECEIVE");f.setAccessible(true);
+            Field f=Class.forName("org.navkit.geoassist.AmapSubprocess").getDeclaredField("WIDGET_RECEIVE");f.setAccessible(true);
             hooks.add((XposedInterface.Hooker)f.get(null));
         }
-        if(!mode.equals("amap"))hooks.add((XposedInterface.Hooker)Class.forName("io.github.ldxm666.bmapclean.BaiduPower").getMethod("widgetUpdate",String.class).invoke(null,"fixture"));
+        if(!mode.equals("amap"))hooks.add((XposedInterface.Hooker)Class.forName("org.navkit.bgeo.BaiduPower").getMethod("widgetUpdate",String.class).invoke(null,"fixture"));
         String[] actions={null,"miui.appwidget.action.APPWIDGET_UPDATE","com.oplus.cardwidget.UPDATE","android.appwidget.action.APPWIDGET_UPDATE_OPTIONS","android.appwidget.action.APPWIDGET_ENABLED","android.appwidget.action.APPWIDGET_DELETED","vendor.APPWIDGET_UPDATE","android.appwidget.action.APPWIDGET_UPDATE"};
         for(XposedInterface.Hooker hook:hooks)for(String action:actions){
             Chain c=new Chain(action);Object result=hook.intercept(c);

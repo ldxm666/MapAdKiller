@@ -42,11 +42,11 @@ class PackagingTest(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_kotlin_pruning_resolves_real_sources_and_keeps_shared_slider(self):
-        root = Path(__file__).resolve().parents[1] / "app/src/io/github/ldxm666"
+        root = Path(__file__).resolve().parents[1] / "app/src/org/navkit"
         for relative in KEEP_GUARD:
             self.assertTrue(Path(source_path(root, relative)).is_file(), relative)
-        self.assertNotIn("mapclean/GlassSlider.java", MODULE_DROP)
-        self.assertIn("tmapclean/TmapEntry.java", MODULE_DROP)
+        self.assertNotIn("core/GlassSlider.java", MODULE_DROP)
+        self.assertIn("tgeo/TmapEntry.java", MODULE_DROP)
 
 
 if __name__ == "__main__": unittest.main()

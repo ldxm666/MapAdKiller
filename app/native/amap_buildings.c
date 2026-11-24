@@ -1,4 +1,4 @@
-// libamapbldpatch.so — remove AMap's building geometry by neutralising the layer's
+// libnavkit_geom.so — remove AMap's building geometry by neutralising the layer's
 // per-frame processing slot. 高德地图 17.02.0.2010 (versionCode 170200), libamapr.so, arm64.
 //
 // ── why this is a native patch and not a Java hook ────────────────────────────────
@@ -46,7 +46,7 @@
 #include <pthread.h>
 #include <android/log.h>
 
-#define TAG "MapAmapBld"
+#define TAG "NKGeom"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
 
@@ -78,6 +78,11 @@ typedef struct {
 } patch_variant;
 
 static const patch_variant VARIANTS[] = {
+    /* 国内版 17.03.0.2008 (versionCode 170300), libamapr.so e28e45ae26595565…
+     *   factory 0x18aeaa8  ctor 0x18b851c  vtable 0x1f476c0  slot[4] 0x18b8678
+     *   gadget 0xe83f2c */
+    { "17.03.0", 0x1f476e0UL, 0x18b8678UL, 0xe83f2cUL },
+
     /* 国内版 17.02.0.2010 (versionCode 170200), libamapr.so ef40b30a370ce3d6…
      *   factory 0x18a7c6c  ctor 0x18b1684  vtable 0x1f40848  slot[4] 0x18b17e0
      *   gadget 0xe84148 */

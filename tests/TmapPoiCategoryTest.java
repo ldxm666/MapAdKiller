@@ -1,4 +1,4 @@
-package io.github.ldxm666.tmapclean;
+package org.navkit.tgeo;
 
 import android.content.Context;
 import android.content.ContextWrapper;
@@ -88,7 +88,7 @@ public final class TmapPoiCategoryTest {
         check(TmapPoiStyles.filter("{\"version\":\"1.0\",\"base\":{},/* unterminated",all,1)==null,"unfinished comment stays native");
         check(TmapPoiStyles.filter("{\"version\":\"1.0\",\"base\":{\"disable\":[]}}",all,1)==null,"unknown disable schema retained");
         check(new JSONObject(original).toString().equals(baseline.toString()),"source JSON untouched");
-        File sandbox=new File("/data/local/tmp/mapclean-poi-categories-test-"+android.os.Process.myPid());
+        File sandbox=new File("/data/local/tmp/nk-poi-categories-test-"+android.os.Process.myPid());
         if(!sandbox.mkdirs())throw new IOException("test sandbox unavailable");
         try{
             final File files=new File(sandbox,"files"),cache=new File(sandbox,"cache");new File(files,"config").mkdirs();cache.mkdirs();

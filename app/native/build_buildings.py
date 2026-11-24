@@ -1,8 +1,8 @@
-"""Build libamapbldpatch.so - the AMap building-geometry patch.
+"""Build libnavkit_geom.so - the AMap building-geometry patch.
 
     python app/native/build_buildings.py
 
-Writes app/libs/arm64-v8a/libamapbldpatch.so.
+Writes app/libs/arm64-v8a/libnavkit_geom.so.
 
 !! After editing amap_buildings.c you MUST re-run this and commit the new .so.
 The build does not run on its own: this project has no gradle, and app/build.ps1 /
@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / "amap_buildings.c"
 NDK = Path(r"C:\Users\Administrator\AppData\Local\Android\Sdk\ndk\26.3.11579264")
 BIN = NDK / "toolchains/llvm/prebuilt/windows-x86_64/bin"
-OUTPUT = ROOT.parent / "libs" / "arm64-v8a" / "libamapbldpatch.so"
+OUTPUT = ROOT.parent / "libs" / "arm64-v8a" / "libnavkit_geom.so"
 
 # 16 KB page alignment: Android 15+ devices with 16 KB pages refuse to load a .so whose
 # PT_LOAD segments are not 16 KB aligned. Same flag as build.py uses for the label library.

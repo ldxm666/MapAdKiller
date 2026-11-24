@@ -41,7 +41,7 @@ int main(){
     }
     reset();{
         NativeHookDispatch state(install);requirePrepared=true;
-        check(state.request(NativeHost::Amap,[]{prepared=true;}),"JNI-first AMap request cached");
+        check(!state.request(NativeHost::Amap,[]{prepared=true;}),"JNI-first AMap request stays fail-closed until bound");
         check(!amap && !baidu,"no framework Hook means no install");
         state.bind(nullptr,5);check(!amap,"null framework callback ignored");
         state.bind(frameworkHook,7);
@@ -51,7 +51,7 @@ int main(){
     }
     reset();{
         NativeHookDispatch state(install);
-        check(state.request(NativeHost::Baidu),"JNI-first Baidu request cached");
+        check(!state.request(NativeHost::Baidu),"JNI-first Baidu request stays fail-closed until bound");
         check(!amap && !baidu,"Baidu waits for framework capability");
         state.bind(frameworkHook,2);
         check(baidu==1 && !amap,"late callback installs only Baidu files");
@@ -75,8 +75,9 @@ int main(){
     reset();{
         NativeHookDispatch state(install);std::vector<std::thread> tasks;
         for(int i=0;i<24;i++)tasks.emplace_back([&]{state.bind(frameworkHook,6);});
-        for(int i=0;i<24;i++)tasks.emplace_back([&]{check(state.request(NativeHost::Amap,[]{prepareCount++;}),"concurrent same-host setup accepted");});
+        for(int i=0;i<24;i++)tasks.emplace_back([&]{state.request(NativeHost::Amap,[]{prepareCount++;});});
         for(auto &task:tasks)task.join();
+        check(state.bound() && state.request(NativeHost::Amap),"post-bind same-host request accepted");
         check(amap==1 && !baidu && prepareCount==24,"concurrent callback/JNI installs one family exactly once");
     }
     reset();{
@@ -86,8 +87,10 @@ int main(){
         for(int i=0;i<20;i++)tasks.emplace_back([&]{if(state.request(NativeHost::Baidu))acceptedB++;});
         tasks.emplace_back([&]{state.bind(frameworkHook,8);});
         for(auto &task:tasks)task.join();
-        check((acceptedA==20 && acceptedB==0) || (acceptedB==20 && acceptedA==0),"concurrent conflicting requests select one immutable host");
+        check(!(acceptedA>0 && acceptedB>0),"concurrent conflicting requests accept at most one host");
         check((amap==1 && baidu==0) || (baidu==1 && amap==0),"conflicting hosts never install both hook families");
+        check(state.bound() && state.request(amap ? NativeHost::Amap : NativeHost::Baidu),"winning host remains usable post-bind");
+        check(!state.request(amap ? NativeHost::Baidu : NativeHost::Amap),"losing host stays rejected post-bind");
     }
     std::printf("NativeHookDispatchTest: %d assertions passed\n",assertions.load());return 0;
 }

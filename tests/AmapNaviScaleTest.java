@@ -1,12 +1,12 @@
-package io.github.ldxm666.mapadkiller;
+package org.navkit.geoassist;
 
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Looper;
 import android.view.View;
 import android.widget.FrameLayout;
-import io.github.ldxm666.mapclean.AmapPanel;
-import io.github.ldxm666.mapclean.PanelTypes;
+import org.navkit.core.AmapPanel;
+import org.navkit.core.PanelTypes;
 import java.lang.reflect.*;
 import java.util.*;
 

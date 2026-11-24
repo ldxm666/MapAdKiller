@@ -1,4 +1,4 @@
-package io.github.ldxm666.bmapclean;
+package org.navkit.bgeo;
 
 import android.content.SharedPreferences;
 import java.io.*;
@@ -30,7 +30,7 @@ public final class BaiduCacheIdentityTest {
         check(a.equals(call(adapter,"sourceKey",bundleTypes,"userCore","/same/index.android.bundle","var value=1;")),"unchanged JS identity stable");
         values.put(Spec.K_MINE_APPLY,true);values.put(Spec.K_MINE_GRID,false);Cfg.invalidate();
         check(!a.equals(call(adapter,"sourceKey",bundleTypes,"userCore","/same/index.android.bundle","var value=1;")),"configuration participates in JS identity");
-        File root=Files.createTempDirectory(Paths.get("/data/local/tmp"),"mapclean-sty-test-").toFile(),style=new File(root,"map.sty");
+        File root=Files.createTempDirectory(Paths.get("/data/local/tmp"),"nk-sty-test-").toFile(),style=new File(root,"map.sty");
         try{
             Files.write(style.toPath(),new byte[]{1,2,3,4});check(style.setLastModified(1600000000000L),"fixed source timestamp");
             Class<?>[] types={List.class,Set.class};List<File> styles=Collections.singletonList(style);Set<String> hidden=new HashSet<>(Arrays.asList("poi"));

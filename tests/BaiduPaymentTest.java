@@ -1,7 +1,7 @@
-package io.github.ldxm666.bmapclean;
+package org.navkit.bgeo;
 
 import android.content.SharedPreferences;
-import io.github.ldxm666.mapclean.PaymentUiPolicy;
+import org.navkit.core.PaymentUiPolicy;
 import io.github.libxposed.api.XposedInterface;
 import java.lang.reflect.*;
 import java.util.*;

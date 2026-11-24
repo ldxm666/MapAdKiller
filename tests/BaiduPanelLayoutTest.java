@@ -1,4 +1,4 @@
-package io.github.ldxm666.bmapclean;
+package org.navkit.bgeo;
 
 import android.content.Context;
 import android.os.Looper;

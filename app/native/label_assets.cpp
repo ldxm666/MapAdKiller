@@ -74,7 +74,7 @@ static std::shared_ptr<const style::PoiCategories> catalogue(AAssetManager *mana
     style::Bytes rules;auto parsed=std::make_shared<style::PoiCategories>();
     if(!readOriginal(manager,("map_assets/"+name).c_str(),rules) || !style::poiCatalogue(rules.data(),rules.size(),*parsed))return {};
     poiCategories=parsed;
-    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","poi_catalogue points=%zu asset=%s",parsed->size(),name.c_str());
+    __android_log_print(ANDROID_LOG_INFO,"NKStyle","poi_catalogue points=%zu asset=%s",parsed->size(),name.c_str());
     return poiCategories;
 }
 static AAsset *asset_open(AAssetManager *manager,const char *name,int mode){
@@ -84,7 +84,7 @@ static AAsset *asset_open(AAssetManager *manager,const char *name,int mode){
     std::string file(name);if(file.find("/style_X_Main")==std::string::npos)return asset;
     auto categories=(mask&1)?std::shared_ptr<const style::PoiCategories>{}:catalogue(manager);
     if(!(mask&1) && !categories){
-        __android_log_print(ANDROID_LOG_WARN,"MapCleanLabels","poi_categories native_kept reason=unsupported_catalogue");
+        __android_log_print(ANDROID_LOG_WARN,"NKStyle","poi_categories native_kept reason=unsupported_catalogue");
         return asset;
     }
     style::Bytes decoded;bool compressed=false;
@@ -98,19 +98,19 @@ static AAsset *asset_open(AAssetManager *manager,const char *name,int mode){
         if(ZSTD_isError(length))return asset;result->resize(length);
     }else *result=std::move(filtered);
     {std::lock_guard<std::mutex> guard(assetsMutex);assets[asset]={result,0};trackedCount=assets.size();}
-    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","style_filtered mask=%x rules=%d bytes=%zu asset=%s",mask,changed,result->size(),name);
+    __android_log_print(ANDROID_LOG_INFO,"NKStyle","style_filtered mask=%x rules=%d bytes=%zu asset=%s",mask,changed,result->size(),name);
     return asset;
 }
 static const void *asset_buffer(AAsset *asset){
     if(trackedCount){std::lock_guard<std::mutex> guard(assetsMutex);auto a=assets.find(asset);if(a!=assets.end()){
-        if(!a->second.logged){a->second.logged=true;__android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","style_consumed buffer bytes=%zu",a->second.bytes->size());}
+        if(!a->second.logged){a->second.logged=true;__android_log_print(ANDROID_LOG_INFO,"NKStyle","style_consumed buffer bytes=%zu",a->second.bytes->size());}
         return a->second.bytes->data();
     }}
     return orig_buffer(asset);
 }
 static int asset_read(AAsset *asset,void *out,size_t count){
     if(trackedCount){std::lock_guard<std::mutex> guard(assetsMutex);auto a=assets.find(asset);if(a!=assets.end()){
-        if(!a->second.logged){a->second.logged=true;__android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","style_consumed read request=%zu bytes=%zu",count,a->second.bytes->size());}
+        if(!a->second.logged){a->second.logged=true;__android_log_print(ANDROID_LOG_INFO,"NKStyle","style_consumed read request=%zu bytes=%zu",count,a->second.bytes->size());}
         auto &s=a->second;count=std::min(count,s.bytes->size()-s.offset);std::memcpy(out,s.bytes->data()+s.offset,count);s.offset+=count;return int(count);
     }}
     return orig_read(asset,out,count);
@@ -128,7 +128,7 @@ static off_t asset_remaining(AAsset *asset){TRACKED_RESULT(a->second.bytes->size
 static off64_t asset_remaining64(AAsset *asset){TRACKED_RESULT(a->second.bytes->size()-a->second.offset);return orig_remaining64(asset);}
 #undef TRACKED_RESULT
 static int memory_fd(const style::Bytes &bytes){
-    int fd=int(syscall(__NR_memfd_create,"mapclean-style",MFD_CLOEXEC));if(fd<0)return -1;
+    int fd=int(syscall(__NR_memfd_create,"navkit-style",MFD_CLOEXEC));if(fd<0)return -1;
     size_t pos=0;while(pos<bytes.size()){auto written=write(fd,bytes.data()+pos,bytes.size()-pos);if(written<=0){close(fd);return -1;}pos+=written;}
     lseek(fd,0,SEEK_SET);return fd;
 }
@@ -144,7 +144,7 @@ static bool installNativeHost(NativeHost host,Hook hook,uint32_t api){
         baidu_file::install(hook);
         bool installed=baidu_file::ready.load(std::memory_order_acquire);
         if(!installed)baidu_file::active.store(nullptr,std::memory_order_release);
-        __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","native_install host=baidu file_only=true installed=%d api=%u",installed,api);
+        __android_log_print(ANDROID_LOG_INFO,"NKStyle","native_install host=baidu file_only=true installed=%d api=%u",installed,api);
         return installed;
     }
     if(host!=NativeHost::Amap)return false;
@@ -158,19 +158,19 @@ static bool installNativeHost(NativeHost host,Hook hook,uint32_t api){
     INSTALL(AAsset_close,asset_close,orig_close);
     if(!failed)INSTALL(AAssetManager_open,asset_open,orig_open);
 #undef INSTALL
-    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","native_install host=amap asset_only=true failures=%d api=%u",failed,api);
+    __android_log_print(ANDROID_LOG_INFO,"NKStyle","native_install host=amap asset_only=true failures=%d api=%u",failed,api);
     return failed==0;
 }
 extern "C" __attribute__((visibility("default"),used))
 Loaded native_init(const NativeAPIEntries *entries){
     if(entries && entries->hook_func){
         nativeHooks.bind(entries->hook_func,entries->version);
-        __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","native_init framework_ready=true api=%u",entries->version);
+        __android_log_print(ANDROID_LOG_INFO,"NKStyle","native_init framework_ready=true api=%u",entries->version);
     }
     return on_loaded;
 }
 extern "C" JNIEXPORT void JNICALL
-Java_io_github_ldxm666_mapclean_NativeLabelAssets_configure(JNIEnv *,jclass,jint app,jint mask){
+Java_org_navkit_core_NativeLabelAssets_configure(JNIEnv *,jclass,jint app,jint mask){
     if(app!=1)return;
     // Report whether the framework ever called native_init. Without that call there is no
     // inline-hook primitive, nothing gets installed, and the switch is dead no matter what the
@@ -178,6 +178,6 @@ Java_io_github_ldxm666_mapclean_NativeLabelAssets_configure(JNIEnv *,jclass,jint
     // "accepted" that only meant "the request was recorded".
     bool bound=nativeHooks.bound();
     bool accepted=nativeHooks.request(NativeHost::Amap,[&]{map=1;hidden=mask;});
-    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels",
+    __android_log_print(ANDROID_LOG_INFO,"NKStyle",
         "configure map=%d hide_poi=%d accepted=%d framework_bound=%d",app,mask!=0,accepted,bound);
 }

@@ -5,8 +5,8 @@ out which .java files a given entry point actually needs, so the slim build can 
 the Baidu/Tencent half without guessing.
 
 Usage:
-  python tools/source_closure.py --Root app/src --Entry io.github.ldxm666.mapclean.MainHook
-  python tools/source_closure.py --Root app/src --Entry ... --Exclude io.github.ldxm666.bmapclean
+  python tools/source_closure.py --Root app/src --Entry org.navkit.core.MainHook
+  python tools/source_closure.py --Root app/src --Entry ... --Exclude org.navkit.bgeo
 """
 import argparse
 import re
@@ -17,7 +17,7 @@ IMPORT = re.compile(r'^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;', re.M)
 TYPE_DECL_OLD = None  # replaced by the column-0 rule above
 # Top-level type declarations only: nested classes are indented, top-level ones start at column 0.
 TYPE_DECL = re.compile(r'^(?:public\s+|final\s+|abstract\s+)*(?:class|interface|enum)\s+(\w+)', re.M)
-# bare qualified references appearing in code, e.g. io.github.ldxm666.bmapclean.Spec
+# bare qualified references appearing in code, e.g. org.navkit.bgeo.Spec
 FQCN_USE = re.compile(r'\b((?:[a-z]\w*\.){2,}\w+(?:\.\w+)*)\b')
 # Capitalised identifiers, including single letters such as H / P.
 IDENT = re.compile(r'\b([A-Z]\w*)\b')

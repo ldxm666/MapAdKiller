@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean;
+package org.navkit.core;
 
 /** A changed app can keep working features while incompatible signatures are skipped. */
 public final class CompatibilityTest {

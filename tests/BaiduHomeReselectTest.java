@@ -1,4 +1,4 @@
-package io.github.ldxm666.bmapclean;
+package org.navkit.bgeo;
 
 /** Exercises native half/hide transitions, including callbacks and retained map insets. */
 public class BaiduHomeReselectTest {

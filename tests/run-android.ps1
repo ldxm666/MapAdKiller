@@ -19,48 +19,48 @@ if ($LASTEXITCODE -ne 0) { throw 'Test compile failed' }
 & "$jdkBin\jar.exe" -cf "$taskBuild\api-test.jar" -C $apiClasses .
 & "$sdkRoot\build-tools\35.0.0\d8.bat" --min-api 26 --lib $androidJar --output "$taskBuild\dex" "$taskBuild\tests.jar" "$taskBuild\api-test.jar" $moduleJar $serviceJar $interfaceJar "$projectRoot\app\libs\kotlin-stdlib-1.9.23.jar"
 if ($LASTEXITCODE -ne 0) { throw 'Test dex failed' }
-& $adbBin push "$taskBuild\dex\classes.dex" /data/local/tmp/mapclean-hotfix-tests.dex
+& $adbBin push "$taskBuild\dex\classes.dex" /data/local/tmp/nk-unit-tests.dex
 if ($LASTEXITCODE -ne 0) { throw 'Test dex upload failed' }
 $failedTests = @()
 $testClasses = @(
-    'io.github.ldxm666.mapadkiller.AmapSplashTest',
-    'io.github.ldxm666.mapadkiller.AmapToolOrderTest',
-    'io.github.ldxm666.mapadkiller.AmapToolOrderBackupTest',
-    'io.github.ldxm666.mapadkiller.AmapHomeGeometryTest',
-    'io.github.ldxm666.mapadkiller.AmapStartupTest',
-    'io.github.ldxm666.mapadkiller.AmapPoiCategoryTest',
-    'io.github.ldxm666.tmapclean.TmapStateRecoveryTest',
-    'io.github.ldxm666.tmapclean.TmapHomeBannerTest',
-    'io.github.ldxm666.bmapclean.BaiduConfigRefreshTest',
-    'io.github.ldxm666.bmapclean.BaiduCacheIdentityTest',
-    'io.github.ldxm666.mapadkiller.AmapConfigRefreshTest',
-    'io.github.ldxm666.mapclean.NativeLibraryCacheTest',
-    'io.github.ldxm666.bmapclean.BaiduMineCardsTest',
-    'io.github.ldxm666.mapadkiller.AmapTabLayoutTest',
-    'io.github.ldxm666.tmapclean.TmapAnnotationsTest',
-    'io.github.ldxm666.tmapclean.TmapPoiCategoryTest',
-    'io.github.ldxm666.mapclean.SystemCardCompatTest',
-    'io.github.ldxm666.mapadkiller.AmapDataTest',
-    'io.github.ldxm666.mapadkiller.AmapCardRulesTest',
-    'io.github.ldxm666.mapadkiller.AmapMapWidgetTest',
-    'io.github.ldxm666.mapadkiller.AmapTaxiDataTest',
-    'io.github.ldxm666.mapadkiller.AmapTaxiSkinTest',
-    'io.github.ldxm666.mapadkiller.AmapNaviScaleTest',
-    'io.github.ldxm666.mapadkiller.AmapCruiseTest',
-    'io.github.ldxm666.mapadkiller.CfgStoreTest',
-    'io.github.ldxm666.mapadkiller.AmapPlaceDataTest',
-    'io.github.ldxm666.bmapclean.BaiduLabelStyleTest',
-    'io.github.ldxm666.bmapclean.BaiduTabRoutingTest',
-    'io.github.ldxm666.bmapclean.BaiduHomeReselectTest',
-    'io.github.ldxm666.bmapclean.BaiduPanelLayoutTest',
-    'io.github.ldxm666.bmapclean.BaiduCommuteTest',
-    'io.github.ldxm666.bmapclean.BaiduPaymentTest',
-    'io.github.ldxm666.tmapclean.TmapPanelLayoutTest',
-    'io.github.ldxm666.mapclean.ConfigBackupTest',
-    'io.github.ldxm666.mapclean.HookGuardTest',
-    'io.github.ldxm666.mapclean.CompatibilityTest',
-    'io.github.ldxm666.mapclean.EmbeddedSettingsPolicyTest',
-    'io.github.ldxm666.mapclean.FrameworkStatusTest'
+    'org.navkit.geoassist.AmapSplashTest',
+    'org.navkit.geoassist.AmapToolOrderTest',
+    'org.navkit.geoassist.AmapToolOrderBackupTest',
+    'org.navkit.geoassist.AmapHomeGeometryTest',
+    'org.navkit.geoassist.AmapStartupTest',
+    'org.navkit.geoassist.AmapPoiCategoryTest',
+    'org.navkit.tgeo.TmapStateRecoveryTest',
+    'org.navkit.tgeo.TmapHomeBannerTest',
+    'org.navkit.bgeo.BaiduConfigRefreshTest',
+    'org.navkit.bgeo.BaiduCacheIdentityTest',
+    'org.navkit.geoassist.AmapConfigRefreshTest',
+    'org.navkit.core.NativeLibraryCacheTest',
+    'org.navkit.bgeo.BaiduMineCardsTest',
+    'org.navkit.geoassist.AmapTabLayoutTest',
+    'org.navkit.tgeo.TmapAnnotationsTest',
+    'org.navkit.tgeo.TmapPoiCategoryTest',
+    'org.navkit.core.SystemCardCompatTest',
+    'org.navkit.geoassist.AmapDataTest',
+    'org.navkit.geoassist.AmapCardRulesTest',
+    'org.navkit.geoassist.AmapMapWidgetTest',
+    'org.navkit.geoassist.AmapTaxiDataTest',
+    'org.navkit.geoassist.AmapTaxiSkinTest',
+    'org.navkit.geoassist.AmapNaviScaleTest',
+    'org.navkit.geoassist.AmapCruiseTest',
+    'org.navkit.geoassist.CfgStoreTest',
+    'org.navkit.geoassist.AmapPlaceDataTest',
+    'org.navkit.bgeo.BaiduLabelStyleTest',
+    'org.navkit.bgeo.BaiduTabRoutingTest',
+    'org.navkit.bgeo.BaiduHomeReselectTest',
+    'org.navkit.bgeo.BaiduPanelLayoutTest',
+    'org.navkit.bgeo.BaiduCommuteTest',
+    'org.navkit.bgeo.BaiduPaymentTest',
+    'org.navkit.tgeo.TmapPanelLayoutTest',
+    'org.navkit.core.ConfigBackupTest',
+    'org.navkit.core.HookGuardTest',
+    'org.navkit.core.CompatibilityTest',
+    'org.navkit.core.EmbeddedSettingsPolicyTest',
+    'org.navkit.core.FrameworkStatusTest'
 )
 if ($TestFilter) {
     $testClasses = @($testClasses | Where-Object { $_ -match $TestFilter })
@@ -68,7 +68,7 @@ if ($TestFilter) {
 }
 foreach ($testClass in $testClasses) {
     Write-Output "TEST $testClass"
-    & $adbBin shell 'CLASSPATH=/data/local/tmp/mapclean-hotfix-tests.dex' app_process / io.github.ldxm666.mapclean.RegressionHarness $testClass
+    & $adbBin shell 'CLASSPATH=/data/local/tmp/nk-unit-tests.dex' app_process / org.navkit.core.RegressionHarness $testClass
     $exitCode = $LASTEXITCODE
     Write-Output "EXIT $testClass $exitCode"
     if ($exitCode -ne 0) { $failedTests += $testClass }

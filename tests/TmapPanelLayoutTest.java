@@ -1,4 +1,4 @@
-package io.github.ldxm666.tmapclean;
+package org.navkit.tgeo;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -214,7 +214,7 @@ public final class TmapPanelLayoutTest {
 
         NativeMap map=new NativeMap();
         Field maps=TmapPoi.class.getDeclaredField("maps");maps.setAccessible(true);
-        Class<?> stateClass=Class.forName("io.github.ldxm666.tmapclean.TmapPoi$State");
+        Class<?> stateClass=Class.forName("org.navkit.tgeo.TmapPoi$State");
         Constructor<?> ctor=stateClass.getDeclaredConstructor();ctor.setAccessible(true);Object state=ctor.newInstance();
         Field requested=stateClass.getDeclaredField("requested");requested.setAccessible(true);
         Boolean[] nativeValues=(Boolean[])requested.get(state);
@@ -251,7 +251,7 @@ public final class TmapPanelLayoutTest {
         // request, otherwise re-enable would incorrectly restore false at the SDK layer.
         Field forwarding=TmapPoi.class.getDeclaredField("forwarding");forwarding.setAccessible(true);
         ThreadLocal forwarded=(ThreadLocal)forwarding.get(null);
-        Constructor requestCtor=Class.forName("io.github.ldxm666.tmapclean.TmapPoi$Request").getDeclaredConstructor(int.class,boolean.class);requestCtor.setAccessible(true);
+        Constructor requestCtor=Class.forName("org.navkit.tgeo.TmapPoi$Request").getDeclaredConstructor(int.class,boolean.class);requestCtor.setAccessible(true);
         Method requestSdk=TmapPoi.class.getDeclaredMethod("sdkRequest",XposedInterface.Chain.class,Object.class,int.class,boolean.class,int.class);requestSdk.setAccessible(true);
         cfg(values,Spec.K_POI_3D,false);forwarded.set(requestCtor.newInstance(3,true));
         NativeChain chain=new NativeChain(sdk,false);

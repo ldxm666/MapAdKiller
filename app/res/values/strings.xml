@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="description">地图净化 MapClean：百度地图界面精简（首页入口栏/工具宫格/回家去公司/天气/信息流/「我的」页）+ 高德·百度·腾讯去广告。设置页左右滑动分页，各 App 的开关互不混排。</string>
+    <string name="description">地图净化 Mapadkiller：百度地图界面精简（首页入口栏/工具宫格/回家去公司/天气/信息流/「我的」页）+ 高德·百度·腾讯去广告。设置页左右滑动分页，各 App 的开关互不混排。</string>
     <string-array name="scope">
         <item>com.baidu.BaiduMap</item>
         <item>com.autonavi.minimap</item>

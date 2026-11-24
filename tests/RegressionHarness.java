@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean;
+package org.navkit.core;
 
 import java.lang.reflect.InvocationTargetException;
 

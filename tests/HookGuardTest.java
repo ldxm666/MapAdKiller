@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean;
+package org.navkit.core;
 
 import io.github.libxposed.api.XposedInterface;
 import java.lang.reflect.Executable;

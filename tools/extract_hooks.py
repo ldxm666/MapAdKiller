@@ -7,7 +7,7 @@ runtime extension points without hand-copying them out of 20+ files.
 import os
 import re
 
-SRC = r"D:\pojie应用\nixiang-aaa\work\mak\app\src\io\github\ldxm666"
+SRC = r"D:\pojie应用\nixiang-aaa\work\mak\app\src\org\navkit"
 
 # H.hookSig(<class expr>, "method", "id", ...)
 HOOKSIG = re.compile(

@@ -10,6 +10,7 @@ shots/
 work/
 
 # Signing keys stay local; source archives generate a fresh development key.
+.keys/
 *.keystore
 *.jks
 *.p12

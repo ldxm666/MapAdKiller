@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean.tests;
+package org.navkit.core.tests;
 
 import android.app.Activity;
 import android.app.Instrumentation;
@@ -54,15 +54,15 @@ public final class CardSwitchUiRegression extends Instrumentation {
     private Map<String,Object> stored(SharedPreferences prefs){Map<String,Object> out=new LinkedHashMap<>();Map<String,?> all=prefs.getAll();for(String key:new String[]{WEATHER,OTHER,"feed_board","feed_content","feed_festival"})out.put(key,all.get(key));return out;}
     @Override public void onCreate(Bundle args){super.onCreate(args);start();}
     @Override public void onStart(){Bundle result=new Bundle();try{
-        activity=startActivitySync(new Intent().setClassName("io.github.ldxm666.mapadkiller","io.github.ldxm666.mapclean.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        activity=startActivitySync(new Intent().setClassName("org.navkit.geoassist","org.navkit.core.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         waitForIdleSync();loader=activity.getClassLoader();
-        Class<?> app=loader.loadClass("io.github.ldxm666.mapadkiller.App");Object service=null;
+        Class<?> app=loader.loadClass("org.navkit.geoassist.App");Object service=null;
         for(int i=0;i<40&&service==null;i++){service=app.getMethod("svc").invoke(null);if(service==null)SystemClock.sleep(200);}
         check(service!=null,"production preferences service connected for read-only comparison");
         Method getter=service.getClass().getMethod("getRemotePreferences",String.class);getter.setAccessible(true);
-        SharedPreferences prefs=(SharedPreferences)getter.invoke(service,"amap_enhancer_config");Map<String,Object> before=stored(prefs);
-        Class<?> config=loader.loadClass("io.github.ldxm666.mapadkiller.Config");
-        Object[] catalogue=(Object[])loader.loadClass("io.github.ldxm666.mapclean.AmapPanel").getMethod("groups").invoke(null);
+        SharedPreferences prefs=(SharedPreferences)getter.invoke(service,"nk_amap_prefs");Map<String,Object> before=stored(prefs);
+        Class<?> config=loader.loadClass("org.navkit.geoassist.Config");
+        Object[] catalogue=(Object[])loader.loadClass("org.navkit.core.AmapPanel").getMethod("groups").invoke(null);
         cardGroup(catalogue);
         main(()->{
             call(activity,"showTab",new Class[]{int.class,boolean.class},1,false);
@@ -92,7 +92,7 @@ public final class CardSwitchUiRegression extends Instrumentation {
         // Full module deliberately prunes FloatingPanel. If the target includes it,
         // exercise its real renderer; otherwise report only the verified shared catalogue.
         try{
-            Class<?> floatingType=loader.loadClass("io.github.ldxm666.mapclean.FloatingPanel");
+            Class<?> floatingType=loader.loadClass("org.navkit.core.FloatingPanel");
             main(()->{
                 Object panel=floatingType.getConstructor(Context.class,boolean.class).newInstance(activity,false);
                 int group=cardGroup((Object[])field(panel,"groups"));call(panel,"select",new Class[]{int.class,boolean.class},group,false);

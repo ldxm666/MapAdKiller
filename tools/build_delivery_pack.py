@@ -97,7 +97,7 @@ def dex_summary(blob):
     string_ids, type_ids = struct.unpack_from("<II", blob, 0x38)[0], struct.unpack_from("<II", blob, 0x40)[0]
     method_ids = struct.unpack_from("<II", blob, 0x58)[0]
     class_defs = struct.unpack_from("<II", blob, 0x60)[0]
-    prefixes = ("Lio/github/ldxm666/",)
+    prefixes = ("Lorg/navkit/",)
     own = sorted({s for s in dex_strings(blob)
                   if s.startswith(prefixes) and s.endswith(";") and "$" not in s})
     return {
@@ -150,7 +150,7 @@ def extract_hooks(source):
     """Every hook registration in the module sources, with owner file and line."""
     rows = []
     folders = []
-    for base in ("mapadkiller", "mapclean"):
+    for base in ("geoassist", "core"):
         for layout in ("app/src", "src/src"):
             folder = source / layout / "io" / "github" / "ldxm666" / base
             if folder.is_dir():
@@ -325,10 +325,10 @@ def main():
 
     source = args.SourceDirectory.resolve(strict=True)
     version = args.Version
-    apk = (args.Apk or (source / "output" / f"MapClean-lsp-v{version}.apk")).resolve(strict=True)
-    out = args.OutputZip or (source / "output" / f"MapAdKiller-{version}-完整交付包.zip")
+    apk = (args.Apk or (source / "output" / f"Mapadkiller-lsp-v{version}.apk")).resolve(strict=True)
+    out = args.OutputZip or (source / "output" / f"Mapadkiller-{version}-完整交付包.zip")
     out = out.resolve()
-    prefix = f"MapAdKiller-{version}/"
+    prefix = f"Mapadkiller-{version}/"
 
     rows = extract_hooks(source)
     files = list(source_files(source))
@@ -355,7 +355,7 @@ def main():
         hooks_md += target_markdown(tmf, version)
 
     manifest = {
-        "name": "MapAdKiller",
+        "name": "Mapadkiller",
         "version": version,
         "apk": {"file": apk.name, "sha256": apk_sha, "bytes": apk.stat().st_size, "entries": apk_entries},
         "dex": {"file": dex_name, "sha256": hashlib.sha256(dex_bytes).hexdigest(),

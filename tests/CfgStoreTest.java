@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapadkiller;
+package org.navkit.geoassist;
 
 import android.content.SharedPreferences;
 import java.lang.reflect.Method;
@@ -107,24 +107,24 @@ public final class CfgStoreTest {
         check(!Config.readVisible(CfgStore.mergeValues(false,local,remote),Config.K_FEED_CONTENT),"module explicit off beats a stale legacy card on");
         local.clear();remote.clear();remote.put(Config.K_FEED_FESTIVAL,true);
         check(Config.readVisible(CfgStore.mergeValues(true,local,remote),Config.K_FEED_OTHER),"old remote selection remains usable before local migration");
-        Class<?> defaults=io.github.ldxm666.mapclean.DefaultConfig.Companion.getClass();
-        Method writeDefaults=defaults.getDeclaredMethod("write",SharedPreferences.class,Map.class,io.github.ldxm666.mapclean.DefaultConfig.Result.class,String.class,int.class);
+        Class<?> defaults=org.navkit.core.DefaultConfig.Companion.getClass();
+        Method writeDefaults=defaults.getDeclaredMethod("write",SharedPreferences.class,Map.class,org.navkit.core.DefaultConfig.Result.class,String.class,int.class);
         writeDefaults.setAccessible(true);
         Map<String,Object> defaultCards=new HashMap<>();defaultCards.put(Config.K_FEED_OTHER,null);
-        for(String key:io.github.ldxm666.mapclean.FeedCardConfig.LEGACY_KEYS)defaultCards.put(key,false);
+        for(String key:org.navkit.core.FeedCardConfig.LEGACY_KEYS)defaultCards.put(key,false);
         defaultCards.put(Config.K_FEED_WEATHER,false);
         for(int legacyBits=0;legacyBits<8;legacyBits++){
             Memory existing=new Memory();existing.values.put(Config.K_FEED_WEATHER,true);
-            for(int i=0;i<io.github.ldxm666.mapclean.FeedCardConfig.LEGACY_KEYS.length;i++)
-                if((legacyBits&(1<<i))!=0)existing.values.put(io.github.ldxm666.mapclean.FeedCardConfig.LEGACY_KEYS[i],true);
+            for(int i=0;i<org.navkit.core.FeedCardConfig.LEGACY_KEYS.length;i++)
+                if((legacyBits&(1<<i))!=0)existing.values.put(org.navkit.core.FeedCardConfig.LEGACY_KEYS[i],true);
             for(int pass=0;pass<2;pass++){
-                writeDefaults.invoke(io.github.ldxm666.mapclean.DefaultConfig.Companion,existing,defaultCards,new io.github.ldxm666.mapclean.DefaultConfig.Result(0,0),Config.PREF_GROUP,2);
+                writeDefaults.invoke(org.navkit.core.DefaultConfig.Companion,existing,defaultCards,new org.navkit.core.DefaultConfig.Result(0,0),Config.PREF_GROUP,2);
                 check(!existing.contains(Config.K_FEED_OTHER),"default seeding leaves the merged key unset for legacy migration");
                 check(Config.readVisible(existing,Config.K_FEED_OTHER)==(legacyBits!=0),"default seeding preserves old selected card choices");
                 check(existing.getBoolean(Config.K_FEED_WEATHER,false),"default seeding does not reset weather");
             }
             existing.values.put(Config.K_FEED_OTHER,false);
-            writeDefaults.invoke(io.github.ldxm666.mapclean.DefaultConfig.Companion,existing,defaultCards,new io.github.ldxm666.mapclean.DefaultConfig.Result(0,0),Config.PREF_GROUP,2);
+            writeDefaults.invoke(org.navkit.core.DefaultConfig.Companion,existing,defaultCards,new org.navkit.core.DefaultConfig.Result(0,0),Config.PREF_GROUP,2);
             check(!Config.readVisible(existing,Config.K_FEED_OTHER),"reapplying defaults never resurrects explicitly disabled merged cards");
         }
         System.out.println("PASS " + assertions + " preference authority/migration assertions");

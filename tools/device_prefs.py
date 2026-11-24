@@ -36,11 +36,11 @@ from pathlib import Path
 ADB = os.environ.get("MAK_ADB", r"D:\Tools\platform-tools\adb.exe")
 SERIAL = os.environ.get("MAK_SERIAL", "975aaf17")
 HOST = os.environ.get("MAK_HOST", "com.autonavi.minimap")
-MODULE = "io.github.ldxm666.mapadkiller"
-GROUP = "amap_enhancer_config"
+MODULE = "org.navkit.geoassist"
+GROUP = "nk_amap_prefs"
 
 REMOTE_DB = f"/data/user/0/{HOST}/databases/lspatch-xposed-remote.db"
-SCRATCH = f"/sdcard/mak-prefs.db"
+SCRATCH = f"/sdcard/nk-prefs.db"
 
 BOOL_HDR = (b"\xac\xed\x00\x05sr\x00\x11java.lang.Boolean\xcd\x20r\x80\xd5\x9c\xfa\xee"
             b"\x02\x00\x01Z\x00\x05valuexp")

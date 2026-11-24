@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean;
+package org.navkit.core;
 
 /** Ordinary and foreign activities must never be replaced by the embedded settings bridge. */
 public final class EmbeddedSettingsPolicyTest {

@@ -1,7 +1,7 @@
-package io.github.ldxm666.mapadkiller;
+package org.navkit.geoassist;
 
-import io.github.ldxm666.mapclean.AmapPanel;
-import io.github.ldxm666.mapclean.PanelTypes;
+import org.navkit.core.AmapPanel;
+import org.navkit.core.PanelTypes;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 
@@ -102,7 +102,7 @@ public final class AmapSplashTest {
             if(code==0) {
                 check(blocked,"allowed cached ad blocked without requiring a constructor");
                 check(nativeResult.a==1,"caller follows native NO_SPLASH completion branch");
-                check("mapclean_ad_blocked".equals(nativeResult.b),"nonempty native reason");
+                check("nk_ad_blocked".equals(nativeResult.b),"nonempty native reason");
                 check(!AmapSplashRules.denyAd(gate,nativeResult),"native denial is idempotent");
             } else check(!blocked&&nativeResult.a==code&&nativeResult.b.equals("nativeReason"),"native denial/unknown state preserved");
         }

@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapadkiller;
+package org.navkit.geoassist;
 
 import org.json.JSONObject;
 

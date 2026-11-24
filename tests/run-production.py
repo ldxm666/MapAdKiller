@@ -20,17 +20,17 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
-PREFIX = "io.github.ldxm666."
-ENTRY = "assets/lspatch/modules/io.github.ldxm666.mapadkiller.apk"
-AMAP = ["mapadkiller." + name + "Test" for name in (
+PREFIX = "org.navkit."
+ENTRY = "assets/lspatch/modules/org.navkit.geoassist.apk"
+AMAP = ["geoassist." + name + "Test" for name in (
     "AmapData", "AmapTaxiData", "AmapTaxiSkin", "AmapNaviScale", "AmapCruise",
     "CfgStore", "AmapPlaceData", "AmapTabLayout", "AmapConfigRefresh", "AmapStartup", "AmapPoiCategory", "AmapSplash", "AmapHomeGeometry", "AmapToolOrder", "AmapCardRules", "AmapMapWidget")]
-BAIDU = ["bmapclean." + name + "Test" for name in (
+BAIDU = ["bgeo." + name + "Test" for name in (
     "BaiduMineCards", "BaiduConfigRefresh", "BaiduCacheIdentity", "BaiduLabelStyle",
     "BaiduTabRouting", "BaiduHomeReselect", "BaiduPanelLayout", "BaiduCommute", "BaiduPayment")]
-TMAP = ["tmapclean." + name + "Test" for name in (
+TMAP = ["tgeo." + name + "Test" for name in (
     "TmapStateRecovery", "TmapHomeBanner", "TmapAnnotations", "TmapPanelLayout", "TmapPoiCategory")]
-COMMON = ["mapclean.NativeLibraryCacheTest"]
+COMMON = ["core.NativeLibraryCacheTest"]
 
 
 def sha(data: bytes) -> str:
@@ -54,7 +54,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ModuleApk", type=Path, required=True)
     parser.add_argument("--AmapApk", type=Path, required=True)
-    parser.add_argument("--AmapPlayDirectory", type=Path, required=True)
+    parser.add_argument("--AmapPlayDirectory", type=Path, required=False, default=None)
     parser.add_argument("--BaiduApk", type=Path, required=True)
     parser.add_argument("--TencentApk", type=Path, required=True)
     parser.add_argument("--Adb", default="adb")
@@ -68,14 +68,14 @@ def main() -> int:
     report = {"serial": args.Serial, "variants": {}, "allPassed": False,
               "limitations": "Production DEX regression; not framework injection or vendor UI acceptance."}
     adb = [args.Adb, "-s", args.Serial]
-    remote = "/data/local/tmp/mapclean-production-" + uuid.uuid4().hex[:12]
+    remote = "/data/local/tmp/nk-production-" + uuid.uuid4().hex[:12]
     remote_files: list[str] = []
     try:
         sys.path.insert(0, str(ROOT / "tools"))
         from build_nonroot import dex_definitions
         checked(adb + ["get-state"])
         checked(adb + ["shell", "mkdir", remote])
-        with tempfile.TemporaryDirectory(prefix="mapclean-production-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="nk-production-") as tmp:
             work = Path(tmp)
             tests = work / "test-dex"
             tests.mkdir()
@@ -94,11 +94,14 @@ def main() -> int:
             if not full_tests or len(full_tests) != len(set(full_tests)):
                 raise RuntimeError("Missing or duplicate regression classes in Android runner")
             variants = {"module": (args.ModuleApk, full_tests)}
-            for name, apk, groups in (
-                    ("amap-cn", args.AmapApk, AMAP),
-                    ("amap-play", args.AmapPlayDirectory / "base.apk", AMAP),
-                    ("baidu", args.BaiduApk, BAIDU),
-                    ("tencent", args.TencentApk, TMAP)):
+            variant_inputs = [
+                ("amap-cn", args.AmapApk, AMAP),
+                ("baidu", args.BaiduApk, BAIDU),
+                ("tencent", args.TencentApk, TMAP),
+            ]
+            if args.AmapPlayDirectory is not None:
+                variant_inputs.insert(1, ("amap-play", args.AmapPlayDirectory / "base.apk", AMAP))
+            for name, apk, groups in variant_inputs:
                 with zipfile.ZipFile(apk) as archive:
                     data = archive.read(ENTRY)
                 embedded = work / (name + ".apk")
@@ -127,7 +130,7 @@ def main() -> int:
                 remote_files.append(apk_remote)
                 for cls in groups:
                     result = command(adb + ["shell", "CLASSPATH=" + test_remote + ":" + apk_remote,
-                                            "app_process", "/", PREFIX + "mapclean.RegressionHarness", cls])
+                                            "app_process", "/", PREFIX + "core.RegressionHarness", cls])
                     marker = "REGRESSION_OK " + cls
                     success = result.returncode == 0 and marker in result.stdout
                     output = result.stdout + result.stderr
@@ -138,12 +141,15 @@ def main() -> int:
                     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                     if not success:
                         raise RuntimeError(output[-6000:])
-            report["amapCnPlayDexIdentical"] = (report["variants"]["amap-cn"]["dexSha256"]
-                                                 == report["variants"]["amap-play"]["dexSha256"])
-            if not report["amapCnPlayDexIdentical"]:
-                raise RuntimeError("Domestic and Play feature DEX differ")
+            if "amap-play" in report["variants"]:
+                report["amapCnPlayDexIdentical"] = (report["variants"]["amap-cn"]["dexSha256"]
+                                                     == report["variants"]["amap-play"]["dexSha256"])
+                if not report["amapCnPlayDexIdentical"]:
+                    raise RuntimeError("Domestic and Play feature DEX differ")
+                print("PASS all production variants; CN/Play feature DEX identical", flush=True)
+            else:
+                print("PASS all production variants", flush=True)
             report["allPassed"] = True
-            print("PASS all production variants; CN/Play feature DEX identical", flush=True)
     except Exception as error:
         report["error"] = str(error)
         print("FAIL " + str(error), flush=True)

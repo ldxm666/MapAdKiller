@@ -42,7 +42,7 @@ static const Entry *lookup(const char *path){
 static void report(const Entry *entry,const char *api,bool consumed){
     if(!entry->reported.exchange(true,std::memory_order_relaxed)){
         const char *leaf=std::strrchr(entry->target.c_str(),'/');
-        __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","baidu_style_file_%s api=%s style=%s",
+        __android_log_print(ANDROID_LOG_INFO,"NKStyle","baidu_style_file_%s api=%s style=%s",
                 consumed?"consumed":"fallback",api,leaf?leaf+1:"sty");
     }
 }
@@ -83,7 +83,7 @@ static void install(Hook hook){
     FILE_HOOK("fopen",file_fopen,original_fopen);
 #undef FILE_HOOK
     ready.store(failures==0,std::memory_order_release);
-    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","baidu_file_hooks ready=%d failures=%d",failures==0,failures);
+    __android_log_print(ANDROID_LOG_INFO,"NKStyle","baidu_file_hooks ready=%d failures=%d",failures==0,failures);
 }
 static bool configure(JNIEnv *env,jobjectArray originals,jobjectArray filtered){
     struct ClearOnFailure {
@@ -110,7 +110,7 @@ static bool configure(JNIEnv *env,jobjectArray originals,jobjectArray filtered){
         env->ReleaseStringUTFChars(source,sourceChars);env->ReleaseStringUTFChars(target,targetChars);
         env->DeleteLocalRef(source);env->DeleteLocalRef(target);
         struct stat info{};
-        if(from.empty() || from[0]!='/' || to.find("/code_cache/mcpoi/")==std::string::npos
+        if(from.empty() || from[0]!='/' || to.find("/code_cache/nkpoi/")==std::string::npos
                 || lstat(to.c_str(),&info)!=0 || !S_ISREG(info.st_mode) || info.st_size<1 || info.st_size>16*1024*1024)return false;
         auto existing=table->paths.find(from);
         if(existing!=table->paths.end()){
@@ -123,12 +123,12 @@ static bool configure(JNIEnv *env,jobjectArray originals,jobjectArray filtered){
     {std::lock_guard<std::mutex> guard(versionsMutex);versions.push_back(std::move(table));}
     if(!requestBaiduNative([&]{active.store(published,std::memory_order_release);}))return false;
     guard.success=true;
-    __android_log_print(ANDROID_LOG_INFO,"MapCleanLabels","baidu_file_mapping exact_paths=%d",count);
+    __android_log_print(ANDROID_LOG_INFO,"NKStyle","baidu_file_mapping exact_paths=%d",count);
     return true;
 }
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_github_ldxm666_mapclean_NativeLabelAssets_configureBaidu(JNIEnv *env,jclass,jobjectArray originals,jobjectArray filtered){
+Java_org_navkit_core_NativeLabelAssets_configureBaidu(JNIEnv *env,jclass,jobjectArray originals,jobjectArray filtered){
     return baidu_file::configure(env,originals,filtered)?JNI_TRUE:JNI_FALSE;
 }

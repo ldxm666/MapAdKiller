@@ -1,4 +1,4 @@
-package io.github.ldxm666.bmapclean;
+package org.navkit.bgeo;
 
 import android.content.SharedPreferences;
 import android.os.Looper;
@@ -72,7 +72,7 @@ public final class BaiduMineCardsTest {
             check(!adapted.equals(source),"known template adapted");
             check(adapted.contains("this.data.set(\"cardList\",[].concat(e))"),"native model assignment preserved");
             check(adapted.contains("nativeCreated=1")&&adapted.contains("nativeDetached=1"),"native lifecycle preserved");
-            check(adapted.contains("__mapcleanMineCards234"),"separate render array");
+            check(adapted.contains("__nkMineCards237"),"separate render array");
             check(!adapted.contains("Array.prototype")&&!adapted.contains("gk"),"no global mutations");
             check(BaiduMineCards.script(adapted,hidden).equals(adapted),"idempotent");
             check(!BaiduMineCards.script(source,Collections.emptyList()).equals(source),"all-on still subscribes");

@@ -1,10 +1,13 @@
 {
-  "_app": "io.github.ldxm666.mapadkiller",
+  "_app": "org.navkit.geoassist",
   "_ver": 2,
-  "_rev": 2,
+  "_rev": 3,
   "groups": {
-    "amap_enhancer_config": {
+    "nk_amap_prefs": {
       "alimama_splash_off": true,
+      "push_off": true,
+      "push_kill_off": false,
+      "push_hard_off": false,
       "cruise_force_off": false,
       "ui_tools_order": "[]",
       "tab_探索": false,
@@ -157,7 +160,7 @@
       "debug_log": null,
       "sdk_learned": null
     },
-    "bmapclean_config": {
+    "nk_bgeo_prefs": {
       "ui_bottom_bar": null,
       "tab_首页": null,
       "tab_周边": false,
@@ -210,10 +213,10 @@
       "search_chips": false,
       "debug_log": null
     },
-    "mak_ui": {
+    "nk_ui_prefs": {
       "hide_icon_v2": null
     },
-    "tmapclean_config": {
+    "nk_tgeo_prefs": {
       "ui_bottom_bar": true,
       "tab_homePage": true,
       "tab_explorePage": false,

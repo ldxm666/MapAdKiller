@@ -4,7 +4,7 @@ import subprocess, tempfile, concurrent.futures, sys
 ROOT=Path(__file__).resolve().parent
 NDK=Path(r'C:\Users\Administrator\AppData\Local\Android\Sdk\ndk\26.3.11579264')
 BIN=NDK/'toolchains/llvm/prebuilt/windows-x86_64/bin'
-work=Path(tempfile.mkdtemp(prefix='mapclean-native-'))
+work=Path(tempfile.mkdtemp(prefix='navkit-native-'))
 vendor=ROOT/'vendor/zstd/lib'
 abis={'arm64-v8a':'aarch64-linux-android26','armeabi-v7a':'armv7a-linux-androideabi26','x86':'i686-linux-android26','x86_64':'x86_64-linux-android26'}
 def run(args):
@@ -22,6 +22,6 @@ for abi,target in abis.items():
         run([BIN/'clang.exe',*common,'-c',source,'-o',obj]); return obj
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         objects=list(pool.map(compile,sources))
-    run([BIN/'clang++.exe',*common,'-std=c++17','-fno-exceptions','-fno-rtti','-shared','-static-libstdc++',ROOT/'label_assets.cpp',*objects,'-Wl,--gc-sections','-Wl,-z,max-page-size=16384','-landroid','-llog','-ldl','-o',output/'libmapclean_labels.so'])
-    run([BIN/'llvm-strip.exe','--strip-unneeded',output/'libmapclean_labels.so'])
-    print('NATIVE OK',abi,(output/'libmapclean_labels.so').stat().st_size,flush=True)
+    run([BIN/'clang++.exe',*common,'-std=c++17','-fno-exceptions','-fno-rtti','-shared','-static-libstdc++',ROOT/'label_assets.cpp',*objects,'-Wl,--gc-sections','-Wl,-z,max-page-size=16384','-landroid','-llog','-ldl','-o',output/'libnavkit_style.so'])
+    run([BIN/'llvm-strip.exe','--strip-unneeded',output/'libnavkit_style.so'])
+    print('NATIVE OK',abi,(output/'libnavkit_style.so').stat().st_size,flush=True)

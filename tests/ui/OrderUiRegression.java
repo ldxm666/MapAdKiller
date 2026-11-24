@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean.tests;
+package org.navkit.core.tests;
 
 import android.app.*;
 import android.content.*;
@@ -30,10 +30,10 @@ public final class OrderUiRegression extends Instrumentation {
         File folder=new File(getTargetContext().getCacheDir(),"ui-qa");folder.mkdirs();
         try(FileOutputStream out=new FileOutputStream(new File(folder,name+".png"))){bmp[0].compress(Bitmap.CompressFormat.PNG,100,out);}bmp[0].recycle();
     }
-    Class<?> panel()throws Exception{return activity.getClassLoader().loadClass("io.github.ldxm666.mapclean.AmapPanel");}
+    Class<?> panel()throws Exception{return activity.getClassLoader().loadClass("org.navkit.core.AmapPanel");}
     String savedOrder()throws Exception{return (String)((Map<?,?>)panel().getMethod("toolOrderValues").invoke(null)).get("ui_tools_order");}
     List<String> ids(String raw)throws Exception{List<String> ids=new ArrayList<>();org.json.JSONArray a=new org.json.JSONArray(raw==null?"[]":raw);for(int i=0;i<a.length();i++)ids.add(a.getString(i));return ids;}
-    Dialog show()throws Exception{return (Dialog)activity.getClassLoader().loadClass("io.github.ldxm666.mapadkiller.AmapToolOrderEditor").getMethod("show",Context.class).invoke(null,activity);}
+    Dialog show()throws Exception{return (Dialog)activity.getClassLoader().loadClass("org.navkit.geoassist.AmapToolOrderEditor").getMethod("show",Context.class).invoke(null,activity);}
     List<View> moves(Dialog dialog,String prefix){List<View> all=new ArrayList<>(),result=new ArrayList<>();walk(dialog.getWindow().getDecorView(),all);for(View v:all)if(String.valueOf(v.getContentDescription()).startsWith(prefix))result.add(v);return result;}
     // Native startDragAndDrop transfers input to a system-owned drag window on Android 16.
     // UiAutomation can continue that gesture; targeted sendPointerSync rejects its UID.
@@ -51,7 +51,7 @@ public final class OrderUiRegression extends Instrumentation {
             main(()->check(moves(dialog[0],"下移 ").get(0).getContentDescription().toString().equals(names.get(0)),"up button restores the row"));
             // HyperOS can leave an instrumentation-owned Activity behind the current task.
             // Bring this exact task forward and verify focus before injecting touch input.
-            ParcelFileDescriptor foreground=getUiAutomation().executeShellCommand("am start --activity-single-top --activity-reorder-to-front -n io.github.ldxm666.mapadkiller/io.github.ldxm666.mapclean.MainActivity");
+            ParcelFileDescriptor foreground=getUiAutomation().executeShellCommand("am start --activity-single-top --activity-reorder-to-front -n org.navkit.geoassist/org.navkit.core.MainActivity");
             try(FileInputStream input=new FileInputStream(foreground.getFileDescriptor())){byte[] bytes=new byte[1024];while(input.read(bytes)!=-1){}}finally{foreground.close();}
             boolean[] focus={false};for(int i=0;i<40&&!focus[0];i++){main(()->focus[0]=dialog[0].getWindow().getDecorView().hasWindowFocus());if(!focus[0])SystemClock.sleep(100);}
             check(focus[0],"production dialog owns foreground input before drag");
@@ -81,7 +81,7 @@ public final class OrderUiRegression extends Instrumentation {
     @Override public void onStart(){
         Bundle output=new Bundle();
         try{
-            Intent launch=new Intent().setClassName("io.github.ldxm666.mapadkiller","io.github.ldxm666.mapclean.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent launch=new Intent().setClassName("org.navkit.geoassist","org.navkit.core.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             activity=startActivitySync(launch);waitForIdleSync();
             for(boolean dark:new boolean[]{false,true}){
                 Dialog[] dialog={null};
@@ -90,14 +90,14 @@ public final class OrderUiRegression extends Instrumentation {
                     cfg.uiMode=(cfg.uiMode&~Configuration.UI_MODE_NIGHT_MASK)|(dark?Configuration.UI_MODE_NIGHT_YES:Configuration.UI_MODE_NIGHT_NO);
                     ContextThemeWrapper themed=new ContextThemeWrapper(activity,dark?android.R.style.Theme_Material_NoActionBar:android.R.style.Theme_Material_Light_NoActionBar);
                     themed.applyOverrideConfiguration(cfg);
-                    dialog[0]=(Dialog)activity.getClassLoader().loadClass("io.github.ldxm666.mapadkiller.AmapToolOrderEditor").getMethod("show",Context.class).invoke(null,themed);
+                    dialog[0]=(Dialog)activity.getClassLoader().loadClass("org.navkit.geoassist.AmapToolOrderEditor").getMethod("show",Context.class).invoke(null,themed);
                 });
                 SystemClock.sleep(500);waitForIdleSync();
                 main(()->{
                     View decor=dialog[0].getWindow().getDecorView();
                     TextView title=(TextView)text(decor,"首页工具排序");
                     check(title!=null,"production title present");
-                    Class<?> design=activity.getClassLoader().loadClass("io.github.ldxm666.mapclean.HyperDesign");
+                    Class<?> design=activity.getClassLoader().loadClass("org.navkit.core.HyperDesign");
                     Object palette=design.getMethod("of",boolean.class).invoke(null,dark);
                     check(title.getCurrentTextColor()==design.getField("onSurface").getInt(palette),"title follows shared day/night palette");
                     check(decor.getWidth()<=activity.getResources().getDisplayMetrics().widthPixels,"dialog fits screen width");

@@ -123,7 +123,7 @@ def align_descriptor_flags(source: Path, destination: Path) -> int:
 
 
 def repack(source: Path, destination: Path, *, java: Path, apksigner: Path, keystore: Path,
-           password_env: str = "MAPCLEAN_HOST_KEYSTORE_PASSWORD") -> dict:
+           password_env: str = "NAVKIT_HOST_KS_PASS") -> dict:
     source, destination = source.resolve(), destination.resolve()
     if source == destination or destination.exists(): raise ValueError("output must be a new path distinct from input")
     if not os.environ.get(password_env): raise ValueError(f"missing signing password environment variable: {password_env}")
@@ -133,7 +133,7 @@ def repack(source: Path, destination: Path, *, java: Path, apksigner: Path, keys
     before = payloads(source, standard=False)
     if ORIGIN not in before: raise ValueError("expected an integrated LSPatch base APK")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="mapclean-compat-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="nk-compat-") as tmp:
         output = Path(tmp) / "compatible.apk"
         prepared = Path(tmp) / "descriptor-aligned.apk"
         descriptor_repairs = align_descriptor_flags(source, prepared)
@@ -172,7 +172,7 @@ def main() -> None:
     parser.add_argument("--Java", type=Path, required=True)
     parser.add_argument("--ApksignerJar", type=Path, required=True)
     parser.add_argument("--Keystore", type=Path, required=True)
-    parser.add_argument("--PasswordEnv", default="MAPCLEAN_HOST_KEYSTORE_PASSWORD")
+    parser.add_argument("--PasswordEnv", default="NAVKIT_HOST_KS_PASS")
     args = parser.parse_args()
     result = repack(args.InputApk, args.OutputApk, java=args.Java, apksigner=args.ApksignerJar,
                     keystore=args.Keystore, password_env=args.PasswordEnv)

@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean.tests;
+package org.navkit.core.tests;
 
 import android.app.*;
 import android.os.*;
@@ -11,12 +11,12 @@ public final class AmapPrefsProbe extends Instrumentation {
     String changes;boolean readTools;
     public void onCreate(Bundle args){super.onCreate(args);changes=args==null?null:args.getString("changes");readTools=args!=null&&Boolean.parseBoolean(args.getString("tools","false"));if(args!=null&&args.containsKey("changes64"))changes=new String(android.util.Base64.decode(args.getString("changes64"),android.util.Base64.DEFAULT),java.nio.charset.StandardCharsets.UTF_8);start();}
     public void onStart(){Bundle result=new Bundle();try{
-        Class<?> app=Class.forName("io.github.ldxm666.mapadkiller.App");
+        Class<?> app=Class.forName("org.navkit.geoassist.App");
         Object service=null;
         for(int i=0;i<40&&service==null;i++){service=app.getMethod("svc").invoke(null);if(service==null)SystemClock.sleep(200);}
         if(service==null)throw new IllegalStateException("module service not connected");
         Method getter=service.getClass().getMethod("getRemotePreferences",String.class);getter.setAccessible(true);
-        SharedPreferences prefs=(SharedPreferences)getter.invoke(service,"amap_enhancer_config");
+        SharedPreferences prefs=(SharedPreferences)getter.invoke(service,"nk_amap_prefs");
         if(changes!=null){
             JSONObject update=new JSONObject(changes);SharedPreferences.Editor editor=prefs.edit();
             java.util.Iterator<String> it=update.keys();

@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean.tests;
+package org.navkit.core.tests;
 
 import android.app.Activity;
 import android.app.Instrumentation;
@@ -135,7 +135,7 @@ public final class UiRegression extends Instrumentation {
         });
     }
     private void springs() throws Exception {
-        Class<?> spring = loader.loadClass("io.github.ldxm666.mapclean.HyperMotion$Spring");
+        Class<?> spring = loader.loadClass("org.navkit.core.HyperMotion$Spring");
         Method at = spring.getMethod("at", float.class,float.class,float.class,float.class);
         Method to = spring.getMethod("to",float.class), step = spring.getMethod("advance",float.class);
         Method value = spring.getMethod("value"), velocity = spring.getMethod("velocity");
@@ -153,7 +153,7 @@ public final class UiRegression extends Instrumentation {
     }
     private void collect(Object[] items, Set<String> keys, String vendor, JSONArray output, boolean[] valid) throws Exception {
         if (items == null) return;
-        Class<?> config = loader.loadClass("io.github.ldxm666.mapadkiller.Config");
+        Class<?> config = loader.loadClass("org.navkit.geoassist.Config");
         for (Object item : items) {
             String key = (String)item.getClass().getField("key").get(item);
             if (key == null || key.equals("float_enabled")) continue;
@@ -169,7 +169,7 @@ public final class UiRegression extends Instrumentation {
     @SuppressWarnings("unchecked") private void catalogues() throws Exception {
         JSONArray output = new JSONArray();
         for (String[] vendor : new String[][]{{"amap","AmapPanel","switches"},{"baidu","BaiduPanel","bmapSwitches"},{"tmap","TmapPanel","tmapSwitches"}}) {
-            Object[] groups = (Object[])loader.loadClass("io.github.ldxm666.mapclean."+vendor[1]).getMethod("groups").invoke(null);
+            Object[] groups = (Object[])loader.loadClass("org.navkit.core."+vendor[1]).getMethod("groups").invoke(null);
             Set<String> keys = new LinkedHashSet<>(); boolean[] valid = {true};
             for (Object group : groups) {
                 collect((Object[])group.getClass().getField("items").get(group),keys,vendor[0],output,valid);
@@ -186,9 +186,9 @@ public final class UiRegression extends Instrumentation {
         try (FileOutputStream out = new FileOutputStream(new File(directory,"catalogue.json"))) { out.write(output.toString(2).getBytes("UTF-8")); }
     }
     @SuppressWarnings("unchecked") private void configurationRoundTrip() throws Exception {
-        for (String[] vendor : new String[][]{{"amap","mapadkiller","amap_enhancer_config","switches","writeBoolean"},
-                {"baidu","bmapclean","bmapclean_config","bmapSwitches","write"},{"tmap","tmapclean","tmapclean_config","tmapSwitches","write"}}) {
-            Class<?> app = loader.loadClass("io.github.ldxm666."+vendor[1]+".App");
+        for (String[] vendor : new String[][]{{"amap","geoassist","nk_amap_prefs","switches","writeBoolean"},
+                {"baidu","bgeo","nk_bgeo_prefs","bmapSwitches","write"},{"tmap","tgeo","nk_tgeo_prefs","tmapSwitches","write"}}) {
+            Class<?> app = loader.loadClass("org.navkit."+vendor[1]+".App");
             Object service = app.getMethod("svc").invoke(null);
             check(service != null, vendor[0]+" module backend connected");
             SharedPreferences prefs = (SharedPreferences)service.getClass().getMethod("getRemotePreferences",String.class).invoke(service,vendor[2]);
@@ -208,7 +208,7 @@ public final class UiRegression extends Instrumentation {
     private void pressAndSwitch() throws Exception {
         final View[] sw = new View[1];
         main(() -> {
-            sw[0] = (View)loader.loadClass("io.github.ldxm666.mapclean.GlassSwitch").getConstructor(Context.class).newInstance(activity);
+            sw[0] = (View)loader.loadClass("org.navkit.core.GlassSwitch").getConstructor(Context.class).newInstance(activity);
             ((ViewGroup)activity.getWindow().getDecorView()).addView(sw[0], new ViewGroup.LayoutParams(160,130));
             call(sw[0],"setChecked",new Class[]{boolean.class,boolean.class},true,false);
             call(sw[0],"setChecked",new Class[]{boolean.class,boolean.class},false,true);
@@ -221,15 +221,64 @@ public final class UiRegression extends Instrumentation {
             sw[0].dispatchTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,20,20,0));
             sw[0].dispatchTouchEvent(MotionEvent.obtain(now,now+30,MotionEvent.ACTION_CANCEL,20,20,0));
         }); idle();
-        main(() -> {
+            main(() -> {
             check(Math.abs(sw[0].getScaleX()-1f)<.001f, "switch cancel restores pressed scale");
             ((ViewGroup)sw[0].getParent()).removeView(sw[0]);
+        });
+    }
+    private void dispatchDrag(View target, float x0, float y0, float x1, float y1, int steps) {
+        long down = SystemClock.uptimeMillis();
+        MotionEvent e = MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x0, y0, 0);
+        target.dispatchTouchEvent(e); e.recycle();
+        for (int i = 1; i <= steps; i++) {
+            float t = i / (float) steps;
+            e = MotionEvent.obtain(down, down + i * 12L, MotionEvent.ACTION_MOVE,
+                x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 0);
+            target.dispatchTouchEvent(e); e.recycle();
+        }
+        e = MotionEvent.obtain(down, down + (steps + 1) * 12L, MotionEvent.ACTION_UP, x1, y1, 0);
+        target.dispatchTouchEvent(e); e.recycle();
+    }
+    private void sliderScroll() throws Exception {
+        final android.widget.ScrollView[] sv = new android.widget.ScrollView[1];
+        final View[] slider = new View[1];
+        main(() -> {
+            android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+            LinearLayout col = new LinearLayout(activity);
+            col.setOrientation(LinearLayout.VERTICAL);
+            slider[0] = (View) loader.loadClass("org.navkit.core.GlassSlider").getConstructor(Context.class).newInstance(activity);
+            call(slider[0], "setStops", new Class[]{int.class}, 10);
+            call(slider[0], "setPosition", new Class[]{int.class}, 0);
+            col.addView(slider[0], new LinearLayout.LayoutParams(-1, 200));
+            View spacer = new View(activity);
+            col.addView(spacer, new LinearLayout.LayoutParams(-1, 3000));
+            scroll.addView(col, new FrameLayout.LayoutParams(-1, -2));
+            ((ViewGroup) activity.getWindow().getDecorView()).addView(scroll, new ViewGroup.LayoutParams(600, 600));
+            sv[0] = scroll;
+        }); idle();
+        main(() -> {
+            float sx = slider[0].getWidth() * 0.8f;
+            float sy = slider[0].getHeight() * 0.5f;
+            dispatchDrag(sv[0], sx, sy, sx, sy - 240f, 12);
+            check(sv[0].getScrollY() > 0 && (Integer) field(slider[0], "pos") == 0,
+                "slider yields vertical drag to ancestor ScrollView");
+            sv[0].fling(0);
+            sv[0].scrollTo(0, 0);
+        });
+        idle();
+        main(() -> {
+            float sy = slider[0].getHeight() * 0.5f;
+            sv[0].scrollTo(0, 0);
+            dispatchDrag(sv[0], slider[0].getWidth() * 0.15f, sy, slider[0].getWidth() * 0.85f, sy, 12);
+            check((Integer) field(slider[0], "pos") > 0 && sv[0].getScrollY() == 0,
+                "slider claims horizontal drag without scrolling pos=" + field(slider[0], "pos") + " scrollY=" + sv[0].getScrollY());
+            ((ViewGroup) sv[0].getParent()).removeView(sv[0]);
         });
     }
     private void sheet() throws Exception {
         final View[] panel = new View[1]; final int[] closed={0};
         main(() -> {
-            panel[0] = (View)loader.loadClass("io.github.ldxm666.mapclean.FloatingPanel")
+            panel[0] = (View)loader.loadClass("org.navkit.core.FloatingPanel")
                 .getConstructor(Context.class, boolean.class).newInstance(activity, (activity.getResources().getConfiguration().uiMode&48)==32);
             ((ViewGroup)activity.getWindow().getDecorView()).addView(panel[0],new ViewGroup.LayoutParams(-1,-1));
             call(panel[0],"setOnClose",new Class[]{Runnable.class},(Runnable)()->closed[0]++);
@@ -244,6 +293,50 @@ public final class UiRegression extends Instrumentation {
             View card = (View)field(panel[0],"card");
             check(card.getWidth() <= panel[0].getWidth(), "embedded sheet fits window width");
             check(card.getBottom() <= panel[0].getHeight(), "embedded sheet fits window height");
+            Object[] groups = (Object[]) field(panel[0], "groups");
+            int tall = 0;
+            for (int i = 0; i < groups.length; i++) {
+                call(panel[0], "select", new Class[]{int.class, boolean.class}, i, false);
+                panel[0].measure(
+                    View.MeasureSpec.makeMeasureSpec(panel[0].getWidth(), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(panel[0].getHeight(), View.MeasureSpec.EXACTLY));
+                panel[0].layout(0, 0, panel[0].getWidth(), panel[0].getHeight());
+                android.widget.ScrollView bs = (android.widget.ScrollView) field(panel[0], "bodyScroll");
+                View b = (View) field(panel[0], "body");
+                if (bs != null && b != null && b.getHeight() > bs.getHeight() + 80) {
+                    tall = i; break;
+                }
+            }
+            android.widget.ScrollView scroll = (android.widget.ScrollView) field(panel[0], "bodyScroll");
+            check(scroll != null && ((View) field(panel[0], "body")).getHeight() > scroll.getHeight(),
+                "embedded sheet has scrollable content category=" + tall);
+            int[] pLoc = new int[2], sLoc = new int[2];
+            panel[0].getLocationInWindow(pLoc); scroll.getLocationInWindow(sLoc);
+            float sx = (sLoc[0] - pLoc[0]) + scroll.getWidth() * 0.5f;
+            float sy = (sLoc[1] - pLoc[1]) + scroll.getHeight() * 0.65f;
+            scroll.fling(0);
+            scroll.scrollTo(0, 0);
+            int selBefore = (Integer) field(panel[0], "selected");
+            dispatchDrag(panel[0], sx, sy, sx, sy - 260f, 12);
+            check(scroll.getScrollY() > 0 && (Integer) field(panel[0], "selected") == selBefore,
+                "embedded sheet vertical drag scrolls without switching category scrollY=" + scroll.getScrollY() + " selected=" + field(panel[0], "selected"));
+            scroll.fling(0);
+            scroll.scrollTo(0, 0);
+        });
+        idle();
+        main(() -> {
+            android.widget.ScrollView scroll = (android.widget.ScrollView) field(panel[0], "bodyScroll");
+            int[] pLoc = new int[2], sLoc = new int[2];
+            panel[0].getLocationInWindow(pLoc); scroll.getLocationInWindow(sLoc);
+            float sx = (sLoc[0] - pLoc[0]) + scroll.getWidth() * 0.5f;
+            float sy = (sLoc[1] - pLoc[1]) + scroll.getHeight() * 0.65f;
+            int selBefore = (Integer) field(panel[0], "selected");
+            scroll.scrollTo(0, 0);
+            dispatchDrag(panel[0], sx, sy, sx + 24f, sy - 240f, 12);
+            check(scroll.getScrollY() > 0 && (Integer) field(panel[0], "selected") == selBefore,
+                "embedded sheet diagonal vertical drag locks vertical scroll scrollY=" + scroll.getScrollY() + " selected=" + field(panel[0], "selected"));
+            scroll.fling(0);
+            scroll.scrollTo(0, 0);
             call(panel[0],"select",new Class[]{int.class,boolean.class},1,true);
         });
         SystemClock.sleep(25);
@@ -280,10 +373,10 @@ public final class UiRegression extends Instrumentation {
         Bundle result = new Bundle();
         try {
             loader = getTargetContext().getClassLoader();
-            Intent intent = new Intent().setClassName("io.github.ldxm666.mapadkiller", "io.github.ldxm666.mapclean.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent intent = new Intent().setClassName("org.navkit.geoassist", "org.navkit.core.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             activity = startActivitySync(intent); idle();
             floatingNav(); springs(); catalogues(); configurationRoundTrip(); capture("home");
-            tab(1); capture("config"); accordion(); rapidNavigation(); pressAndSwitch();
+            tab(1); capture("config"); accordion(); rapidNavigation(); pressAndSwitch(); sliderScroll();
             tab(2); capture("backup"); tab(3);
             main(() -> {
                 ViewGroup page=(ViewGroup)field(activity,"aboutPage");

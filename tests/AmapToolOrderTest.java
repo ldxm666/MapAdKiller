@@ -1,6 +1,6 @@
-package io.github.ldxm666.mapadkiller;
+package org.navkit.geoassist;
 
-import io.github.ldxm666.mapclean.ToolOrderCodec;
+import org.navkit.core.ToolOrderCodec;
 import java.util.*;
 import org.json.*;
 

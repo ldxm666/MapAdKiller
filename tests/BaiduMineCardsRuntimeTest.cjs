@@ -16,7 +16,7 @@ for (const file of process.argv.slice(2)) {
   const context = vm.createContext({});
   const before = vm.runInContext('[Array.prototype.concat,Array.prototype.push]', context);
   vm.runInContext(source.slice(0, boundary), context, { timeout: 1000 });
-  const bind = context.__mapcleanMineBind234;
+  const bind = context.__nkMineBind237;
   check(typeof bind === 'function', 'actual adapter helper loads');
   const listeners = new Map();
   const bus = {
@@ -37,13 +37,13 @@ for (const file of process.argv.slice(2)) {
   }
   const a = page();
   const original = a.store.cardList;
-  const event = 'mapclean.mine.cards.234';
+  const event = 'nk.mine.cards.237';
   function configure(hidden) { bus.emit(event, JSON.stringify(hidden)); }
   for (let round = 0; round < 3; round++) {
     for (let mask = 0; mask < 256; mask++) {
       const hidden = groups.flatMap((g, bit) => mask & (1 << bit) ? [] : g);
       configure(hidden);
-      check(JSON.stringify(a.store.__mapcleanMineCards234) === JSON.stringify(nativeCards.filter(v => !hidden.includes(v))),
+      check(JSON.stringify(a.store.__nkMineCards237) === JSON.stringify(nativeCards.filter(v => !hidden.includes(v))),
         `independent live switches round=${round} mask=${mask}`);
       check(a.store.cardList === original, 'complete native model identity retained');
       check(a.store.phoneInfo.gk === '1' && a.store.serverData.car.id === 3, 'shared phone/server data retained');
@@ -52,32 +52,32 @@ for (const file of process.argv.slice(2)) {
   // User report: every optional card off, just the top icon grid on, then off/on again.
   const onlyGrid = groups.slice(1).flat();
   configure(onlyGrid);
-  check(a.store.__mapcleanMineCards234.includes('common'), 'only-grid-on restores grid');
-  check(!a.store.__mapcleanMineCards234.includes('carLogo'), 'grid does not enable the separate car-logo card');
+  check(a.store.__nkMineCards237.includes('common'), 'only-grid-on restores grid');
+  check(!a.store.__nkMineCards237.includes('carLogo'), 'grid does not enable the separate car-logo card');
   configure(groups.flat());
-  check(!a.store.__mapcleanMineCards234.includes('common'), 'grid hides');
+  check(!a.store.__nkMineCards237.includes('common'), 'grid hides');
   configure(onlyGrid);
-  check(a.store.__mapcleanMineCards234.includes('common'), 'grid restores in the same runtime');
+  check(a.store.__nkMineCards237.includes('common'), 'grid restores in the same runtime');
   // A native server refresh/UGC update must not discard hidden cards needed on re-enable.
   configure(groups.flat());
   const refreshed = nativeCards.concat('new-server-card');
   a.p.data.set('cardList', refreshed);
   check(a.store.cardList === refreshed, 'server refresh is not rewritten');
-  check(a.store.__mapcleanMineCards234.includes('new-server-card'), 'unknown new card passes');
+  check(a.store.__nkMineCards237.includes('new-server-card'), 'unknown new card passes');
   configure([]);
-  check(JSON.stringify(a.store.__mapcleanMineCards234) === JSON.stringify(refreshed), 'master off/all on restores every native card');
-  const retained = JSON.stringify(a.store.__mapcleanMineCards234);
+  check(JSON.stringify(a.store.__nkMineCards237) === JSON.stringify(refreshed), 'master off/all on restores every native card');
+  const retained = JSON.stringify(a.store.__nkMineCards237);
   for (const invalid of ['invalid json', '{}', '{"value":[]}', '[1]', null]) {
     bus.emit(event, invalid);
-    check(JSON.stringify(a.store.__mapcleanMineCards234) === retained, 'invalid event leaves current rendering intact');
+    check(JSON.stringify(a.store.__nkMineCards237) === retained, 'invalid event leaves current rendering intact');
   }
   const b = page();
   bind(a.p);
   check(listeners.get(event).size === 2, 'binding is idempotent');
-  a.p.__mapcleanMineDispose234();
+  a.p.__nkMineDispose237();
   check(listeners.get(event).size === 1, 'detach removes only this page listener');
   configure(onlyGrid);
-  check(b.store.__mapcleanMineCards234.includes('common'), 'other page still receives updates');
+  check(b.store.__nkMineCards237.includes('common'), 'other page still receives updates');
   const after = vm.runInContext('[Array.prototype.concat,Array.prototype.push]', context);
   check(before[0] === after[0] && before[1] === after[1], 'Array prototypes unchanged');
   check(source.includes('processCardList:function(') && source.includes('processServerData:function('), 'native methods retained');

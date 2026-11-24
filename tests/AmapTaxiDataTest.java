@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapadkiller;
+package org.navkit.geoassist;
 
 import java.net.URLEncoder;
 import java.util.Arrays;

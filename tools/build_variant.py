@@ -10,8 +10,8 @@ What "slimmed" means here
 The full module carries three vendor adapters (高德 / 百度 / 腾讯) plus the standalone
 settings Activity. This variant keeps:
 
-  * io.github.ldxm666.mapadkiller.*  -- but only the 高德 files (Amap*.java + shared core)
-  * io.github.ldxm666.mapclean.*     -- shared motion/UI kit + the floating layer
+  * org.navkit.geoassist.*  -- but only the 高德 files (Amap*.java + shared core)
+  * org.navkit.core.*     -- shared motion/UI kit + the floating layer
   * the libxposed service/interface jars and the native label library
 
 and drops every 百度 / 腾讯 source file, the standalone settings Activity, and the
@@ -21,7 +21,7 @@ Cross-boundary calls are satisfied with generated no-op stubs rather than runtim
 reflection, so the slim build stays statically verifiable.
 
 Usage:
-  python tools/build_variant.py --ModuleApk output/MapClean-lsp-v2.1.3.apk \
+  python tools/build_variant.py --ModuleApk output/Mapadkiller-lsp-v2.1.3.apk \
       --OriginalApk <amap-original.apk> --OutputDirectory output/nonroot-amap
 """
 from __future__ import annotations
@@ -53,10 +53,10 @@ LICENSE_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb369
 
 # ABI folders that must receive the label library inside the patched host APK.
 NATIVE_ABIS = ("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-NATIVE_LIBRARY = "libmapclean_labels.so"
+NATIVE_LIBRARY = "libnavkit_style.so"
 NATIVE_ENTRY = "lib/{abi}/" + NATIVE_LIBRARY
 
-MODULE_PACKAGE = "io.github.ldxm666.mapadkiller"
+MODULE_PACKAGE = "org.navkit.geoassist"
 AMAP = "com.autonavi.minimap"
 BAIDU = "com.baidu.BaiduMap"
 CONFIG_ENTRY = "assets/lspatch/config.json"
@@ -66,7 +66,7 @@ ORIGINAL_ENTRY = "assets/lspatch/origin.apk"
 # ---- what the slim variant drops -------------------------------------------
 
 # Whole packages that belong to other vendors.
-DROP_PACKAGES = ("io.github.ldxm666.bmapclean",)
+DROP_PACKAGES = ("org.navkit.bgeo",)
 
 # 高德 package files that are not part of the 高德 hook path.
 DROP_AMAP_FILES = {
@@ -92,7 +92,7 @@ DROP_MAPCLEAN_FILES = {
     # It was originally listed as "baidu label assets", and that was wrong: the class
     # gates on the process name and handles 高德 too --
     #     if ("com.autonavi.minimap".equals(process)) { map = 1; mask = ...K_MAP_POI ? 0 : 1; }
-    # -- and it is the *only* thing that drives libmapclean_labels.so, whose AMap host
+    # -- and it is the *only* thing that drives libnavkit_style.so, whose AMap host
     # filters the map style protobuf (map_assets/style_*X_Main) to remove POI features while
     # leaving roads, water and place names intact.
     #
@@ -117,8 +117,8 @@ STUB_DIR = ROOT / "tools" / "variant-stubs"
 
 # Standalone-app surface: it has no home in an embedded build (the orb replaces it).
 SHARED_STUBS = (
-    "io/github/ldxm666/mapclean/EmbeddedSettings.java",
-    "io/github/ldxm666/mapclean/MainActivity.java",
+    "org/navkit/core/EmbeddedSettings.java",
+    "org/navkit/core/MainActivity.java",
 )
 #
 # ⚠ HostInfo 曾经在这里，2026-10 移出。
@@ -133,10 +133,10 @@ SHARED_STUBS = (
 STUBBED_CLASSES = ("MainHook", "App", "Config", "HostInfo", "Baseline", "CaptureLog")
 
 FLOATING_REQUIRED = (
-    b"Lio/github/ldxm666/mapclean/FloatingBall;",
-    b"Lio/github/ldxm666/mapclean/FloatingHooks;",
-    b"Lio/github/ldxm666/mapclean/FloatingPanel;",
-    b"Lio/github/ldxm666/mapclean/PaymentUiPolicy;",
+    b"Lorg/navkit/core/FloatingBall;",
+    b"Lorg/navkit/core/FloatingHooks;",
+    b"Lorg/navkit/core/FloatingPanel;",
+    b"Lorg/navkit/core/PaymentUiPolicy;",
 )
 
 # ---- the vendor allow-list, checked in the compiled DEX ---------------------
@@ -158,7 +158,7 @@ FLOATING_REQUIRED = (
 # 为什么必须读 DEX 而不是源码：产物里它就只是一个字符串常量，required/banned 那种
 # 「类描述符在不在」的检查完全看不见它；而源码里的名单和真正编译进去的名单之间隔着
 # 桩替换、javac 常量内联和 d8 —— 只有反读编译出来的方法体才是真的。
-HOST_WHITELIST_CLASS = b"Lio/github/ldxm666/mapclean/EmbeddedSettingsPolicy;"
+HOST_WHITELIST_CLASS = b"Lorg/navkit/core/EmbeddedSettingsPolicy;"
 HOST_WHITELIST_METHOD = "isHostPackage"
 
 
@@ -202,58 +202,58 @@ TARGETS = {
         "package": AMAP,
         "label": "高德地图",
         "artifact": "高德地图-{version}-免root内置版.apk",
-        "slimModule": "MapAdKiller-amap-slim-{version}.apk",
-        "dropPackages": ("io.github.ldxm666.bmapclean",),
+        "slimModule": "Mapadkiller-amap-slim-{version}.apk",
+        "dropPackages": ("org.navkit.bgeo",),
         "stubs": SHARED_STUBS + (
-            "io/github/ldxm666/mapadkiller/TmapHooks.java",
-            "io/github/ldxm666/bmapclean/MainHook.java",
-            "io/github/ldxm666/bmapclean/App.java",
-            "io/github/ldxm666/mapclean/BaiduPanel.java",
-            "io/github/ldxm666/mapclean/TmapPanel.java",
+            "org/navkit/geoassist/TmapHooks.java",
+            "org/navkit/bgeo/MainHook.java",
+            "org/navkit/bgeo/App.java",
+            "org/navkit/core/BaiduPanel.java",
+            "org/navkit/core/TmapPanel.java",
         ),
         # Same failure mode as 百度 2.1.4, one vendor over: a no-op stub for the 腾讯 forwarding
         # compiles, passes every structural check, and leaves 腾讯 with no UI hooks at all.
         # Checked on the generated source because the DEX cannot tell the difference.
         "invariants": (
-            ("io/github/ldxm666/mapadkiller/MainHook.java",
-             "tmapclean.MainHook.onPackageReady"),
+            ("org/navkit/geoassist/MainHook.java",
+             "tgeo.MainHook.onPackageReady"),
         ),
         "required": FLOATING_REQUIRED + (
-            b"Lio/github/ldxm666/mapadkiller/AmapHooks;",
-            b"Lio/github/ldxm666/mapadkiller/AmapSubprocess;",
-            b"Lio/github/ldxm666/mapadkiller/AmapNativeHome;",
-            b"Lio/github/ldxm666/mapadkiller/AmapCardRules;",
-            b"Lio/github/ldxm666/mapadkiller/AmapToolOrder;",
-            b"Lio/github/ldxm666/mapadkiller/AmapToolOrderEditor;",
-            b"Lio/github/ldxm666/mapclean/ToolOrderCodec;",
-            b"Lio/github/ldxm666/mapclean/FeedCardConfig;",
+            b"Lorg/navkit/geoassist/AmapHooks;",
+            b"Lorg/navkit/geoassist/AmapSubprocess;",
+            b"Lorg/navkit/geoassist/AmapNativeHome;",
+            b"Lorg/navkit/geoassist/AmapCardRules;",
+            b"Lorg/navkit/geoassist/AmapToolOrder;",
+            b"Lorg/navkit/geoassist/AmapToolOrderEditor;",
+            b"Lorg/navkit/core/ToolOrderCodec;",
+            b"Lorg/navkit/core/FeedCardConfig;",
             # Keep the same navigation, cruise and taxi implementations in CN/Play builds.
             # Fail packaging if a later slimming change removes one behind a visible setting.
-            b"Lio/github/ldxm666/mapadkiller/AmapNaviScale;",
-            b"Lio/github/ldxm666/mapadkiller/AmapCruise;",
-            b"Lio/github/ldxm666/mapadkiller/AmapCruiseOfficial;",
-            b"Lio/github/ldxm666/mapadkiller/AmapTaxiData;",
+            b"Lorg/navkit/geoassist/AmapNaviScale;",
+            b"Lorg/navkit/geoassist/AmapCruise;",
+            b"Lorg/navkit/geoassist/AmapCruiseOfficial;",
+            b"Lorg/navkit/geoassist/AmapTaxiData;",
             # HostInfo 在 amap 变体里是**真件**（mapadkiller 包整个保留），它是内置/模块模式的
             # 唯一判据，也是 FloatingHooks / FloatingController / AmapMineEntry 的总闸。
             # 一旦有人把它又挪回 SHARED_STUBS，这条 required 会在构建期炸掉而不是等到真机排障。
-            b"Lio/github/ldxm666/mapadkiller/HostInfo;",
-            b"Lio/github/ldxm666/mapclean/BaiduPanel;",      # the generated no-op
-            b"Lio/github/ldxm666/mapclean/TmapPanel;",       # the generated no-op
-            b"Lio/github/ldxm666/bmapclean/MainHook;",       # the forwarding target
+            b"Lorg/navkit/geoassist/HostInfo;",
+            b"Lorg/navkit/core/BaiduPanel;",      # the generated no-op
+            b"Lorg/navkit/core/TmapPanel;",       # the generated no-op
+            b"Lorg/navkit/bgeo/MainHook;",       # the forwarding target
             # v2.4.0 高德调校三项。都在 mapadkiller 包里，但精简构建对 mapadkiller 是按文件名
             # 裁剪的（DROP_AMAP_FILES），所以"某个文件被误加进裁剪名单"是真实可能的，
             # 而后果和当年的地图标注一模一样：开关还在、面板还画，实现整条没了。
             # DEX 级 required 把这种失误提前到构建期。
-            b"Lio/github/ldxm666/mapadkiller/AmapFpsCap;",
-            b"Lio/github/ldxm666/mapadkiller/AmapBuildingPatch;",
-            b"Lio/github/ldxm666/mapadkiller/AmapUpdateBlock;",
-            b"Lio/github/ldxm666/mapadkiller/AmapHookArgs;",
-            b"Lio/github/ldxm666/mapadkiller/AmapPoiSettings;",
-            b"Lio/github/ldxm666/mapadkiller/AmapSplashRules;",
-            b"Lio/github/ldxm666/mapadkiller/AmapHomeGeometry;",
+            b"Lorg/navkit/geoassist/AmapFpsCap;",
+            b"Lorg/navkit/geoassist/AmapBuildingPatch;",
+            b"Lorg/navkit/geoassist/AmapUpdateBlock;",
+            b"Lorg/navkit/geoassist/AmapHookArgs;",
+            b"Lorg/navkit/geoassist/AmapPoiSettings;",
+            b"Lorg/navkit/geoassist/AmapSplashRules;",
+            b"Lorg/navkit/geoassist/AmapHomeGeometry;",
         ),
-        "banned": vendor_classes("io.github.ldxm666.bmapclean", STUBBED_CLASSES) + (
-            b"Lio/github/ldxm666/mapadkiller/BmapHooks;",
+        "banned": vendor_classes("org.navkit.bgeo", STUBBED_CLASSES) + (
+            b"Lorg/navkit/geoassist/BmapHooks;",
             b"Lcom/baidu/",
         ),
     },
@@ -261,40 +261,40 @@ TARGETS = {
         "package": "com.tencent.map",
         "label": "腾讯地图",
         "artifact": "腾讯地图-{version}-免root内置版.apk",
-        "slimModule": "MapAdKiller-tmap-slim-{version}.apk",
-        "dropPackages": ("io.github.ldxm666.mapadkiller", "io.github.ldxm666.bmapclean"),
+        "slimModule": "Mapadkiller-tmap-slim-{version}.apk",
+        "dropPackages": ("org.navkit.geoassist", "org.navkit.bgeo"),
         "stubs": SHARED_STUBS + (
-            "io/github/ldxm666/mapadkiller/Config.java",
-            "io/github/ldxm666/mapadkiller/App.java",
-            "io/github/ldxm666/mapadkiller/MainHook.java",
-                "io/github/ldxm666/mapadkiller/Baseline.java",
+            "org/navkit/geoassist/Config.java",
+            "org/navkit/geoassist/App.java",
+            "org/navkit/geoassist/MainHook.java",
+                "org/navkit/geoassist/Baseline.java",
             # mapadkiller 整包被裁，HostInfo 只能用桩（内置版判据，见 variant-stubs 里的说明）。
-            "io/github/ldxm666/mapadkiller/HostInfo.java",
+            "org/navkit/geoassist/HostInfo.java",
             # FloatingPanel 无条件 import 这个类（面板上「日志抓取」按钮）。百度变体靠
             # keepFiles 保留真件，腾讯变体一直没给 —— 于是 --Target tmap 连编译都过不了
             # （javac: FloatingPanel.java 找不到符号 CaptureLog，共 7 处）。这里先用空实现
             # 把构建修通；腾讯要不要像百度那样保留真件（H + CaptureLog + AmapCruise 桩），
             # 是另一个决定，不该由"能不能编译"倒逼。
-            "io/github/ldxm666/mapadkiller/CaptureLog.java",
-            "io/github/ldxm666/bmapclean/App.java",
-            "io/github/ldxm666/bmapclean/MainHook.java",
-            "io/github/ldxm666/mapclean/AmapPanel.java",
-            "io/github/ldxm666/mapclean/BaiduPanel.java",
+            "org/navkit/geoassist/CaptureLog.java",
+            "org/navkit/bgeo/App.java",
+            "org/navkit/bgeo/MainHook.java",
+            "org/navkit/core/AmapPanel.java",
+            "org/navkit/core/BaiduPanel.java",
         ),
         "required": FLOATING_REQUIRED + (
-            b"Lio/github/ldxm666/tmapclean/MainHook;",
-            b"Lio/github/ldxm666/tmapclean/TmapMapIcons;",
-            b"Lio/github/ldxm666/tmapclean/TmapHomeBanner;",
-            b"Lio/github/ldxm666/tmapclean/TmapPoi;",
-            b"Lio/github/ldxm666/tmapclean/TmapAnnotations;",
-            b"Lio/github/ldxm666/tmapclean/TmapPoiCategories;",
-            b"Lio/github/ldxm666/tmapclean/TmapPoiStyles;",
-            b"Lio/github/ldxm666/mapclean/TmapPanel;",
-            b"Lio/github/ldxm666/mapadkiller/MainHook;",
+            b"Lorg/navkit/tgeo/MainHook;",
+            b"Lorg/navkit/tgeo/TmapMapIcons;",
+            b"Lorg/navkit/tgeo/TmapHomeBanner;",
+            b"Lorg/navkit/tgeo/TmapPoi;",
+            b"Lorg/navkit/tgeo/TmapAnnotations;",
+            b"Lorg/navkit/tgeo/TmapPoiCategories;",
+            b"Lorg/navkit/tgeo/TmapPoiStyles;",
+            b"Lorg/navkit/core/TmapPanel;",
+            b"Lorg/navkit/geoassist/MainHook;",
         ),
-        "banned": vendor_classes("io.github.ldxm666.mapadkiller",
+        "banned": vendor_classes("org.navkit.geoassist",
                                  STUBBED_CLASSES + ("Perf",))
-                  + vendor_classes("io.github.ldxm666.bmapclean", STUBBED_CLASSES) + (
+                  + vendor_classes("org.navkit.bgeo", STUBBED_CLASSES) + (
             b"Lcom/autonavi/",
             b"Lcom/baidu/",
         ),
@@ -303,7 +303,7 @@ TARGETS = {
         "package": BAIDU,
         "label": "百度地图",
         "artifact": "百度地图-{version}-免root内置版.apk",
-        "slimModule": "MapAdKiller-baidu-slim-{version}.apk",
+        "slimModule": "Mapadkiller-baidu-slim-{version}.apk",
         # 百度内置版不带腾讯适配层。
         #
         # 2.3.0 之前这里只 drop mapadkiller，tmapclean 整包跟着打进百度 APK（约 15 个类），
@@ -314,62 +314,62 @@ TARGETS = {
         # 能 drop 的前提（已核实）：bmapclean 对 tmapclean 的引用数 = 0；tmapclean 对
         # bmapclean 的引用数 = 0。唯一的编译期消费者是 mapclean.App / mapclean.MainHook，
         # 它们只碰 App.attach/onBind/onDied 与 MainHook.onModuleLoaded —— 下面两个桩全覆盖。
-        "dropPackages": ("io.github.ldxm666.mapadkiller", "io.github.ldxm666.tmapclean"),
+        "dropPackages": ("org.navkit.geoassist", "org.navkit.tgeo"),
         # 这两个类与厂商无关（只依赖 android.* 与 libxposed API），但它们是**日志抓取**的全部实现：
         # H 是日志漏斗，CaptureLog 把每条日志抄进环形缓冲、在面板里落盘。整包丢掉会让百度内置版的
         # 面板里「日志抓取」按钮点了没反应（用户反馈问题拿不到日志），所以按文件保留，不用空实现顶掉。
         "keepFiles": (
-            "io/github/ldxm666/mapadkiller/H.java",
-            "io/github/ldxm666/mapadkiller/CaptureLog.java",
+            "org/navkit/geoassist/H.java",
+            "org/navkit/geoassist/CaptureLog.java",
             # H.java 是两侧共用的日志漏斗，现在它在每个 hook 包装点里调 Perf 计时。
             # 不把 Perf 一起保留，百度/腾讯变体就会 javac 报「程序包 Perf 不存在」。
             # 它只有几 KB，不引入任何依赖（只用 android.util.Log + H）。
-            "io/github/ldxm666/mapadkiller/Perf.java",
+            "org/navkit/geoassist/Perf.java",
         ),
         "stubs": SHARED_STUBS + (
-            "io/github/ldxm666/mapadkiller/Config.java",
-            "io/github/ldxm666/mapadkiller/App.java",
-            "io/github/ldxm666/mapadkiller/MainHook.java",
-                "io/github/ldxm666/mapadkiller/Baseline.java",
-                "io/github/ldxm666/mapadkiller/AmapCruise.java",
+            "org/navkit/geoassist/Config.java",
+            "org/navkit/geoassist/App.java",
+            "org/navkit/geoassist/MainHook.java",
+                "org/navkit/geoassist/Baseline.java",
+                "org/navkit/geoassist/AmapCruise.java",
             # mapadkiller 整包被裁 ⇒ HostInfo 只能用桩
-            "io/github/ldxm666/mapadkiller/HostInfo.java",
+            "org/navkit/geoassist/HostInfo.java",
             # 腾讯包被裁后，mapclean.App / mapclean.MainHook 仍然按名字找这两个类
-            "io/github/ldxm666/tmapclean/App.java",
-            "io/github/ldxm666/tmapclean/MainHook.java",
-            "io/github/ldxm666/mapclean/AmapPanel.java",
-            "io/github/ldxm666/mapclean/TmapPanel.java",
+            "org/navkit/tgeo/App.java",
+            "org/navkit/tgeo/MainHook.java",
+            "org/navkit/core/AmapPanel.java",
+            "org/navkit/core/TmapPanel.java",
         ),
         # A stub that is supposed to *forward* must actually forward. A no-op compiles and
         # passes every structural check, then leaves 百度 with no hooks at all -- the 2.1.4
         # failure mode. This is checked on the generated source, because the DEX cannot tell
         # the difference.
         "invariants": (
-            ("io/github/ldxm666/mapadkiller/MainHook.java",
-             "bmapclean.MainHook.onPackageReady"),
+            ("org/navkit/geoassist/MainHook.java",
+             "bgeo.MainHook.onPackageReady"),
         ),
         "required": FLOATING_REQUIRED + (
-            b"Lio/github/ldxm666/bmapclean/BaiduHooks;",
-            b"Lio/github/ldxm666/bmapclean/BaiduHomeReselect;",
-            b"Lio/github/ldxm666/bmapclean/BaiduPower;",
-            b"Lio/github/ldxm666/bmapclean/BaiduPoiLayer;",
-            b"Lio/github/ldxm666/bmapclean/BaiduPayment;",
+            b"Lorg/navkit/bgeo/BaiduHooks;",
+            b"Lorg/navkit/bgeo/BaiduHomeReselect;",
+            b"Lorg/navkit/bgeo/BaiduPower;",
+            b"Lorg/navkit/bgeo/BaiduPoiLayer;",
+            b"Lorg/navkit/bgeo/BaiduPayment;",
             # 百度侧唯一的配置后端。它没了 ⇒ 面板每个开关都只能退回远端通道 ⇒
             # 服务没绑上就是"只读"，这正是 2.2.8 用户报的那一条。
-            b"Lio/github/ldxm666/bmapclean/Cfg;",
-            b"Lio/github/ldxm666/mapclean/AmapPanel;",       # the generated no-op
-            b"Lio/github/ldxm666/mapclean/TmapPanel;",       # the generated no-op
-            b"Lio/github/ldxm666/mapadkiller/MainHook;",     # the forwarding target
-            b"Lio/github/ldxm666/tmapclean/App;",            # the generated no-op
-            b"Lio/github/ldxm666/tmapclean/MainHook;",       # the generated no-op
+            b"Lorg/navkit/bgeo/Cfg;",
+            b"Lorg/navkit/core/AmapPanel;",       # the generated no-op
+            b"Lorg/navkit/core/TmapPanel;",       # the generated no-op
+            b"Lorg/navkit/geoassist/MainHook;",     # the forwarding target
+            b"Lorg/navkit/tgeo/App;",            # the generated no-op
+            b"Lorg/navkit/tgeo/MainHook;",       # the generated no-op
         ),
         "banned": vendor_classes(
-            "io.github.ldxm666.mapadkiller",
+            "org.navkit.geoassist",
             # Perf 同样是“被 keepFiles 保留但整包被 drop”的情形 ——
             # 它是 H.java 的开销计时依赖，必须留。不排除就会报
             # 「slim module still contains dropped vendor code: L.../Perf;」。
             STUBBED_CLASSES + ("H", "AmapCruise", "Perf"),   # CaptureLog 已在 STUBBED_CLASSES；H/AmapCruise/Perf 由 keepFiles 或空实现提供
-        ) + vendor_classes("io.github.ldxm666.tmapclean", STUBBED_CLASSES) + (
+        ) + vendor_classes("org.navkit.tgeo", STUBBED_CLASSES) + (
             b"Lcom/autonavi/",
         ),
     },
@@ -444,7 +444,7 @@ def pinned_download(directory: Path, name: str, expected: str, url: str) -> Path
     if not dest.exists():
         tmp = dest.with_suffix(dest.suffix + ".download")
         try:
-            request = urllib.request.Request(url, headers={"User-Agent": "MapAdKiller-variant"})
+            request = urllib.request.Request(url, headers={"User-Agent": "Mapadkiller-variant"})
             with urllib.request.urlopen(request, timeout=180) as r, tmp.open("wb") as out:
                 shutil.copyfileobj(r, out)
             if sha256(tmp) != expected:
@@ -467,7 +467,7 @@ def copy_slim_sources(dest: Path, target: dict) -> dict:
     signature checks disagree.
     """
     shutil.copytree(APP, dest, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("build", "dist"))
+                    ignore=shutil.ignore_patterns("build", "dist", "debug.keystore"))
 
     src = dest / "src"
     removed, stubbed = [], []
@@ -497,8 +497,8 @@ def copy_slim_sources(dest: Path, target: dict) -> dict:
                 back.write_bytes(data)
 
     # 2) drop named files in the two kept packages
-    for folder, names in (("io/github/ldxm666/mapadkiller", DROP_AMAP_FILES),
-                          ("io/github/ldxm666/mapclean", DROP_MAPCLEAN_FILES)):
+    for folder, names in (("org/navkit/geoassist", DROP_AMAP_FILES),
+                          ("org/navkit/core", DROP_MAPCLEAN_FILES)):
         for name in sorted(names):
             f = find_source(src / folder, name)
             if f is not None:
@@ -537,7 +537,7 @@ def copy_slim_sources(dest: Path, target: dict) -> dict:
 def rewrite_scope(dest: Path, target: dict) -> None:
     """A slim variant only ever runs inside its own map, so narrow the declared scope."""
     scope = dest / "META-INF" / "xposed" / "scope.list"
-    scope.write_text(target["package"] + "\n", encoding="utf-8")
+    scope.write_bytes((target["package"] + "\n").encode("utf-8"))
 
 
 def rewrite_native_init(dest: Path) -> None:
@@ -545,7 +545,7 @@ def rewrite_native_init(dest: Path) -> None:
     Keep the native init list pointing at the label library.
 
     The framework calls each listed library's {@code native_init(entries)} at module load,
-    which is where libmapclean_labels.so binds the framework's hook function. Without that
+    which is where libnavkit_style.so binds the framework's hook function. Without that
     pointer, its {@code configure()} JNI call reports {@code accepted=0} and the AMap style
     filter never installs -- so 地图标注 would silently do nothing.
 
@@ -555,7 +555,7 @@ def rewrite_native_init(dest: Path) -> None:
     """
     path = dest / "META-INF" / "xposed" / "native_init.list"
     if path.exists():
-        path.write_text("libmapclean_labels.so\n", encoding="utf-8")
+        path.write_bytes(b"libnavkit_style.so\n")
 
 
 def pack_native_libraries(apk: Path, libs: Path) -> list:
@@ -565,8 +565,8 @@ def pack_native_libraries(apk: Path, libs: Path) -> list:
     after signing.
 
     Why generic instead of by name: this used to copy exactly one file,
-    ``libmapclean_labels.so``. Adding a second native feature (the 高德 building patch,
-    ``libamapbldpatch.so``) would then have shipped an APK without it -- the module would
+    ``libnavkit_style.so``. Adding a second native feature (the 高德 building patch,
+    ``libnavkit_geom.so``) would then have shipped an APK without it -- the module would
     report itself installed, the Java gate would log "switch on", and nothing would happen.
     That is the same class of bug that made 地图标注 dead in an earlier release, and it is
     invisible from the UI.
@@ -591,7 +591,7 @@ def pack_native_libraries(apk: Path, libs: Path) -> list:
     # Fail fast rather than shipping an APK with no native code. The label library drives
     # 高德 地图标注 and the building patch is the only working implementation of 去楼块;
     # both are arm64-v8a on this device class.
-    for required in ("libmapclean_labels.so", "libamapbldpatch.so"):
+    for required in ("libnavkit_style.so", "libnavkit_geom.so"):
         entry = f"lib/arm64-v8a/{required}"
         if entry not in written:
             raise ValueError(f"native library not packed: {entry} (looked in {libs / 'arm64-v8a'})")
@@ -680,7 +680,7 @@ def rewrite_manifest(dest: Path, version_name: str, version_code: int, target: d
     text = re.sub(r'android:versionCode="\d+"', f'android:versionCode="{version_code}"', text)
     text = re.sub(r'android:versionName="[^"]*"', f'android:versionName="{version_name}"', text)
     # label 按 target 走。以前写死「高德增强」，百度变体的内嵌模块也跟着叫高德增强。
-    text = text.replace('android:label="MapAdKiller"',
+    text = text.replace('android:label="Mapadkiller"',
                         f'android:label="{target["label"]}增强"')
 
     # 桌面入口 / QS 磁贴 / 三个回报 receiver：内置版里没有独立的模块 App 进程，
@@ -689,10 +689,10 @@ def rewrite_manifest(dest: Path, version_name: str, version_code: int, target: d
     # 而 baidu 变体里 CaptureReportReceiver 的类根本不在 dex 里（mapadkiller 整包被裁）。
     drops = (
         ("activity-alias", ".DesktopAlias"),
-        ("service", "io.github.ldxm666.mapadkiller.SettingsTile"),
-        ("receiver", "io.github.ldxm666.mapadkiller.CaptureReportReceiver"),
-        ("receiver", "io.github.ldxm666.bmapclean.ReportReceiver"),
-        ("receiver", "io.github.ldxm666.tmapclean.ReportReceiver"),
+        ("service", "org.navkit.geoassist.SettingsTile"),
+        ("receiver", "org.navkit.geoassist.CaptureReportReceiver"),
+        ("receiver", "org.navkit.bgeo.ReportReceiver"),
+        ("receiver", "org.navkit.tgeo.ReportReceiver"),
     )
     for tag, name in drops:
         text, ok = drop_component(text, tag, name)
@@ -704,7 +704,7 @@ def rewrite_manifest(dest: Path, version_name: str, version_code: int, target: d
     # ---- 断言：只删上面那五样，别的一律不许动 ------------------------------
     if "sharedUserId" in text:
         raise ValueError("slim manifest must not declare sharedUserId")
-    if 'android:name="io.github.ldxm666.mapclean.App"' not in text:
+    if 'android:name="org.navkit.core.App"' not in text:
         raise ValueError("slim manifest lost the module Application class")
     if 'android:name="io.github.libxposed.service.XposedProvider"' not in text:
         raise ValueError("slim manifest lost the libxposed service provider")
@@ -727,12 +727,31 @@ def rewrite_module_prop(dest: Path, version_name: str, version_code: int, target
             line = (f"description={target['label']}去广告与界面精简（免 root 内置版）："
                     "悬浮球入口，无 root 直接使用。")
         lines.append(line)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
 
 
 # ------------------------------------------------------------------ build slim
 
-def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_tools: Path) -> dict:
+def resolve_ks_secret(env_name: str) -> str:
+    val = os.environ.get(env_name, "")
+    if val:
+        return val
+    env_file = ROOT / ".keys" / "local.env"
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                k = k.strip()
+                if k and k not in os.environ:
+                    os.environ[k] = v.strip()
+        val = os.environ.get(env_name, "")
+    if not val:
+        raise ValueError(f"missing keystore password env var: {env_name}")
+    return val
+
+
+def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_tools: Path,
+                      module_keystore: Path, module_password_env: str) -> dict:
     """Compile the slimmed sources into a module APK with the same pipeline as app/build.ps1."""
     aj = sdk / "platforms" / "android-34" / "android.jar"
     if not aj.exists():
@@ -825,7 +844,7 @@ def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_to
     # Native libraries must live at lib/<abi>/ inside the APK.
     #
     # This used to be `jar -C libs <abi>`, which stores the directory itself and lands the
-    # file at <abi>/libmapclean_labels.so -- the archive root, not the ABI directory.
+    # file at <abi>/libnavkit_style.so -- the archive root, not the ABI directory.
     # Android only ever looks under lib/<abi>/, so the library was invisible to both
     # System.loadLibrary and the framework's native_init loader. That is why the 地图标注
     # switch could never arm its native style filter, in any build.
@@ -835,7 +854,7 @@ def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_to
     #
     # v2.4.0: every app/libs/<abi>/*.so is packed, not just the label library by name.
     # The rule used to be one hard-coded filename, so a second native feature (the 高德
-    # building patch, libamapbldpatch.so) would have been silently left out of the APK --
+    # building patch, libnavkit_geom.so) would have been silently left out of the APK --
     # the module would look installed and do nothing, which is the exact failure this
     # project already ate once with the label library.
     packed_native = pack_native_libraries(build / "out" / "module.apk", libs)
@@ -844,11 +863,12 @@ def build_slim_module(slim: Path, out_apk: Path, java: Path, sdk: Path, build_to
     run([tool(bt, "zipalign"), "-P", "16", "-f", "4",
          build / "out" / "module.apk", build / "out" / "module-aligned.apk"])
     run([tool(bt, "zipalign"), "-c", "-P", "16", "4", build / "out" / "module-aligned.apk"])
-    ks = slim / "debug.keystore"
+    ks = module_keystore.resolve()
     if not ks.exists():
-        raise ValueError(f"keystore missing: {ks}")
-    run([tool(bt, "apksigner"), "sign", "--ks", ks, "--ks-pass", "pass:android",
-         "--key-pass", "pass:android", "--v1-signing-enabled", "true",
+        raise ValueError(f"module keystore missing: {ks}")
+    resolve_ks_secret(module_password_env)
+    run([tool(bt, "apksigner"), "sign", "--ks", ks, "--ks-pass", f"env:{module_password_env}",
+         "--key-pass", f"env:{module_password_env}", "--v1-signing-enabled", "true",
          "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
          "--out", out_apk, build / "out" / "module-aligned.apk"])
     run([tool(bt, "apksigner"), "verify", "--print-certs", out_apk])
@@ -929,7 +949,12 @@ def main() -> int:
     ap.add_argument("--KeepWork", action="store_true")
     ap.add_argument("--CompatibilityKeystore", type=Path,
                     help="optional same-certificate keystore for standard-ZIP/v1+v2+v3 base APK packaging")
-    ap.add_argument("--CompatibilityPasswordEnv", default="MAPCLEAN_HOST_KEYSTORE_PASSWORD")
+    ap.add_argument("--CompatibilityPasswordEnv", default="NAVKIT_HOST_KS_PASS")
+    ap.add_argument("--ModuleKeystore", type=Path, default=ROOT / ".keys" / "module-release.jks")
+    ap.add_argument("--ModulePasswordEnv", default="NAVKIT_MOD_KS_PASS")
+    ap.add_argument("--HostKeystore", type=Path, default=ROOT / ".keys" / "host-embed.jks")
+    ap.add_argument("--HostKeyAlias", default="navkit_host")
+    ap.add_argument("--HostPasswordEnv", default="NAVKIT_HOST_KS_PASS")
     args = ap.parse_args()
 
     global JAVA_JAVAC, JAVA_JAR
@@ -939,7 +964,7 @@ def main() -> int:
         args.Jar = Path(shutil.which("jar") or "jar")
     JAVA_JAVAC, JAVA_JAR = str(args.Javac), str(args.Jar)
 
-    version_src = APP / "src/io/github/ldxm666/mapclean"
+    version_src = APP / "src/org/navkit/core"
     version_path = next(
         (p for p in (version_src / "Version.kt", version_src / "Version.java") if p.exists()),
         version_src / "Version.kt",
@@ -968,7 +993,7 @@ def main() -> int:
               f"({total:,} B all inputs, bundle install)")
     print(f"build-tools: {build_tools.name}\n")
 
-    work = Path(tempfile.mkdtemp(prefix="mak-variant-", dir=out if args.KeepWork else None))
+    work = Path(tempfile.mkdtemp(prefix="nk-variant-", dir=out if args.KeepWork else None))
     try:
         slim = work / "app"
         print("== 1/4 slim sources ==")
@@ -986,7 +1011,8 @@ def main() -> int:
 
         print("\n== 2/4 build slim module ==")
         slim_apk = work / target["slimModule"].format(version=version_name)
-        info = build_slim_module(slim, slim_apk, args.Java, sdk, build_tools)
+        info = build_slim_module(slim, slim_apk, args.Java, sdk, build_tools,
+                                 args.ModuleKeystore, args.ModulePasswordEnv)
         print(f"  {info['file']}  {info['bytes']:,} B  dex {info['dexBytes']:,} B")
         print(f"  sha256 {info['sha256']}")
 
@@ -1018,8 +1044,20 @@ def main() -> int:
         # per entry and emit a 367 MB APK. The library is therefore delivered from inside the
         # nested module APK and handed to the framework at runtime instead; see
         # NativeLabelAssets.askFramework() for the other half of that mechanism.
-        print(run([args.Java, "-Xmx2g", "-jar", cli, "-o", patch_dir,
-                   "-l", str(args.SignatureBypass), "-m", slim_apk] + original_list).strip())
+        host_ks = args.HostKeystore.resolve()
+        if not host_ks.is_file():
+            raise ValueError(f"host keystore missing: {host_ks}")
+        host_pass = resolve_ks_secret(args.HostPasswordEnv)
+        lspatch_proc = subprocess.run(
+            [str(args.Java), "-Xmx2g", "-jar", str(cli), "-o", str(patch_dir),
+             "-l", str(args.SignatureBypass),
+             "-k", str(host_ks), host_pass, args.HostKeyAlias, host_pass,
+             "-m", str(slim_apk)] + [str(p) for p in original_list],
+            capture_output=True, encoding="utf-8", errors="replace",
+        )
+        if lspatch_proc.returncode:
+            raise RuntimeError(f"lspatch failed (exit {lspatch_proc.returncode})")
+        print((lspatch_proc.stdout or "").strip())
         produced = list(patch_dir.glob("*.apk"))
         if len(produced) != len(original_list):
             raise ValueError(f"LSPatch produced {len(produced)} APKs, "
@@ -1238,6 +1276,11 @@ def verify(apk: Path, original: Path, module: Path, bypass: int,
     xml = run([tool(build_tools, "aapt2"), "dump", "xmltree", "--file", "AndroidManifest.xml", apk])
     if "org.lsposed.lspatch.metaloader.LSPAppComponentFactoryStub" not in xml:
         raise ValueError("LSPatch bootstrap factory missing")
+    cert_text = run([tool(build_tools, "apksigner"), "verify", "--print-certs", apk])
+    if "xiawanli" in cert_text.lower():
+        raise ValueError("embedded APK still signed with old fingerprinted xiawanli key")
+    if "CN=GeoRoute Runtime" not in cert_text:
+        raise ValueError("embedded APK not signed with neutral GeoRoute Runtime keystore")
     with zipfile.ZipFile(apk) as z:
         cfg = json.loads(z.read(CONFIG_ENTRY))
         if cfg.get("useManager") is not False:

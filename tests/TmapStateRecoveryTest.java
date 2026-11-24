@@ -1,4 +1,4 @@
-package io.github.ldxm666.tmapclean;
+package org.navkit.tgeo;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -147,8 +147,8 @@ public final class TmapStateRecoveryTest {
             @Override public String getPackageName(){return MainHook.PKG_TMAP;}
             @Override public ClassLoader getClassLoader(){return trustedLoader;}
         };
-        io.github.ldxm666.mapclean.HostPrefs.remember(trusted);
-        check(io.github.ldxm666.mapclean.HostPrefs.hostContext()==trusted,"test uses explicit authoritative host Context");
+        org.navkit.core.HostPrefs.remember(trusted);
+        check(org.navkit.core.HostPrefs.hostContext()==trusted,"test uses explicit authoritative host Context");
         MainHook.onPackageReady(new io.github.libxposed.api.XposedModule(){},ready);
         check(loaderReads[0]==0,"dispatcher never hooks PackageReady's pre-Tinker loader");
         check(trustedLoaderReads[0]>0,"dispatcher validates the host's own loader instead");

@@ -1,4 +1,4 @@
-package io.github.ldxm666.mapclean.tests;
+package org.navkit.core.tests;
 import android.app.*;import android.os.*;import android.content.*;import android.accessibilityservice.AccessibilityServiceInfo;import android.view.accessibility.*;import android.graphics.Rect;
 public class HostTreeProbe extends Instrumentation{
  String component;
